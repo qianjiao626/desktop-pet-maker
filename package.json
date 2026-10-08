@@ -22,10 +22,10 @@
     "package:win": "node scripts/pack.mjs win32 x64",
     "test:e2e:download-robust": "node scripts/e2e-download-robust.mjs",
     "test:e2e:package": "node scripts/e2e-package.mjs",
-    "test:e2e:pet-anim": "node scripts/e2e-pet-anim.mjs",
-    "test:e2e:pet-multi": "node scripts/e2e-pet-multi.mjs",
-    "test:e2e:pet-budget": "node scripts/e2e-pet-budget.mjs",
-    "test:e2e:quick": "node scripts/e2e-quick.mjs"
+    "test:e2e:pet-anim": "electron scripts/e2e-pet-anim.mjs",
+    "test:e2e:pet-multi": "electron scripts/e2e-pet-multi.mjs",
+    "test:e2e:pet-budget": "electron scripts/e2e-pet-budget.mjs",
+    "test:e2e:quick": "electron scripts/e2e-quick.mjs"
   },
   "keywords": [
     "desktop-pet",
