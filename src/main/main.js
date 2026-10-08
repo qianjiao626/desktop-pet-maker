@@ -324,6 +324,8 @@ ipcMain.handle('pet:uninstall', (e, id) => {
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
 
+// 版本号唯一来源是 package.json；UI 不再硬编码（否则会像 v0.2 vs 0.8.0 那样脱节）
+ipcMain.handle('app:version', () => app.getVersion());
 ipcMain.handle('app:openDataDir', () => { shell.openPath(petsDir()); return { ok: true, path: petsDir() }; });
 
 // ---------- AI 抠图 ----------

@@ -823,4 +823,11 @@ syncLabels();
 updateButtons();
 setStatus('就绪');
 refreshAiModels();
+// 版本号来自 package.json（app.getVersion()），UI 不硬编码
+if (window.api.appVersion) {
+  window.api.appVersion().then((v) => {
+    const el = document.getElementById('appVer');
+    if (el && v) el.textContent = 'v' + v;
+  }).catch(() => {});
+}
 console.log('MAKER_READY imageops=' + typeof floodCut + ' gif=' + typeof decodeGif);
