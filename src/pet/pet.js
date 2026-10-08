@@ -113,10 +113,6 @@ function computeSizes() {
   canvas.style.height = canvasCssH + "px";
 }
 
-function resizeWindowAnimated() {
-  api.setSizeAnimated(W, H);
-}
-
 function buildAlphaMaps() {
   alphaMaps = images.map((im, i) => {
     const w = Math.max(1, Math.round(frameDraw[i].w));
@@ -128,8 +124,21 @@ function buildAlphaMaps() {
     cx.drawImage(im, 0, 0, w, h);
     const d = cx.getImageData(0, 0, w, h).data;
     const m = new Uint8Array(w * h);
-    for (let p = 0, k = 3; k < d.length; p++, k += 4) m[p] = d[k];
-    return { data: m, w, h };
+    // 同时求「实际不透明像素」的边界：合成/未裁边的素材四周有透明留白，
+    // 若用帧包围盒定位特效，手会浮在主体上方（实测约 13px）。
+    let bx0 = w, by0 = h, bx1 = -1, by1 = -1;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const p = y * w + x;
+      m[p] = d[p * 4 + 3];
+      if (d[p * 4 + 3] > 16) {
+        if (x < bx0) bx0 = x; if (x > bx1) bx1 = x;
+        if (y < by0) by0 = y; if (y > by1) by1 = y;
+      }
+    }
+    const content = (!m.length || bx1 < 0)
+      ? { x0: 0, y0: 0, x1: 1, y1: 1 }
+      : { x0: bx0 / w, y0: by0 / h, x1: (bx1 + 1) / w, y1: (by1 + 1) / h };
+    return { data: m, w, h, content };
   });
   alphaW = alphaMaps[0] ? alphaMaps[0].w : 0;
   alphaH = alphaMaps[0] ? alphaMaps[0].h : 0;
@@ -156,7 +165,7 @@ const IDLE_TRANSFORM = { scaleX: 1, scaleY: 1, rot: 0, dx: 0, dy: 0 };
 function computeTransform(now) {
   const t = now / 1000;
   const a = pack.animation;
-  const speed = a.idleSpeed;
+  const speed = Number.isFinite(a.idleSpeed) && a.idleSpeed > 0 ? a.idleSpeed : 1;
   const o = { scaleX: 1, scaleY: 1, rot: 0, dx: 0, dy: 0 };
 
   const playing = images.length > 1 && (a.idle === 'play' || a.idle === 'once');
@@ -228,7 +237,33 @@ function advanceFrame(dtMs) {
 }
 
 // ---------------- 交互特效：手 / 拳头 ----------------
-/** 画一只从上伸下来的手（摸头） */
+/** 手掌尺寸：按宠物宽度自适应并限幅（drawHand 与气泡避让共用同一套数值） */
+function handPalmSize(w) {
+  const palmW = Math.max(32, Math.min(96, (w || 0) * 0.46));
+  return { palmW, palmH: palmW * 0.95 };
+}
+
+/** 圆头指节路径（指根为平口，指尖为圆头） */
+function fingerPath(c, x, y, w, h) {
+  const r = w * 0.5;
+  c.beginPath();
+  c.moveTo(x - w / 2, y);
+  c.lineTo(x - w / 2, y + h - r);
+  c.quadraticCurveTo(x - w / 2, y + h, x, y + h);
+  c.quadraticCurveTo(x + w / 2, y + h, x + w / 2, y + h - r);
+  c.lineTo(x + w / 2, y);
+  c.closePath();
+}
+
+// 卡通写实皮肤配色（统一一套，手与拳共用）
+const SKIN_HI = "#ffe8d1";
+const SKIN = "#f6c49b";
+const SKIN_MID = "#e8b183";
+const SKIN_DK = "#d99f70";
+const SKIN_LINE = "rgba(164,102,64,.55)";
+const SKIN_CREASE = "rgba(164,102,64,.30)";
+
+/** 画一只从上伸下来的手（摸头）：俯视手背，手指向下自然搭在头顶 */
 function drawHand(now, petRect) {
   if (!handStartAt) return;
   const prog = (now - handStartAt) / HAND_DURATION;
@@ -236,76 +271,182 @@ function drawHand(now, petRect) {
   const st = handState(prog);
   if (!st.visible) return;
 
-  const cx = petRect.cx;
-  const topY = petRect.top;
-  const H0 = petRect.h;
-  // 掌宽按宠物宽度自适应，但限制在合理范围
-  const palmW = Math.max(26, Math.min(84, petRect.w * 0.42));
-  const palmH = palmW * 0.82;
-  // st.y: 0 表示掌心贴头顶；负值表示在上方（按身高比例换算）
-  // st.y=0 时掌心下沿正好贴在头顶（不做额外偏移，才有真实接触感）
-  const palmBottom = topY + st.y * H0 + 2;
+  const palmW = handPalmSize(petRect.w).palmW;   // 手的整体宽度
+  const FL = palmW * 0.64;                       // 手指长度（≈掌高，接近真实比例）
+  const palmWid = palmW;                         // 手掌宽
+  const palmHt = palmW * 0.56;                   // 手掌高：明显宽大于高
+  // 原点 y=0 定在「指尖落点」：st.y=0 时指尖正好触到头顶
+  const tipYCanvas = petRect.top + st.y * petRect.h + 3;
 
   ctx.save();
   ctx.globalAlpha = st.alpha;
-  ctx.translate(cx, palmBottom);
+  ctx.translate(petRect.cx, tipYCanvas);
   ctx.scale(st.scale, st.scale);
 
-  // 手腕（只画一小截，避免从屏幕顶端垂下的怪异观感）
-  const armW = palmW * 0.58;
-  const armLen = palmH * 0.95;
-  const gArm = ctx.createLinearGradient(0, -armLen, 0, 0);
-  gArm.addColorStop(0, "rgba(255,217,184,0)");   // 顶端渐隐，像从画外伸入
-  gArm.addColorStop(0.45, "#ffd9b8");
-  gArm.addColorStop(1, "#f7c49a");
-  ctx.fillStyle = gArm;
-  ctx.fillRect(-armW / 2, -armLen, armW, armLen + 2);
+  const palmBot = -FL;                 // 掌下沿（指根线）
+  const palmTop = palmBot - palmHt;    // 掌上沿
 
-  // 手掌
-  ctx.beginPath();
-  const rr = palmH * 0.42;
-  ctx.moveTo(-palmW / 2 + rr, -palmH);
-  ctx.lineTo(palmW / 2 - rr, -palmH);
-  ctx.quadraticCurveTo(palmW / 2, -palmH, palmW / 2, -palmH + rr);
-  ctx.lineTo(palmW / 2, -rr);
-  ctx.quadraticCurveTo(palmW / 2, 0, palmW / 2 - rr, 0);
-  ctx.lineTo(-palmW / 2 + rr, 0);
-  ctx.quadraticCurveTo(-palmW / 2, 0, -palmW / 2, -rr);
-  ctx.lineTo(-palmW / 2, -palmH + rr);
-  ctx.quadraticCurveTo(-palmW / 2, -palmH, -palmW / 2 + rr, -palmH);
-  ctx.closePath();
-  const gP = ctx.createLinearGradient(0, -palmH, 0, 0);
-  gP.addColorStop(0, "#ffe4c9");
-  gP.addColorStop(1, "#f8c79c");
-  ctx.fillStyle = gP;
-  ctx.fill();
-  ctx.strokeStyle = "rgba(190,130,90,.55)";
-  ctx.lineWidth = 1.4;
-  ctx.stroke();
-
-  // 四指分缝
-  ctx.strokeStyle = "rgba(190,130,90,.4)";
-  ctx.lineWidth = 1.2;
-  for (let i = 1; i <= 3; i++) {
-    const fx = -palmW / 2 + (palmW / 4) * i;
+  // ---- 落在头顶的接触阴影：按压时最明显，制造"分量感" ----
+  if (st.press > 0.03) {
+    ctx.save();
+    ctx.globalAlpha = st.alpha * st.press * 0.20;
+    const gsh = ctx.createRadialGradient(0, -palmW * 0.04, 1, 0, -palmW * 0.04, palmWid * 0.60);
+    gsh.addColorStop(0, "rgba(70,36,12,.40)");
+    gsh.addColorStop(0.6, "rgba(70,36,12,.14)");
+    gsh.addColorStop(1, "rgba(70,36,12,0)");
+    ctx.fillStyle = gsh;
     ctx.beginPath();
-    ctx.moveTo(fx, -palmH * 0.72);
-    ctx.lineTo(fx, -palmH * 0.16);
+    ctx.ellipse(0, -palmW * 0.04, palmWid * 0.60, palmW * 0.15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // ---- 前臂：自手掌上沿向上延伸，顶端贴到画布时渐隐（像从画面外伸入）----
+  const armW = palmWid * 0.66;
+  const armBot = palmTop + palmHt * 0.06;
+  const armTop = Math.max(palmTop - palmW * 2.0, -tipYCanvas + 8);
+  const gArm = ctx.createLinearGradient(0, armTop, 0, armBot);
+  gArm.addColorStop(0, "rgba(246,196,155,0)");
+  gArm.addColorStop(0.34, "rgba(246,196,155,.22)");
+  gArm.addColorStop(0.70, "rgba(246,196,155,.72)");
+  gArm.addColorStop(1, SKIN);
+  ctx.fillStyle = gArm;
+  ctx.beginPath();
+  ctx.moveTo(-armW * 0.46, armTop);
+  ctx.quadraticCurveTo(-armW * 0.56, armBot - (armBot - armTop) * 0.35, -armW * 0.5, armBot);
+  ctx.lineTo(armW * 0.5, armBot);
+  ctx.quadraticCurveTo(armW * 0.56, armBot - (armBot - armTop) * 0.35, armW * 0.46, armTop);
+  ctx.closePath();
+  ctx.fill();
+  // 手腕褶皱
+  ctx.strokeStyle = SKIN_CREASE;
+  ctx.lineWidth = 1.1;
+  for (const i of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(i * armW * 0.16, armBot - palmHt * 0.30);
+    ctx.quadraticCurveTo(i * armW * 0.30, armBot - palmHt * 0.24, i * armW * 0.40, armBot - palmHt * 0.34);
     ctx.stroke();
   }
 
-  // 按压力度：掌心高光
-  if (st.press > 0.05) {
-    ctx.globalAlpha = st.alpha * st.press * 0.5;
-    ctx.fillStyle = "#fff";
-    ctx.beginPath();
-    ctx.ellipse(0, -palmH * 0.32, palmW * 0.3, palmH * 0.22, 0, 0, Math.PI * 2);
+  // ---- 四指：中指最长，食指/无名指/小指依次略短 ----
+  const fingerW = palmWid * 0.214;
+  const gap = palmWid * 0.238;
+  const lensK = [0.90, 0.985, 1.0, 0.905];
+  for (let i = 0; i < 4; i++) {
+    const fx = -gap * 1.5 + i * gap;
+    const fLen = FL * lensK[i];
+    const tip = -FL + fLen;
+
+    fingerPath(ctx, fx, palmBot, fingerW, fLen);
+    const gF = ctx.createLinearGradient(fx - fingerW * 0.5, 0, fx + fingerW * 0.5, 0);
+    gF.addColorStop(0, SKIN_MID);
+    gF.addColorStop(0.42, SKIN);
+    gF.addColorStop(1, SKIN_HI);
+    ctx.fillStyle = gF;
     ctx.fill();
+    ctx.strokeStyle = SKIN_LINE;
+    ctx.lineWidth = 1.1;
+    ctx.stroke();
+
+    // 两处指节横纹
+    ctx.strokeStyle = SKIN_CREASE;
+    ctx.lineWidth = 1;
+    for (const k of [0.40, 0.70]) {
+      const yy = palmBot + fLen * k;
+      const hw = fingerW * (0.46 - k * 0.10);
+      ctx.beginPath();
+      ctx.moveTo(fx - hw, yy);
+      ctx.quadraticCurveTo(fx, yy + fingerW * 0.12, fx + hw, yy);
+      ctx.stroke();
+    }
+    // 指甲
+    ctx.beginPath();
+    ctx.ellipse(fx, tip + fingerW * 0.40, fingerW * 0.30, fingerW * 0.40, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,228,222,.92)";
+    ctx.fill();
+    ctx.strokeStyle = "rgba(186,126,96,.35)";
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
   }
+
+  // ---- 拇指：自左侧掌缘斜向外下方垂开（先画，掌缘会盖住其根部）----
+  ctx.save();
+  ctx.translate(-palmWid * 0.38, palmTop + palmHt * 0.78);
+  ctx.rotate(0.78);                                  // 朝画面左下外方，掌缘盖住根部
+  const thW = palmWid * 0.196, thLen = palmWid * 0.40;
+  fingerPath(ctx, 0, 0, thW, thLen);
+  const gT = ctx.createLinearGradient(-thW * 0.5, 0, thW * 0.5, 0);
+  gT.addColorStop(0, SKIN_HI);
+  gT.addColorStop(1, SKIN_MID);
+  ctx.fillStyle = gT;
+  ctx.fill();
+  ctx.strokeStyle = SKIN_LINE;
+  ctx.lineWidth = 1.1;
+  ctx.stroke();
+  ctx.strokeStyle = SKIN_CREASE;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(-thW * 0.34, thLen * 0.42);
+  ctx.quadraticCurveTo(0, thLen * 0.48, thW * 0.34, thLen * 0.42);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.ellipse(0, thLen * 0.74, thW * 0.30, thW * 0.38, 0, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(255,228,222,.92)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(186,126,96,.35)";
+  ctx.lineWidth = 0.9;
+  ctx.stroke();
+  ctx.restore();
+
+  // ---- 手掌：宽扁圆角矩形，盖住指根与拇指根部 ----
+  const rr2 = palmHt * 0.34;
+  ctx.beginPath();
+  ctx.moveTo(-palmWid / 2 + rr2, palmTop);
+  ctx.lineTo(palmWid / 2 - rr2, palmTop);
+  ctx.quadraticCurveTo(palmWid / 2, palmTop, palmWid / 2, palmTop + rr2);
+  ctx.lineTo(palmWid / 2, palmBot - rr2);
+  ctx.quadraticCurveTo(palmWid / 2, palmBot, palmWid / 2 - rr2, palmBot);
+  ctx.lineTo(-palmWid / 2 + rr2, palmBot);
+  ctx.quadraticCurveTo(-palmWid / 2, palmBot, -palmWid / 2, palmBot - rr2);
+  ctx.lineTo(-palmWid / 2, palmTop + rr2);
+  ctx.quadraticCurveTo(-palmWid / 2, palmTop, -palmWid / 2 + rr2, palmTop);
+  ctx.closePath();
+  const gPalm = ctx.createLinearGradient(-palmWid * 0.45, palmTop, palmWid * 0.42, palmBot);
+  gPalm.addColorStop(0, SKIN_HI);
+  gPalm.addColorStop(0.52, SKIN);
+  gPalm.addColorStop(1, SKIN_MID);
+  ctx.fillStyle = gPalm;
+  ctx.fill();
+  ctx.strokeStyle = SKIN_LINE;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // 掌背指根分缝
+  ctx.strokeStyle = SKIN_CREASE;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 3; i++) {
+    const kx = -gap * 1.5 + (i + 0.5) * gap;
+    ctx.beginPath();
+    ctx.moveTo(kx, palmBot - palmHt * 0.10);
+    ctx.lineTo(kx, palmBot + palmHt * 0.04);
+    ctx.stroke();
+  }
+
+  // ---- 手背高光 + 尺侧暗部 ----
+  ctx.globalAlpha = st.alpha * (0.20 + 0.22 * st.press);
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.ellipse(-palmWid * 0.16, palmTop + palmHt * 0.34, palmWid * 0.24, palmHt * 0.26, -0.25, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.globalAlpha = st.alpha * 0.16;
+  ctx.fillStyle = SKIN_DK;
+  ctx.beginPath();
+  ctx.ellipse(palmWid * 0.40, palmTop + palmHt * 0.52, palmWid * 0.11, palmHt * 0.40, 0.12, 0, Math.PI * 2);
+  ctx.fill();
   ctx.restore();
 }
 
-/** 画一个从侧面飞来的拳头（挨拳击） */
+/** 画一个从侧面飞来的拳头（裸拳）：冲刺 -> 落拳接触 -> 弹回 */
 function drawFist(now, petRect) {
   if (!fistStartAt) return;
   const prog = (now - fistStartAt) / FIST_DURATION;
@@ -313,10 +454,15 @@ function drawFist(now, petRect) {
   const st = fistState(prog, fistDir);
   if (!st.visible) return;
 
-  const H0 = petRect.h;
-  const size = Math.max(26, Math.min(64, H0 * 0.20));   // 收小，避免压住整个宠物
-  const cx = petRect.cx + st.x * petRect.w - fistDir * petRect.w * 0.18;
-  const cy = petRect.top + H0 * 0.42 + st.y * H0;
+  const size = Math.max(28, Math.min(74, petRect.h * 0.24));
+  const f = -fistDir;                              // 拳峰（击打面）朝向
+  // 「落拳」：接触点落在宠物身体「近侧边缘」上（fistDir=1 从右来 -> 打右缘），
+  // 而不是身体正中，这样拳头是"打到身上"而非"穿过身体"。
+  const contactX = petRect.cx + fistDir * (petRect.w * 0.5 - size * 0.42);
+  const contactY = petRect.top + petRect.h * 0.46;
+  const travel = petRect.w * 0.9 + size;           // st.x 的归一化行程
+  const cx = contactX + st.x * travel;
+  const cy = contactY + st.y * petRect.h;
 
   ctx.save();
   ctx.globalAlpha = st.alpha;
@@ -324,48 +470,83 @@ function drawFist(now, petRect) {
   ctx.rotate((st.rot * Math.PI) / 180);
   ctx.scale(st.scale, st.scale);
 
-  // 冲击线（撞击瞬间）
+  // ---- 冲击特效：接触瞬间的星芒 + 冲击线 ----
   if (st.impact > 0.05) {
     ctx.save();
-    ctx.globalAlpha = st.alpha * st.impact * 0.85;
+    ctx.globalAlpha = st.alpha * st.impact;
+    // 冲击线
     ctx.strokeStyle = "#ffd45e";
     ctx.lineWidth = 3;
-    const d = -fistDir;
+    ctx.lineCap = "round";
     for (let i = -1; i <= 1; i++) {
       ctx.beginPath();
-      ctx.moveTo(d * size * 0.55, i * size * 0.22);
-      ctx.lineTo(d * size * (0.95 + Math.abs(i) * 0.12), i * size * 0.38);
+      ctx.moveTo(f * size * 0.48, i * size * 0.24);
+      ctx.lineTo(f * size * (0.95 + Math.abs(i) * 0.14), i * size * 0.42);
       ctx.stroke();
     }
+    // 接触星芒
+    ctx.globalAlpha = st.alpha * st.impact * 0.9;
+    ctx.fillStyle = "#fff4c2";
+    ctx.beginPath();
+    const spikes = 8, R = size * 0.5, r2 = size * 0.17;
+    for (let i = 0; i < spikes * 2; i++) {
+      const ang = (Math.PI / spikes) * i;
+      const rad = i % 2 === 0 ? R : r2;
+      const px2 = f * size * 0.44 + Math.cos(ang) * rad;
+      const py2 = Math.sin(ang) * rad;
+      if (i === 0) ctx.moveTo(px2, py2); else ctx.lineTo(px2, py2);
+    }
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   }
 
-  // 拳套主体
-  const g = ctx.createLinearGradient(0, -size / 2, 0, size / 2);
-  g.addColorStop(0, "#ff8787");
-  g.addColorStop(1, "#d93b3b");
-  ctx.fillStyle = g;
+  // ---- 拳主体（手背 + 蜷握的指节外轮廓）----
   ctx.beginPath();
-  ctx.ellipse(0, 0, size * 0.5, size * 0.44, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, size * 0.40, size * 0.44, 0, 0, Math.PI * 2);
+  const g = ctx.createLinearGradient(-f * size * 0.3, -size * 0.45, f * size * 0.3, size * 0.4);
+  g.addColorStop(0, SKIN_HI);
+  g.addColorStop(0.5, SKIN);
+  g.addColorStop(1, SKIN_MID);
+  ctx.fillStyle = g;
   ctx.fill();
-  ctx.strokeStyle = "rgba(120,20,20,.5)";
-  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = SKIN_LINE;
+  ctx.lineWidth = 1.3;
   ctx.stroke();
 
-  // 指节
-  ctx.strokeStyle = "rgba(120,20,20,.45)";
-  ctx.lineWidth = 1.4;
-  for (let i = -1; i <= 1; i++) {
+  // ---- 拳峰：4 个指关节凸起，排在击打面 ----
+  for (let i = 0; i < 4; i++) {
+    const ky = -size * 0.28 + i * size * 0.19;
     ctx.beginPath();
-    ctx.moveTo(-fistDir * size * 0.1, i * size * 0.2);
-    ctx.lineTo(-fistDir * size * 0.42, i * size * 0.24);
+    ctx.ellipse(f * size * 0.30, ky, size * 0.13, size * 0.10, 0, 0, Math.PI * 2);
+    const gk = ctx.createLinearGradient(0, ky - size * 0.1, 0, ky + size * 0.1);
+    gk.addColorStop(0, SKIN_HI);
+    gk.addColorStop(1, SKIN_MID);
+    ctx.fillStyle = gk;
+    ctx.fill();
+    ctx.strokeStyle = SKIN_LINE;
+    ctx.lineWidth = 1;
     ctx.stroke();
   }
-  // 高光
-  ctx.globalAlpha = st.alpha * 0.35;
+
+  // ---- 拇指：扣在拳背对侧下方 ----
+  ctx.save();
+  ctx.translate(-f * size * 0.14, size * 0.29);
+  ctx.rotate(f * 0.5);
+  ctx.beginPath();
+  ctx.ellipse(0, 0, size * 0.24, size * 0.15, 0, 0, Math.PI * 2);
+  ctx.fillStyle = SKIN;
+  ctx.fill();
+  ctx.strokeStyle = SKIN_LINE;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+
+  // ---- 高光 ----
+  ctx.globalAlpha = st.alpha * 0.4;
   ctx.fillStyle = "#fff";
   ctx.beginPath();
-  ctx.ellipse(-fistDir * size * 0.16, -size * 0.16, size * 0.16, size * 0.1, -0.4, 0, Math.PI * 2);
+  ctx.ellipse(-f * size * 0.10, -size * 0.22, size * 0.20, size * 0.11, f * 0.3, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 }
@@ -376,6 +557,10 @@ function render(now) {
   if (!images.length) return;
 
   const o = computeTransform(now);
+  // 兜底：任何非有限的变换值都回退，避免整帧绘制因 NaN 抛错而白屏
+  for (const key of ["scaleX", "scaleY", "dx", "dy", "rot"]) {
+    if (!Number.isFinite(o[key])) o[key] = key === "scaleX" || key === "scaleY" ? 1 : 0;
+  }
   const i = S.frameIdx;
   const pos = frameCanvasPos[i], d = frameDraw[i];
   const cxp = pos.x + d.w / 2;
@@ -391,11 +576,21 @@ function render(now) {
   ctx.restore();
 
   // 交互特效（画在宠物之上）：摸头的手 / 挨拳击的拳头
+  // 注意：绘制时以脚底为原点做了 scale(scaleX, scaleY)（pat 时 scaleY=1.06 会抬高头顶）。
+  // 特效必须按缩放后的真实包围盒定位，否则手掌会悬在头顶上方约 10px。
+  // 用「实际不透明内容的边界」定位，而不是帧包围盒——否则素材四周的透明留白
+  // 会让手掌/拳头浮在主体外面（未裁边的图片尤其明显）。
+  const am = alphaMaps[i];
+  const ct = (am && am.content) || { x0: 0, y0: 0, x1: 1, y1: 1 };
+  const cw = d.w * (ct.x1 - ct.x0) * o.scaleX;
+  const ch = d.h * (ct.y1 - ct.y0) * o.scaleY;
   const petRect = {
-    cx: cxp,
-    w: d.w,
-    h: d.h,
-    top: cyp - d.h + o.dy,
+    cx: cxp + d.w * ((ct.x0 + ct.x1) / 2 - 0.5) * o.scaleX,
+    w: cw,
+    h: ch,
+    // 内容顶端在 canvas 中的 y（以脚底为原点缩放，再叠加 dy）
+    top: cyp + o.scaleY * (o.dy - d.h * (1 - ct.y0)),
+    scaleY: o.scaleY,
   };
   drawHand(now, petRect);
   drawFist(now, petRect);
@@ -464,7 +659,14 @@ function placeBubble() {
   const pos = frameCanvasPos[i];
   if (!d || !pos) return;
   const headFromBottom = canvasCssH - pos.y;
-  const bottomPx = Math.min(H - 8, headFromBottom + 12);
+  // 摸头时手掌会占据头顶上方空间，气泡需相应抬高，避免与手重叠。
+  // 手掌尺寸与 drawHand 保持一致（按宠物宽度自适应并限幅）。
+  let handLift = 0;
+  if (handStartAt) {
+    const { palmW, palmH } = handPalmSize(d.w);
+    handLift = Math.min(palmH + palmW * 0.1, canvasCssH - pos.y - 6);
+  }
+  const bottomPx = Math.min(H - 8, headFromBottom + 12 + handLift);
   bubbleEl.style.bottom = Math.round(bottomPx) + "px";
   bubbleEl.style.top = "auto";
 }

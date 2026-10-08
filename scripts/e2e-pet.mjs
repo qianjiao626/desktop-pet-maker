@@ -56,8 +56,8 @@ app.whenReady().then(async () => {
     if (win && !win.isDestroyed()) win.setPosition(Math.round(x), Math.round(y));
   });
   const sizeLog = [];
-  ipcMain.removeAllListeners('pet:setSizeAnimated');
-  ipcMain.on('pet:setSizeAnimated', (e, { w, h }) => {
+  ipcMain.removeAllListeners('pet:setSize');
+  ipcMain.on('pet:setSize', (e, { w, h }) => {
     sizeLog.push({ w, h });
     if (win && !win.isDestroyed()) win.setSize(Math.round(w), Math.round(h));
   });

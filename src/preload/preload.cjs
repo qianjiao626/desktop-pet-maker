@@ -18,7 +18,6 @@ contextBridge.exposeInMainWorld('api', {
   getPetPack: () => ipcRenderer.invoke('pet:getPack'),
   setPos: (x, y) => ipcRenderer.send('pet:setPos', { x, y }),
   setSize: (w, h) => ipcRenderer.send('pet:setSize', { w, h }),
-  setSizeAnimated: (w, h) => ipcRenderer.send('pet:setSizeAnimated', { w, h }),
   getBounds: () => ipcRenderer.invoke('pet:getBounds'),
   workArea: () => ipcRenderer.invoke('screen:workArea'),
   allWorkAreas: () => ipcRenderer.invoke('screen:allWorkAreas'),

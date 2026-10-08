@@ -434,7 +434,16 @@ ipcMain.handle('quick:pat', () => {
   return { ok: isPetAlive() };
 });
 
-ipcMain.on('pet:setPos', (e, { x, y }) => { if (petWindow && !petWindow.isDestroyed()) petWindow.setPosition(Math.round(x), Math.round(y)); });
+// 移动宠物窗口。
+// 必须用 setContentBounds 而非 setPosition：在 Windows + 非整数 DPI 缩放（如 1.5x）下，
+// setPosition 每传入一个新的 x 坐标就会让窗口宽度增长约 1px（实测），
+// 而宠物每帧都在移动 -> 形成正反馈，窗口持续膨胀并把宠物推出可视区。
+// setContentBounds 显式带上内容尺寸，可把尺寸钉住（实测 4s 稳定 281x417）。
+ipcMain.on('pet:setPos', (e, { x, y }) => {
+  if (!petWindow || petWindow.isDestroyed()) return;
+  const [cw, ch] = petWindow.getContentSize();
+  petWindow.setContentBounds({ x: Math.round(x), y: Math.round(y), width: cw, height: ch });
+});
 // 设置宠物窗口的内容区尺寸。
 // 注意：不要在这里同步调用 setPosition（bounds 会滞后，导致窗口漂移或被 DPI 二次缩放），
 // 位置统一由 pet:setPos 通道负责。
@@ -448,13 +457,6 @@ ipcMain.on('pet:setSize', (e, { w, h }) => {
   } catch (err) {
     if (process.env.SIZEDBG === '1') console.log('[SIZEDBG] setSize 失败: ' + err.message);
   }
-});
-// 平滑动画调整窗口尺寸（外扩窗口不会突兀）
-// 已弃用有缺陷的动画实现：它每帧混用 getBounds()(DPI实际值) 与 setContentSize()(逻辑值)，
-// 形成正反馈循环导致窗口持续变大，把宠物推出可视区。改为一句话精确设置。
-ipcMain.on('pet:setSizeAnimated', (e, { w, h }) => {
-  if (!petWindow || petWindow.isDestroyed()) return;
-  petWindow.setContentSize(Math.max(40, Math.round(w)), Math.max(40, Math.round(h)));
 });
 ipcMain.handle('pet:getBounds', () => (petWindow && !petWindow.isDestroyed()) ? petWindow.getBounds() : null);
 ipcMain.handle('screen:workArea', () => screen.getPrimaryDisplay().workArea);
