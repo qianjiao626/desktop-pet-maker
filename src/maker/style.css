@@ -1,0 +1,145 @@
+:root{
+  --bg:#0f1117; --bg2:#161a24; --card:#1b2030; --line:#2a3145;
+  --txt:#e8ecf5; --dim:#95a0bb; --accent:#5b8cff; --accent2:#8b6cff;
+  --ok:#37c98a; --warn:#ffb020;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:linear-gradient(160deg,#0f1117,#141828 60%,#0f1117);
+  color:var(--txt); font:13px/1.5 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  overflow:hidden; user-select:none;
+}
+.topbar{
+  height:52px; display:flex; align-items:center; justify-content:space-between;
+  padding:0 16px; border-bottom:1px solid var(--line);
+  background:rgba(20,24,36,.7); backdrop-filter:blur(8px);
+}
+.brand{font-size:15px;font-weight:600;letter-spacing:.3px}
+.ver{color:var(--dim);font-weight:400;font-size:11px;margin-left:4px}
+.topbar-actions{display:flex;gap:8px}
+.layout{display:grid;grid-template-columns:1fr 340px;height:calc(100% - 52px)}
+.stage-col{display:flex;flex-direction:column;padding:16px;gap:12px;min-width:0}
+.stage{
+  flex:1; border-radius:16px; position:relative; overflow:hidden; min-height:0;
+  border:1px solid var(--line);
+  background:
+    linear-gradient(45deg,#20263a 25%,transparent 25%,transparent 75%,#20263a 75%),
+    linear-gradient(45deg,#20263a 25%,#181d2b 25%,#181d2b 75%,#20263a 75%);
+  background-size:24px 24px; background-position:0 0,12px 12px;
+  display:flex;align-items:center;justify-content:center;
+}
+.stage.dragover{border-color:var(--accent);box-shadow:inset 0 0 0 2px rgba(91,140,255,.35)}
+.stage-empty{text-align:center;color:var(--dim);display:flex;flex-direction:column;align-items:center;gap:10px}
+.stage-empty .big{font-size:20px;color:var(--txt);font-weight:600}
+.stage-empty .sub{font-size:11px;opacity:.6}
+.stage-empty .hint{font-size:11px;color:var(--dim);opacity:.7;margin-top:6px}
+.stage-view{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+#previewImg{max-width:88%;max-height:88%;object-fit:contain;will-change:transform;
+  filter:drop-shadow(0 12px 22px rgba(0,0,0,.45));}
+.pet-shadow{position:absolute;bottom:8%;width:120px;height:16px;border-radius:50%;
+  background:radial-gradient(ellipse,rgba(0,0,0,.4),transparent 70%);}
+.stage-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.grow{flex:1}
+
+.panel{
+  border-left:1px solid var(--line); background:rgba(22,26,36,.6);
+  display:flex;flex-direction:column;min-height:0;
+}
+.tabs{display:flex;gap:2px;padding:10px 10px 0;flex-wrap:wrap}
+.tab{
+  flex:1; min-width:56px; padding:7px 4px; border:1px solid transparent; border-radius:9px;
+  background:transparent; color:var(--dim); cursor:pointer; font-size:12px;
+}
+.tab:hover{background:#1f2537;color:var(--txt)}
+.tab.active{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:600}
+.tabpane{display:none;padding:14px;overflow:auto;gap:12px;flex-direction:column;flex:1;min-height:0}
+.tabpane.active{display:flex}
+
+label{display:block}
+label.row{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--dim)}
+label.col{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--dim)}
+label.chk{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--txt);cursor:pointer;padding:4px 0}
+.val{color:var(--accent);font-weight:600;font-size:12px}
+input[type=text],textarea,select{
+  width:100%;background:#12161f;border:1px solid var(--line);color:var(--txt);
+  border-radius:9px;padding:8px 10px;font:inherit;font-size:12px;outline:none;user-select:text;
+}
+input[type=text]:focus,textarea:focus,select:focus{border-color:var(--accent)}
+textarea{resize:vertical;line-height:1.7}
+input[type=range]{width:100%;-webkit-appearance:none;height:22px;background:transparent}
+input[type=range]::-webkit-slider-runnable-track{height:5px;border-radius:3px;background:#2a3145}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;margin-top:-5px;
+  border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));cursor:pointer;
+  box-shadow:0 0 0 3px rgba(91,140,255,.18)}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent)}
+
+button{
+  font:inherit;font-size:12px;padding:8px 14px;border-radius:9px;cursor:pointer;
+  border:1px solid var(--line);background:#1e2434;color:var(--txt);transition:.15s;
+}
+button:hover:not(:disabled){background:#252c40;border-color:#39415a}
+button:disabled{opacity:.45;cursor:not-allowed}
+button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff;font-weight:600}
+button.primary:hover:not(:disabled){filter:brightness(1.12)}
+button.accent{background:linear-gradient(135deg,#2bd4a0,#12a877);border:none;color:#04231a;font-weight:600}
+button.ghost{background:transparent}
+button.block{width:100%}
+.note{font-size:11px;color:var(--dim);opacity:.75;line-height:1.6;margin:4px 0 0}
+.panel-foot{margin-top:auto;display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line)}
+.panel-foot button{flex:1}
+.status{padding:0 14px 12px;font-size:11px;color:var(--dim);min-height:16px}
+.status.ok{color:var(--ok)}
+.status.err{color:#ff6b6b}
+/* ---- 帧徽章 ---- */
+.frame-badge{
+  position:absolute;top:10px;left:10px;padding:3px 9px;border-radius:20px;font-size:11px;
+  background:rgba(0,0,0,.55);color:#cfe0ff;border:1px solid #39415a;
+}
+/* ---- 宠物库弹窗 ---- */
+.modal{position:fixed;inset:0;background:rgba(6,8,14,.72);backdrop-filter:blur(4px);z-index:100;
+  display:flex;align-items:center;justify-content:center}
+.modal[hidden]{display:none}
+.modal-box{width:min(720px,92vw);max-height:82vh;display:flex;flex-direction:column;
+  background:#161a24;border:1px solid var(--line);border-radius:16px;overflow:hidden;
+  box-shadow:0 24px 60px rgba(0,0,0,.6)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;
+  border-bottom:1px solid var(--line);font-weight:600}
+.modal-foot{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--line)}
+.lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;padding:16px;overflow:auto}
+.lib-item{background:#1b2030;border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center;
+  display:flex;flex-direction:column;gap:6px}
+.lib-item img{width:100%;height:96px;object-fit:contain;background:
+  repeating-conic-gradient(#20263a 0% 25%, #181d2b 0% 50%) 50%/16px 16px;border-radius:8px}
+.lib-item .nm{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lib-item .meta{font-size:10px;color:var(--dim)}
+.lib-item .acts{display:flex;gap:6px;margin-top:auto}
+.lib-item .acts button{flex:1;padding:5px 0;font-size:11px}
+.lib-empty{grid-column:1/-1;text-align:center;color:var(--dim);padding:40px 0;font-size:12px}
+/* ---- AI 抠图面板 ---- */
+.ai-box{margin-top:10px;padding:11px 12px;border-radius:12px;border:1px solid #33406a;
+  background:linear-gradient(160deg,rgba(91,140,255,.09),rgba(139,108,255,.06))}
+.ai-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.ai-title{font-size:12px;font-weight:600;color:#cfe0ff}
+.ai-tag{font-size:10px;padding:2px 8px;border-radius:20px;background:#2a3145;color:var(--dim)}
+.ai-tag.ok{background:rgba(55,201,138,.18);color:var(--ok)}
+.ai-tag.miss{background:rgba(255,176,32,.16);color:var(--warn)}
+.ai-note{font-size:11px;color:var(--dim);opacity:.85;line-height:1.55;margin:6px 0 8px}
+.ai-actions{display:flex;gap:8px;margin:10px 0 4px}
+.ai-actions button{flex:1}
+.ai-progress{display:flex;align-items:center;gap:8px;margin:8px 0}
+.ai-progress[hidden]{display:none}
+.ai-bar{flex:1;height:6px;border-radius:4px;background:#2a3145;overflow:hidden;position:relative}
+.ai-bar::after{content:"";position:absolute;inset:0;width:var(--p,0%);border-radius:4px;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .18s}
+#aiPct{font-size:11px;color:var(--accent);min-width:36px;text-align:right}
+/* ============================================================
+   关键修复：[hidden] 必须真正隐藏
+   ------------------------------------------------------------
+   浏览器默认的 [hidden]{display:none} 优先级极低，
+   任何 .class{display:flex} 都会把它覆盖掉，导致「幽灵层」：
+   带 hidden 的元素仍然参与布局并拦截点击（曾使「选择图片」
+   按钮被空的预览层挡住而无法点击）。
+   这里显式提高优先级，避免此类问题再次发生。
+   ============================================================ */
+[hidden]{display:none !important}

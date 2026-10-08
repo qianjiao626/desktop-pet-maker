@@ -1,0 +1,293 @@
+# 🐾 桌宠制作器 (Desktop Pet Maker)
+
+把 **一张图片、一个 GIF、或一组多帧图片** 变成一只住在你桌面上的宠物，并可用 **离线 AI 一键抠图**。跨平台（Windows / macOS / Linux），基于 Electron，无需 Python / Rust。
+
+> 技术选型参考了这些开源项目：`B666T/DesktopPetGenerator`（上传图→抠图→动画→打包）、
+> `PC2005-cloud/dsh-pet`（宠物包 / 素材链思路）、`ln2146/ai-desktop-pet-generator`（抠图→精灵流水线）。
+> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 365 项单测 + 12 套 e2e**。
+
+---
+
+## ⚡ 最简单的用法（推荐）
+
+```bash
+npm start
+```
+
+1. 把一张图片拖进窗口
+2. 点 **▶ 启用桌宠** —— 桌宠立刻出现在屏幕上
+3. 想让它动就在左侧勾选 **让他到处爬动**；想互动就点 **✋ 摸摸头**
+4. 不想要了，点 **■ 停用**
+
+不需要导出、不需要安装、不需要配置抠图——上传完就能用。
+桌宠会自己走路、发呆、打瞌睡，点击它就会做出「被摸头」的反应。
+
+> 需要精修（抠图、对齐、气泡、物理参数、AI 抠图、导出分享包）时，再用右侧的完整面板。
+
+## ✨ 功能
+
+**制作器（Maker）**
+- 拖拽 / 选择图片，支持 PNG / JPG / WEBP / GIF / BMP
+- **拖入 GIF 自动拆帧**为多帧动画，并保留每帧原始延迟（可选用统一帧率覆盖）
+- **从单张静态图生成动画**：6 种程序化运动（呼吸 / 漂浮 / 摇摆 / 跳跃挤压 / 点头 / 摇滚位移），
+  一键合成无缝循环的多帧序列——解决"只有一张图、宠物动不起来"
+  - 采样使用**预乘 alpha**，避免透明边缘出现黑边光晕
+  - 位移/旋转按图像尺寸缩放，大图不会出现"动作几乎看不见"
+  - 自动扩展画布，动作不会被边缘裁切
+- **AI 智能抠图（离线）**：ONNX 模型本地推理，无需联网、不上传图片，适合复杂/照片背景；三个可选模型全部 Apache-2.0
+  - 动漫角色：专为二次元角色训练，桌宠首选
+  - 通用（快） / 通用（精确）：通用主体
+- 两种纯本地抠图算法（零依赖、即时、无需下载模型）：
+  - **边缘漫水抠图**：从四边向内扩散，只删与边界连通的背景色 → 保住主体内部同色区域（推荐）
+  - **颜色阈值抠图**：按背景色全局删除
+- 容差 / 羽化 / 自动裁边 / 水平翻转
+- **只保留最大主体**：一键清除零散残留色块
+- **多帧统一画布 + 主体对齐**：底部 / 中心 / 质心三种对齐方式，消除播放抖动（实测两帧底边完全一致）
+- **文件名安全化**：安装/导出时对包名做清理（路径穿越、Windows 保留名、超长、非法字符），
+  且安装为**原子写入**（先写临时文件再 rename），中途失败不会留下损坏的半包
+- **内存预算保护（制作器 + 运行时双端）**：
+  - 制作器：按帧尺寸自动限制帧数（默认 512MB 上限），避免 1600×1600 × 300 帧（原需 5.7GB）撑爆渲染进程
+  - 运行时：加载他人分享的 `.petpack` 时自动**均匀抽稀**（保留首末帧，动画仍连贯）并提示，
+    即使收到 240 帧 × 1600×1600 的膨胀包也不会崩溃
+- 帧序列可视化：上一帧 / 下一帧 / 播放动画预览
+- 五类参数可视化调节：抠图 / 外观 / 动画 / 物理 / 气泡
+- **桌面预览**：一键在真实桌面启动试用
+- 导出为单文件 **`.petpack`** 或文件夹
+
+**运行时（Pet）**
+- 无边框透明置顶窗，**canvas 多帧渲染**（呼吸 / 摇摆 / 逐帧循环 / 逐帧一次）
+- 拖动移动、**松手甩出**（真实测速 + 惯性 + 重力 + 落地弹跳）
+- 自动桌面漫游、边界碰撞反弹
+- 点击反馈（弹跳 / 跳跃 / 抖动 / 旋转）+ 悬停放大
+- 对话气泡（自定义台词、定时轮播、点击切换）
+- 右键菜单：回到屏幕底部 / 说一句话 / 切换置顶 / 切换鼠标穿透 / 退出
+- **像素级鼠标穿透**：空白区域自动穿透，只有点在宠物身上才响应
+- 位置记忆、多开支持
+
+**宠物库**
+- 已安装宠物一览（缩略图 / 帧数 / 体积）、一键启动 / 删除
+- 安装 `.petpack` 到用户目录，随时调用
+
+---
+
+## 🚀 快速开始
+
+```bash
+npm install                 # 安装依赖（仅 Electron）
+
+npm start                   # 打开制作器
+npm test                    # 365 项单元测试
+npm run test:e2e            # 12 套端到端测试（快速模式 / UI / 宠物 / 动画 / 多屏 / 内存 / 宠物库 / 打包）
+npm run package             # 打包为免安装目录（dist/）
+npm run selftest            # AI 引擎自检
+npm run examples            # 生成示例宠物（多帧动画）
+
+# 直接启动一只宠物
+npm run pet -- --pet=examples\小豆子.petpack
+```
+
+### 完整流程
+
+1. `npm start` 打开制作器
+2. 把图片拖进画布（多张 = 多帧动画），或点「选择图片」
+3. 「抠图」页调模式 / 容差 / 羽化，点「应用到所有帧」
+4. 「动画」页选择待机动作（多帧可选「播放所有帧（循环）」）
+5. 只有一张图时，用「从单张图生成动画」选运动类型并生成多帧
+6. 勾选「播放动画」预览，用 ◀ ▶ 单帧检查
+7. 点「▶ 桌面预览」真实体验（右键可退出）
+8. 「导出桌宠包」得到 `.petpack`，或在「宠物库」安装
+
+---
+
+## 📁 项目结构
+
+```
+桌宠制作器/
+├── package.json
+├── src/
+│   ├── main/main.js             # Electron 主进程：窗口 / 文件 / 宠物库 / 快速启用 / IPC
+│   ├── main/state.js            # 主进程共享状态（当前宠物包 / 窗口引用）
+│   ├── preload/preload.cjs      # 安全桥（必须是 CommonJS）
+│   ├── shared/
+│   │   ├── petpack.js           # 宠物包规范 v2（归一化 / 钳制 / v1 迁移）
+│   │   ├── imageops.js          # 纯图像算法（抠图/裁边/连通域）
+│   │   ├── physics.js           # 纯物理（重力/弹跳/摩擦/甩出测速）
+│   │   ├── displays.js          # 多显示器工作区选择（按窗口位置选边界）
+│   │   ├── budget.js            # 多帧内存预算（限制帧数避免 OOM）
+│   │   ├── safeid.js            # 文件名安全化（路径穿越/保留名/限长）
+│   │   ├── behavior.js          # 待机行为状态机（爬动/发呆/打瞌睡/摸头）
+│   │   ├── zip.js               # 零依赖 ZIP 读写
+│   │   └── png.js               # 零依赖 PNG 编码器
+│   ├── maker/                   # 制作器界面
+│   └── pet/                     # 宠物运行时（canvas 渲染）
+├── scripts/make-examples.js     # 程序化生成多帧示例宠物
+├── tests/                       # 365 项单元测试（npm test）
+├── examples/                    # 示例宠物包
+└── README.md
+```
+
+## 📦 宠物包格式（.petpack，schema 2）
+
+ZIP 内含 `pet.json` + 若干帧图片 + `README.txt`：
+
+```jsonc
+{
+  "schema": 2,
+  "name": "我的桌宠",
+  "author": "",
+  "frames": [                                  // 帧序列
+    { "file": "frame_000.png", "durationMs": 120 },
+    { "file": "frame_001.png", "durationMs": 120 }
+  ],
+  "canvas": { "width": 320, "height": 320 },   // 统一画布
+  "render":    { "scale": 0.6, "flip": false },
+  "animation": { "idle": "play", "idleSpeed": 1, "fps": 12, "click": "bounce", "hover": "grow" },
+  "physics":   { "gravity": 1.2, "bounce": 0.55, "friction": 0.985, "roam": true, "roamSpeed": 1, "throwScale": 1 },
+  "bubble":    { "enabled": true, "lines": ["你好呀～"], "intervalSec": 14, "durationSec": 3.2 },
+  "behavior":  { "startCorner": "bottom-right", "keepAbove": true }
+}
+```
+
+- `animation.idle`：`breathe` / `sway` / `play`（循环播放所有帧）/ `once`（播放一次）/ `none`
+- 运行时读取会做**归一化与范围钳制**，非法值不会崩溃
+- **兼容 schema 1**：旧的 `image` / `imageSize` 会自动迁移为单帧
+
+## 🛠 技术栈
+
+| 模块 | 技术 |
+|------|------|
+| 运行时容器 | Electron（透明无边框窗 + 屏幕坐标控制） |
+| 渲染 | HTML5 Canvas 2D（多帧 + 变换） |
+| 抠图 | 自研漫水 / 阈值 + 连通域（纯本地） |
+| 物理 | 自研（重力 / 弹跳 / 摩擦 / 甩出测速） |
+| GIF 处理 | 自研解析器 + 内联 gifuct-js 的 LZW（MIT） |
+| 打包格式 | 自研 ZIP 读写（零第三方依赖） |
+| 交互 | 像素级 alpha 命中测试 + `setIgnoreMouseEvents` 穿透 |
+| 测试 | 自研断言框架：277 项单测 + 11 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包） |
+
+## 🧪 测试
+
+```bash
+npm test
+```
+
+覆盖：抠图（含"主体内部同色被保留"这一关键差异）、裁边、连通域、羽化、物理（重力/弹跳/边界/漫游/甩出测速/钳制）、宠物包归一化与 v1 迁移、ZIP/PNG 编解码、**GIF 解码（用真实 dog.gif 与 gifuct-js 逐像素交叉验证，0 处不一致）**。
+
+调试渲染进程可设 `PETMAKER_DEBUG=1`，会输出渲染进程 console 与加载错误。
+
+## ⚠️ 已知限制
+
+- 自动补帧目前是**程序化仿射**（缩放/旋转/位移），不是 AI 生帧；大幅度动作（如换姿势）仍需多帧素材
+- 生成动画后仍可继续调整抠图/裁边/翻转（生成帧保留对源帧的引用）
+- 抠图对**复杂 / 渐变背景**无力（纯色背景最佳）
+- AI 抠图**已接入**（ONNX 离线）。注意：**不使用** @imgly/background-removal（AGPL-3.0，与本项目 MIT 不兼容），也**不使用** ria-rmbg（商用需付费）。所选三个模型均为 Apache-2.0
+- AI 模型需**首次下载**（43–180MB，从 GitHub Releases）；推理为 CPU，512×512 约 0.5 秒/帧
+- 未接入 AI 生图与对话（预留 v2）
+
+- 逐帧动画的**统一画布**假设各帧主体位置一致；若源图主体位置差异大，可能需要手动对齐
+
+## 🗺 路线图
+
+- [ ] AI 抠图（@imgly/background-removal）
+- [ ] GIF 导入自动拆帧
+- [ ] AI 生图造宠物 / 宠物对话（LLM）
+- [ ] electron-builder 打包（Win / macOS / Linux）
+- [ ] 宠物包在线分享站
+
+## 🤖 AI 抠图实现要点
+
+三个模型的**前处理各不相同**，这是实现中最容易踩的坑（实测得出，勿凭直觉改）：
+
+| 模型 | 输入尺寸 | 缩放 | mean | std |
+|---|---|---|---|---|
+| silueta | 320 | ÷ 图像最大通道值 | ImageNet | ImageNet |
+| isnet-general-use | 1024 | ÷ 255 | 0.5 | 1 |
+| isnet-anime | 1024 | **不缩放（原始 0..255）** | 0 | 1 |
+
+另有差异：isnet-anime 采用 **letterbox**（保持宽高比填充，对齐官方 anime-segmentation），另两个用直接拉伸。isnet-anime 对瘦高立绘能减少形变。
+
+- `isnet-anime` 的 ONNX 导出**已内置归一化**，若再除 255，输出会整体塌陷到 ~0.005（表现为"抠不出任何东西"）
+- `silueta` 遵循 rembg `base.normalize`：先除以图像最大值，再减 mean 除 std
+- 输出统一做 **min-max 归一化**（对齐 rembg 后处理），再作为 alpha 掩膜
+- 位图来自 Electron `nativeImage.toBitmap()`，顺序为 **BGRA**（已实测校准）
+- 推理为 CPU 单线程：320 模型约 0.5s，1024 模型约 0.9s（512×512 输入）
+
+验证脚本：
+
+```bash
+npm run test:e2e:segment     # 三模型逐一推理，检查覆盖率/中心 alpha/四角 alpha
+npm run test:e2e:pipeline    # GIF 拆帧 → 逐帧 AI 抠图 → 打包 → 回读
+npm run test:e2e:download    # 模型缓存/损坏识别/删除
+```
+
+## 📦 依赖
+
+**运行时零第三方依赖**（`dependencies: {}`）。GIF 的 LZW 解压算法内联自 `gifuct-js`（MIT），仅此一处第三方代码，署名见 `THIRD-PARTY.md`。
+
+开发依赖（devDependencies）：`electron`（运行时容器）、`gifuct-js`（测试交叉验证素材）、`omggif`（测试用 GIF 生成器）。
+
+## 📄 开源
+
+MIT License
+## 🧪 测试
+
+```bash
+npm test            # 365 项单元测试
+npm run test:e2e    # 全部 12 套端到端测试
+```
+
+| 套件 | 覆盖 |
+|---|---|
+| `tests/` | 抠图算法、物理、宠物包、ZIP/PNG、GIF、AI 预处理、IPC 通道交叉校验 |
+| `e2e-quick` | **快速模式全流程**：上传一张图 → 启用（桌宠出现）→ 观察爬动 → 摸头 → 关/开爬动 → 停用 → 再启用 |
+| `e2e-ui` | **真实驱动制作器界面**：拖入 GIF → 拆帧 → 抠图 → 预览 alpha 校验 → 切帧 → 裁边 → 点 AI 抠图 → 导出 .petpack 并回读 |
+| `e2e-segment` | 三个 AI 模型逐一推理，检查覆盖率 / 中心 alpha / 四角 alpha |
+| `e2e-pipeline` | GIF 拆帧 → 逐帧 AI 抠图 → 打包 → 回读 |
+| `e2e-download` | 模型缓存命中 / 损坏识别 / 删除 |
+
+调试渲染进程：设 `PETMAKER_DEBUG=1` 会输出渲染进程 console 与加载错误。
+## 📦 打包分发
+
+```bash
+npm run package          # 输出 dist/desktop-pet-maker-<platform>-<arch>/
+npm run package:win      # 明确指定 win32 x64
+```
+
+产物是**免安装目录**（约 453MB，裁剪后），双击 `desktop-pet-maker.exe` 即可运行。打包会：
+
+- 复用本地 Electron 缓存 zip（弱网/离线可用，自动重试 4 次）
+- 以 asar 封装业务代码
+- **把 `node_modules/**` 下的 `.node / .dll / .so / .dylib` 解包到 `app.asar.unpacked`**（见下方坑）
+- **裁剪**非目标平台的 onnxruntime 二进制（省约 200MB）与多余语言包（仅留 zh-CN / en-US）
+
+### ⚠️ 原生模块必须解包（重要）
+
+`onnxruntime-node` 除了 `onnxruntime_binding.node`，还需同目录的 `onnxruntime.dll`（Windows，28MB）。
+
+如果把它留在 asar 内部，加载器会**回退到系统 PATH 搜索**，命中 Windows 自带的
+`C:\Windows\System32\onnxruntime.dll`（Edge WebView2 附带，版本 1.17.1），
+与本包绑定的 1.30.0 不兼容，报错：
+
+```
+The requested API version [30] is not available, only API versions [1, 17] are supported.
+```
+
+**结果是每个最终用户的 AI 抠图都会失败**（现代 Windows 普遍自带该 DLL）。
+因此 `scripts/pack.mjs` 中：
+
+```js
+asar: { unpack: '**/node_modules/**/*.{node,dll,so,dylib}' }
+```
+
+打包后可用 `npm run selftest` 验证 —— 它会使用**打包产物自己的 userData**（Windows 下为
+`%APPDATA%\desktop-pet-maker`），与开发环境（`Electron` 目录）相互独立。
+
+实测结果：
+
+```
+SELFTEST userData: ...\desktop-pet-maker
+SELFTEST onnxruntime: OK v1.30.0
+SELFTEST segment: ok=true size=256x256 coverage=0.282 ms=800
+SELFTEST alpha: center=255 corner=0
+SELFTEST RESULT: PASS
+```

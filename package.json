@@ -1,0 +1,50 @@
+{
+  "name": "desktop-pet-maker",
+  "version": "0.8.0",
+  "description": "桌宠制作器 - 图片/GIF/多帧 + 离线AI抠图，一键生成跨平台桌面宠物",
+  "type": "module",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "maker": "electron . --maker",
+    "pet": "electron .",
+    "selftest": "electron . --selftest-ai",
+    "test": "node tests/run.mjs",
+    "test:e2e": "electron scripts/e2e-all.mjs",
+    "test:e2e:ui": "electron scripts/e2e-ui.mjs",
+    "test:e2e:pet": "electron scripts/e2e-pet.mjs",
+    "test:e2e:library": "electron scripts/e2e-library.mjs",
+    "test:e2e:segment": "electron scripts/e2e-segment.mjs --model=silueta --model=isnetGeneral --model=isnetAnime",
+    "test:e2e:pipeline": "electron scripts/e2e-pipeline.mjs",
+    "test:e2e:download": "electron scripts/e2e-download.mjs",
+    "examples": "node scripts/make-examples.js",
+    "package": "node scripts/pack.mjs",
+    "package:win": "node scripts/pack.mjs win32 x64",
+    "test:e2e:download-robust": "node scripts/e2e-download-robust.mjs",
+    "test:e2e:package": "node scripts/e2e-package.mjs",
+    "test:e2e:pet-anim": "node scripts/e2e-pet-anim.mjs",
+    "test:e2e:pet-multi": "node scripts/e2e-pet-multi.mjs",
+    "test:e2e:pet-budget": "node scripts/e2e-pet-budget.mjs",
+    "test:e2e:quick": "node scripts/e2e-quick.mjs"
+  },
+  "keywords": [
+    "desktop-pet",
+    "electron",
+    "桌宠",
+    "pet-maker",
+    "gif",
+    "ai-background-removal",
+    "onnx",
+    "isnet"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "onnxruntime-node": "^1.30.0"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "@electron/packager": "^18.3.6",
+    "gifuct-js": "^2.1.2",
+    "omggif": "^1.0.10"
+  }
+}

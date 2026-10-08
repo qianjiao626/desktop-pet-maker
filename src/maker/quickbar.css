@@ -1,0 +1,96 @@
+/* ============================================================
+   快速模式控制条
+   设计目标：让「上传 -> 启用 -> 爬动/摸头」这条主路径一目了然。
+   要点：
+   - 未完成前一步时，下一步按钮可见但灰显（而不是隐藏），
+     用户才知道「原来还有这些功能」
+   - 步骤编号 1/2 给出明确指引
+   ============================================================ */
+.quickbar{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:13px 16px;border-radius:14px;
+  border:1px solid #2f3a5c;
+  background:linear-gradient(135deg,rgba(91,140,255,.13),rgba(139,108,255,.07));
+  flex-shrink:0;
+}
+
+/* ---- 步骤指示 ---- */
+.qb-step{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600;min-width:190px}
+.qb-num{
+  width:22px;height:22px;flex-shrink:0;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:700;color:#fff;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));
+  transition:.2s;
+}
+.qb-num.done{background:linear-gradient(135deg,#2bd4a0,#12a877);color:#04231a}
+.qb-text{color:var(--txt);line-height:1.35}
+
+/* ---- 按钮 ---- */
+.qb-actions{display:flex;gap:9px}
+.qbtn{
+  font:inherit;font-size:13px;font-weight:600;
+  padding:10px 20px;border-radius:11px;cursor:pointer;
+  border:1px solid var(--line);background:#1e2434;color:var(--txt);
+  transition:transform .12s, filter .15s, background .15s;
+  white-space:nowrap;
+}
+.qbtn:hover:not(:disabled){transform:translateY(-1px)}
+.qbtn:active:not(:disabled){transform:translateY(0)}
+.qbtn:disabled{opacity:.35;cursor:not-allowed;transform:none!important}
+
+.qbtn-on{background:linear-gradient(135deg,#2bd4a0,#12a877);border:none;color:#04231a}
+.qbtn-on:hover:not(:disabled){filter:brightness(1.12)}
+.qbtn-off{background:#2a3145;border-color:#3a4260}
+.qbtn-off:hover:not(:disabled){background:#3a2130;border-color:#5a3348;color:#ff9d9d}
+.qbtn-pat{background:linear-gradient(135deg,#ffb020,#ff8a3d);border:none;color:#3a2000;padding:10px 18px}
+.qbtn-pat:hover:not(:disabled){filter:brightness(1.08)}
+
+/* ---- 爬动开关 / 摸头：始终显示，未启用时灰显 ---- */
+.qb-extra{display:flex;align-items:center;gap:16px;margin-left:auto;flex-wrap:wrap}
+.qb-switch{
+  display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dim);
+  cursor:pointer;user-select:none;white-space:nowrap;
+  padding:6px 10px;border-radius:9px;border:1px solid transparent;transition:.15s;
+}
+.qb-switch:hover{border-color:var(--line);background:rgba(255,255,255,.03)}
+.qb-switch input{accent-color:var(--accent);width:15px;height:15px;cursor:pointer}
+.qb-switch input:disabled{cursor:not-allowed}
+.qb-switch:has(input:disabled){opacity:.45}
+
+/* ---- 未启用时整条提示「先上传」 ---- */
+.quickbar.needs-upload{border-color:#4a3a20;background:linear-gradient(135deg,rgba(255,176,32,.10),rgba(255,138,61,.05))}
+.quickbar.needs-upload .qb-num{background:linear-gradient(135deg,#ffb020,#ff8a3d);color:#3a2000}
+/* 禁用态必须一眼看出不可点（曾因绿色按钮看起来可点，被误认为"点不开"） */
+.qbtn:disabled{
+  opacity:.34;
+  filter:grayscale(.8);
+  cursor:not-allowed;
+  box-shadow:none;
+  transform:none!important;
+}
+.qbtn:disabled:hover{transform:none!important;filter:grayscale(.8)}
+
+/* ---- 挨拳击按钮 ---- */
+.qbtn-hit{background:linear-gradient(135deg,#ff6b6b,#e03e3e);border:none;color:#fff;padding:10px 18px}
+.qbtn-hit:hover:not(:disabled){filter:brightness(1.1)}
+
+/* ---- 让它说话 ---- */
+.saybar{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 14px;border-radius:13px;
+  border:1px solid #2f3a5c;
+  background:linear-gradient(135deg,rgba(91,140,255,.07),rgba(139,108,255,.04));
+  flex-shrink:0;
+}
+.say-label{font-size:12.5px;color:var(--dim);white-space:nowrap;font-weight:600}
+.saybar input[type=text]{
+  flex:1;min-width:80px;background:#12161f;border:1px solid var(--line);
+  color:var(--txt);border-radius:10px;padding:9px 12px;font:inherit;font-size:13px;outline:none;
+  transition:border-color .15s;
+}
+.saybar input[type=text]:focus{border-color:var(--accent)}
+.saybar input[type=text]:disabled{opacity:.45;cursor:not-allowed}
+.saybar input[type=text]::placeholder{color:#5a6379}
+.qbtn-say{background:linear-gradient(135deg,#5b8cff,#8b6cff);border:none;color:#fff;padding:9px 20px}
+.qbtn-say:hover:not(:disabled){filter:brightness(1.12)}
