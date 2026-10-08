@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu, screen, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu, screen, shell, globalShortcut } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -138,6 +138,35 @@ function initialPetBounds(pack) {
   return { w: W, h: H };
 }
 
+// ---------- 紧急退出（全局快捷键） ----------
+// 背景：桌宠是无边框透明置顶窗 + 像素级鼠标穿透，唯一的退出方式原本是「右键点中它」。
+// 一旦制作器窗口已关闭、或宠物跑到屏幕外，用户可能完全退不出去。
+// 这里注册全局快捷键作为兜底：即使宠物正在鼠标穿透、即使焦点不在宠物上，也能强制退出。
+const QUIT_PET_ACCELERATOR = 'Control+Alt+Q';
+
+function quitPetNow() {
+  const w = getPetWindow();
+  if (w && !w.isDestroyed()) w.close();
+  setPetWindow(null);
+  petWindow = null;
+}
+
+function unregisterQuitShortcut() {
+  try { globalShortcut.unregister(QUIT_PET_ACCELERATOR); } catch {}
+}
+
+function registerQuitShortcut() {
+  try {
+    if (globalShortcut.isRegistered(QUIT_PET_ACCELERATOR)) return true;
+    const ok = globalShortcut.register(QUIT_PET_ACCELERATOR, quitPetNow);
+    if (!ok) console.warn('[pet] 全局快捷键 ' + QUIT_PET_ACCELERATOR + ' 注册失败（可能被其他程序占用）');
+    return ok;
+  } catch (err) {
+    console.warn('[pet] 全局快捷键注册异常: ' + err.message);
+    return false;
+  }
+}
+
 function createPetWindow(pack) {
   const { w, h } = initialPetBounds(pack);
   const wa = screen.getPrimaryDisplay().workArea;
@@ -167,6 +196,9 @@ function createPetWindow(pack) {
   win.loadFile(path.join(ROOT, 'src', 'pet', 'index.html'));
   if (process.env.SIZEDBG === '1') console.log('[SIZEDBG] created  = ' + JSON.stringify(win.getBounds()));
   win.once('ready-to-show', () => win.show());
+  // 只有桌宠存活期间才占用该快捷键，没有宠物时不劫持用户按键
+  registerQuitShortcut();
+  win.on('closed', () => unregisterQuitShortcut());
   return win;
 }
 
@@ -550,6 +582,7 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => app.quit());
+app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch {} });
 }
 
 // PETMAKER_NO_AUTOSTART=1 时不自启（供 e2e 测试自行驱动）
