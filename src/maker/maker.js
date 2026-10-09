@@ -219,11 +219,58 @@ async function addGifFrames(dataUrl, name) {
   state.frames.push(...made);
   return made.length;
 }
+/**
+ * 自动抠图（上传即用）：只在检测到「四周有同色背景」时执行，
+ * 避免误伤已抠好的透明 PNG。失败则保持原图。
+ */
+function autoCutIfNeeded(frame, name) {
+  try {
+    const { data, width, height } = frame.current || frame;
+    if (!data || !width || !height) return frame;
+    // 采样四周边缘的不透明像素：若绝大多数颜色相近 -> 认为是「带背景的照片」
+    const edge = [];
+    const pushPx = (x, y) => {
+      const i = (y * width + x) * 4;
+      if (data[i + 3] < 40) return;            // 本来就透明 -> 不是背景色
+      edge.push([data[i], data[i + 1], data[i + 2]]);
+    };
+    for (let x = 0; x < width; x += Math.max(1, Math.floor(width / 32))) { pushPx(x, 0); pushPx(x, height - 1); }
+    for (let y = 0; y < height; y += Math.max(1, Math.floor(height / 32))) { pushPx(0, y); pushPx(width - 1, y); }
+    // 透明边缘占比高 -> 已有透明底，不处理
+    const edgeTotal = Math.max(1, Math.floor(width / Math.max(1, Math.floor(width / 32))) * 2 * 2);
+    if (edge.length < edgeTotal * 0.5) return frame;   // 边缘多为透明 -> 跳过
+
+    // 算边缘颜色的离散程度；越接近同色，越像是"纯色背景照片"
+    let r0 = 0, g0 = 0, b0 = 0;
+    for (const e of edge) { r0 += e[0]; g0 += e[1]; b0 += e[2]; }
+    r0 /= edge.length; g0 /= edge.length; b0 /= edge.length;
+    let varSum = 0;
+    for (const e of edge) varSum += Math.abs(e[0] - r0) + Math.abs(e[1] - g0) + Math.abs(e[2] - b0);
+    const varAvg = varSum / edge.length;
+    if (varAvg > 36) return frame;              // 边缘颜色杂乱 -> 不是纯色背景，跳过
+
+    // 执行边缘漫水抠图（容差偏保守，只删与边界连通的同色区域）
+    // 容差 38（与面板默认一致）：只删与边界连通的同色背景，不误伤主体内部同色区域。
+    const out = floodCut(data, width, height, { tol: 38, feather: 14 });
+    return { current: { width: out.width, height: out.height, data: out.data }, __autoCut: true };
+  } catch (err) {
+    console.warn('[autoCut] 跳过：' + (err && err.message ? err.message : err));
+    return frame;
+  }
+}
+
 async function addFrameFromDataUrl(dataUrl, name) {
   if (isGif(dataUrl, name)) return addGifFrames(dataUrl, name); // 返回帧数
   const img = await loadImage(dataUrl);
   const d = drawToImageData(img);
-  state.frames.push({ original: d, current: d, name: name || 'frame' });
+  const f = { original: d, current: d, name: name || 'frame' };
+  // 上传即用：若检测到纯色背景，自动抠一次，避免桌面上出现"带白边的方块宠物"
+  const cut = autoCutIfNeeded(f, name);
+  if (cut && cut.__autoCut) {
+    f.current = cut.current;
+    f.__autoCut = true;
+  }
+  state.frames.push(f);
   state.activeIdx = state.frames.length - 1;
   return 1;
 }
