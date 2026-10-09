@@ -4,7 +4,16 @@
 
 > 技术选型参考了这些开源项目：`B666T/DesktopPetGenerator`（上传图→抠图→动画→打包）、
 > `PC2005-cloud/dsh-pet`（宠物包 / 素材链思路）、`ln2146/ai-desktop-pet-generator`（抠图→精灵流水线）。
-> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 365 项单测 + 12 套 e2e**。
+> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 545 项单测 + 12 套 e2e**。
+
+---
+
+## ⬇️ 直接下载（免安装）
+
+**[下载 Windows 免安装版 v0.8.0](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.8.0/desktop-pet-maker-win32-x64-v0.8.0.zip)**
+（解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
+
+> 想看全部版本与更新说明：[Releases 页面](https://github.com/qianjiao626/desktop-pet-maker/releases)
 
 ---
 
@@ -105,7 +114,7 @@ npm start
 npm install                 # 安装依赖（仅 Electron）
 
 npm start                   # 打开制作器
-npm test                    # 365 项单元测试
+npm test                    # 545 项单元测试
 npm run test:e2e            # 12 套端到端测试（快速模式 / UI / 宠物 / 动画 / 多屏 / 内存 / 宠物库 / 打包）
 npm run package             # 打包为免安装目录（dist/）
 npm run selftest            # AI 引擎自检
@@ -150,7 +159,7 @@ npm run pet -- --pet=examples\小豆子.petpack
 │   ├── maker/                   # 制作器界面
 │   └── pet/                     # 宠物运行时（canvas 渲染）
 ├── scripts/make-examples.js     # 程序化生成多帧示例宠物
-├── tests/                       # 365 项单元测试（npm test）
+├── tests/                       # 545 项单元测试（npm test）
 ├── examples/                    # 示例宠物包
 └── README.md
 ```
@@ -304,7 +313,7 @@ MIT License
 ## 🧪 测试
 
 ```bash
-npm test            # 365 项单元测试
+npm test            # 545 项单元测试
 npm run test:e2e    # 全部 12 套端到端测试
 ```
 
