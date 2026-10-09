@@ -281,6 +281,27 @@
   </aside>
 </main>
 
+<!-- 导出成功后的分享引导 -->
+<div class="modal" id="shareModal" hidden>
+  <div class="modal-box share-box">
+    <div class="modal-head">
+      <span>🎉 导出成功，可以分享啦</span>
+      <button id="shareClose" class="ghost">✕</button>
+    </div>
+    <div class="share-body">
+      <p class="share-lead">「<b id="shareName"></b>」已保存为一个单独的文件：</p>
+      <div class="share-path" id="sharePath"></div>
+      <div class="share-steps">
+        <div class="share-step"><b>怎么分享</b>：把这个 <code>.petpack</code> 文件直接发给朋友（微信 / QQ / 邮件都行）。</div>
+        <div class="share-step"><b>对方怎么用</b>：打开「桌宠制作器」→ 点「宠物库」→「安装宠物包…」→ 选这个文件，即可启动。</div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button id="shareReveal" class="primary">打开所在文件夹</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="libModal" hidden>
   <div class="modal-box">
     <div class="modal-head">

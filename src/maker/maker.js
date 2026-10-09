@@ -479,8 +479,29 @@ $('#btnExport').onclick = async () => {
   if (!state.frames.length) return;
   const r = await window.api.savePack(readPack(), currentImages(), $('#petName').value || 'mypet');
   if (r.canceled) { setStatus('已取消'); return; }
-  setStatus(r.ok ? '✅ 已导出：' + r.path : '导出失败：' + (r.errors || []).join(';'), r.ok ? 'ok' : 'err');
+  if (!r.ok) { setStatus('导出失败：' + (r.errors || []).join(';'), 'err'); return; }
+  setStatus('✅ 已导出：' + r.path, 'ok');
+  // 导出的 .petpack 是单文件，可直接发给朋友 / 传到群里。
+  // 这里主动把文件夹打开并说明，让"分享"这一步不需要用户自己找路径。
+  const name = $('#petName').value || '我的桌宠';
+  showShareHint(r.path, name);
 };
+
+/** 导出成功后的分享引导：定位文件 + 说明对方怎么用 */
+function showShareHint(filePath, petName) {
+  const modal = $('#shareModal');
+  if (!modal) return;
+  const pth = $('#sharePath');
+  if (pth) pth.textContent = filePath;
+  const nm = $('#shareName');
+  if (nm) nm.textContent = petName;
+  modal.hidden = false;
+}
+// ---- 分享引导弹窗 ----
+if ($('#shareReveal')) $('#shareReveal').onclick = () => window.api.revealFile($('#sharePath').textContent);
+if ($('#shareClose')) $('#shareClose').onclick = () => { $('#shareModal').hidden = true; };
+if ($('#shareModal')) $('#shareModal').onclick = (e) => { if (e.target.id === 'shareModal') $('#shareModal').hidden = true; };
+
 $('#btnExportFolder').onclick = async () => {
   if (!state.frames.length) { setStatus('请先导入图片', 'err'); return; }
   const r = await window.api.exportFolder(readPack(), currentImages());
@@ -588,7 +609,25 @@ function renderLibrary() {
     acts.className = 'acts';
     if (!it.broken) {
       const run = document.createElement('button'); run.className = 'primary'; run.textContent = '启动';
-      run.onclick = async () => { const r = await window.api.runInstalled(it.id); setStatus(r.ok ? '已启动 ' + it.name : '启动失败', r.ok ? 'ok' : 'err'); };
+      run.onclick = async () => {
+        // 桌宠是独立窗口，点完就"消失"在桌面上 —— 必须有明确反馈，否则用户以为没反应。
+        run.disabled = true;
+        run.textContent = '启动中…';
+        setStatus('正在启动「' + it.name + '」…');
+        const r = await window.api.runInstalled(it.id);
+        if (r && r.ok) {
+          run.textContent = '✓ 已启动';
+          // 关掉库弹窗，让用户直接看到桌面上的宠物
+          const modal = $('#libModal');
+          if (modal) modal.hidden = true;
+          setStatus('✅「' + it.name + '」已出现在桌面上（若没看到，可能在屏幕另一角）', 'ok');
+          setTimeout(() => { run.disabled = false; run.textContent = '启动'; }, 2200);
+        } else {
+          run.disabled = false;
+          run.textContent = '启动';
+          setStatus('启动失败：' + ((r && r.errors) || []).join('; '), 'err');
+        }
+      };
       acts.appendChild(run);
     }
     const del = document.createElement('button'); del.textContent = '删除';

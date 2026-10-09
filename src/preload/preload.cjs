@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('api', {
   closePet: () => ipcRenderer.send('pet:close'),
   loadImageFile: (p) => ipcRenderer.invoke('pet:loadImageFile', p),
   openDataDir: () => ipcRenderer.invoke('app:openDataDir'),
+  revealFile: (p) => ipcRenderer.invoke('app:revealFile', p),
   appVersion: () => ipcRenderer.invoke('app:version'),
   listInstalled: () => ipcRenderer.invoke('pet:listInstalled'),
   installPack: (srcPath) => ipcRenderer.invoke('pet:install', srcPath),

@@ -410,6 +410,14 @@ ipcMain.handle('app:version', () => {
   } catch {}
   return app.getVersion();
 });
+// 在文件管理器里定位到某个文件（导出后"分享给别人"的入口）
+ipcMain.handle('app:revealFile', (e, p) => {
+  try {
+    if (!p || !fs.existsSync(p)) return { ok: false, errors: ['文件不存在'] };
+    shell.showItemInFolder(p);
+    return { ok: true };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
 ipcMain.handle('app:openDataDir', () => { shell.openPath(petsDir()); return { ok: true, path: petsDir() }; });
 
 // ---------- AI 抠图 ----------

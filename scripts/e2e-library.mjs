@@ -108,7 +108,9 @@ app.whenReady().then(async () => {
   await js("document.querySelectorAll('#libGrid .lib-item .acts button')[0].click()");
   await sleep(1200);
   const runStatus = await js("document.querySelector('#status').textContent");
-  check('启动返回成功', /已启动/.test(runStatus), runStatus);
+  // 启动成功的文案在「启动反馈」改动后变为「已出现在桌面上」，
+  // 这里同时接受两种（保留旧文案的兼容性，避免文案微调就挂）
+  check('启动返回成功', /已启动|已出现在桌面上/.test(runStatus), runStatus);
 
   // ---- 5. 重复安装应覆盖而非新增 ----
   dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [A.file] });
