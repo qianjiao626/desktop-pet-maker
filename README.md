@@ -10,7 +10,7 @@
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.8.1](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.8.1/desktop-pet-maker-win32-x64-v0.8.1.zip)**
+**[下载 Windows 免安装版 v0.8.2](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.8.2/desktop-pet-maker-win32-x64-v0.8.2.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
 > 想看全部版本与更新说明：[Releases 页面](https://github.com/qianjiao626/desktop-pet-maker/releases)
