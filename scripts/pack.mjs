@@ -92,6 +92,30 @@ if (fs.existsSync(ortBin)) {
   }
 }
 
+// 1b) 裁掉 GPU 加速相关的大文件（DirectML / dxcompiler / dxil，合计约 36MB）
+//    依据：src/main/segment.js 显式使用 executionProviders: ['cpu']，
+//    这三者是 DirectML/GPU 执行后端才需要的，本工具纯 CPU 推理用不到。
+//    裁剪后仍会跑 selftest 验证模型可推理（见 README 的打包校验流程）。
+const GPU_ONLY = ['DirectML.dll', 'dxcompiler.dll', 'dxil.dll'];
+{
+  const ortRoot = path.join(dir, 'resources', 'app.asar.unpacked', 'node_modules', 'onnxruntime-node');
+  if (fs.existsSync(ortRoot)) {
+    const walk = (d) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const full = path.join(d, e.name);
+        if (e.isDirectory()) { walk(full); continue; }
+        if (GPU_ONLY.includes(e.name)) {
+          const sz = fs.statSync(full).size;
+          fs.rmSync(full, { force: true });
+          saved += sz;
+          console.log('  裁剪 GPU 组件: ' + path.relative(dir, full) + '  ' + (sz / 1048576).toFixed(1) + 'MB');
+        }
+      }
+    };
+    walk(ortRoot);
+  }
+}
+
 // 2) Electron 语言包只留常用
 const loc = path.join(dir, 'locales');
 if (fs.existsSync(loc)) {
