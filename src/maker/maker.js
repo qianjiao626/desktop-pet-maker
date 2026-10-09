@@ -269,6 +269,9 @@ async function addFrameFromDataUrl(dataUrl, name) {
   if (cut && cut.__autoCut) {
     f.current = cut.current;
     f.__autoCut = true;
+    // 让快速条的「抠图」滑块可用（用户可继续微调）
+    const qt = $('#qCutTol');
+    if (qt) { qt.disabled = false; const t = $('#cutTol'); if (t) qt.value = t.value; const tv = $('#qCutTolV'); if (tv) tv.textContent = qt.value; }
   }
   state.frames.push(f);
   state.activeIdx = state.frames.length - 1;
@@ -922,6 +925,26 @@ function bindQuick() {
     quickUpdateButtons();
     setStatus('已停用桌宠', 'ok');
   };
+
+  // ---- 快捷条「抠图」滑块：背景没扣干净就调大，主体被扣掉就调小。
+  // 拖动时立刻用新容差重跑一遍所有帧（体现在预览上），解决"自动抠图不理想就没救"的问题。
+  const qTol = $('#qCutTol'), qTolV = $('#qCutTolV'), mainTol = $('#cutTol');
+  const pushTol = (v) => {
+    const n = Math.max(0, Math.min(140, Math.round(v)));
+    if (qTol && qTol.value !== String(n)) qTol.value = String(n);
+    if (qTolV) qTolV.textContent = String(n);
+    if (mainTol && mainTol.value !== String(n)) { mainTol.value = String(n); }
+    const mv = $('#cutTolV'); if (mv) mv.textContent = String(n);
+  };
+  if (qTol) {
+    qTol.oninput = () => {
+      pushTol(parseInt(qTol.value, 10));
+      if (state.frames.length) rebuildAll();     // 立即重抠
+    };
+    qTol.onchange = () => setStatus('抠图强度 ' + qTol.value, 'ok');
+  }
+  if (mainTol) mainTol.addEventListener('input', () => pushTol(parseInt(mainTol.value, 10)));
+
 
   // ---- 快捷条「大小」滑块：拖动实时改变正在跑的桌宠（也可直接在桌宠上滚轮） ----
   const qScale = $('#qScale'), qScaleV = $('#qScaleV'), mainScale = $('#scale');
