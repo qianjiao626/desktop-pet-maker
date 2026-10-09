@@ -1,5 +1,5 @@
 import { ok } from './_harness.mjs';
-import { handState, fistState, HAND_DURATION, FIST_DURATION } from '../src/shared/effects.js';
+import { handState, fistState, pettingPose, HAND_DURATION, FIST_DURATION, PETTING_DURATION } from '../src/shared/effects.js';
 
 // 取一系列进度点
 const samples = (fn, n = 21, ...rest) => Array.from({ length: n }, (_, i) => fn(i / (n - 1), ...rest));
@@ -65,6 +65,49 @@ ok('手: 时长为正', HAND_DURATION > 0);
 ok('拳: 越界进度被夹取', fistState(-1, 1).x === fistState(0, 1).x);
 ok('拳: NaN 进度不崩溃', Number.isFinite(fistState(NaN, 1).x));
 ok('拳: 时长为正', FIST_DURATION > 0);
+
+// ============ 静态守护：pet.js 用到的 effects 导出必须都 import 了 ============
+// 背景：漏 import 时 node --check 通过、单测全绿，但渲染进程一跑到那行就抛
+// ReferenceError 并中断渲染循环（实测：一摸头整个画面消失）。这里静态兜住。
+{
+  const { readFileSync } = await import('node:fs');
+  const petSrc = readFileSync('src/pet/pet.js', 'utf8');
+  const m = petSrc.match(/import \{([^}]+)\} from '\.\.\/shared\/effects\.js'/);
+  ok('pet.js 有 effects 的 import', !!m);
+  if (m) {
+    const imported = m[1].split(',').map((x) => x.trim());
+    for (const name of ['handState', 'fistState', 'pettingPose', 'HAND_DURATION', 'FIST_DURATION', 'PETTING_DURATION']) {
+      const usedInBody = new RegExp('(^|[^\\w.])' + name + '\\s*[(+]|' + name + '\\b(?![\\w:])').test(petSrc.replace(m[0], ''));
+      if (usedInBody) ok('pet.js 已导入 ' + name, imported.includes(name));
+    }
+  }
+}
+
+// ============ 被摸头时的「舒服」姿态 ============
+{
+  const s0 = pettingPose(0);
+  ok('摸: 起始接近静止', Math.abs(s0.sink) < 1.5 && Math.abs(s0.sway) < 0.5, JSON.stringify(s0));
+
+  const sMid = pettingPose(0.6);
+  ok('摸: 中段真的下沉了', sMid.sink > 2.5, String(sMid.sink));
+  ok('摸: 中段有"舒服"强度', sMid.bliss > 0.9, String(sMid.bliss));
+
+  const s1 = pettingPose(1);
+  ok('摸: 结束回到原样(无下沉)', Math.abs(s1.sink) < 0.5, String(s1.sink));
+  ok('摸: 结束 bliss 归零', s1.bliss < 0.05, String(s1.bliss));
+}
+{
+  const all = samples((t) => pettingPose(t));
+  ok('摸: squash 始终为正且不过分变形', all.every((s) => s.squash > 0.95 && s.squash < 1.2),
+    'max=' + Math.max(...all.map((s) => s.squash)).toFixed(3));
+  ok('摸: bliss 始终在 0..1', all.every((s) => s.bliss >= 0 && s.bliss <= 1));
+  ok('摸: 期间出现过左右摆动', all.some((s) => s.sway > 1) && all.some((s) => s.sway < -1));
+  ok('摸: 期间出现过歪头', all.some((s) => Math.abs(s.tilt) > 2));
+  ok('摸: 数值都是有限值', all.every((s) => Object.values(s).every((v) => Number.isFinite(v))));
+}
+ok('摸: 越界进度被夹取', JSON.stringify(pettingPose(-5)) === JSON.stringify(pettingPose(0)));
+ok('摸: NaN 不崩溃', Number.isFinite(pettingPose(NaN).sink));
+ok('摸: 舒适动画时长比手部更长', PETTING_DURATION > HAND_DURATION);
 
 // ============ 两者互不依赖 ============
 ok('手与拳时长不同（避免视觉同质）', HAND_DURATION !== FIST_DURATION);

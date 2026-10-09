@@ -4,7 +4,7 @@ import { pickAreaForBounds, areaChanged } from '../shared/displays.js';
 import { planRuntimeFrames } from '../shared/budget.js';
 import { createBehavior, tickBehavior, pat as doPat, isWalking, targetVelocityX, stateLabel, hit as doHit, isReacting } from '../shared/behavior.js';
 import { sanitizeSpeech, speechDuration } from '../shared/speech.js';
-import { handState, fistState, HAND_DURATION, FIST_DURATION } from '../shared/effects.js';
+import { handState, fistState, pettingPose, HAND_DURATION, FIST_DURATION, PETTING_DURATION } from '../shared/effects.js';
 import { computeLayout, computeFramePlacement, OVER, MARGIN } from '../shared/layout.js';
 
 const api = window.api;
@@ -37,6 +37,7 @@ let walkSpeed = 60;           // px/s
 
 let hitFx = 0;          // 受击特效强度 0..1（用于抖动/闪烁）
 let handStartAt = 0;    // 摸头的手：动画开始时间（0=不显示）
+let petStartAt = 0;     // 被摸头的「舒服」姿态开始时间（独立于手，留得更久）
 let fistStartAt = 0;    // 拳头：动画开始时间（0=不显示）
 let fistDir = 1;        // 拳头来向 1=从右来 / -1=从左来
 let hitKnockDir = 0;    // 击退方向
@@ -198,9 +199,10 @@ function computeTransform(now) {
       o.scaleY *= 0.96;
       o.scaleX *= 1.03;
     } else if (B.state === 'pat') {
-      o.dy -= 6;
-      o.scaleY *= 1.06;
-      o.scaleX *= 0.97;
+      // 兜底姿态：真正的"舒服"表现由下面的 pettingPose 叠加
+      o.dy -= 3;
+      o.scaleY *= 1.03;
+      o.scaleX *= 0.985;
     } else if (B.state === 'walk') {
       const t2 = now / 1000;
       o.rot += Math.sin(t2 * 12) * 2.2 * B.walkDir;
@@ -218,6 +220,20 @@ function computeTransform(now) {
       o.scaleX = 1; // 需用 rotate 整体
     }
   }
+  // 摸头的「舒服」姿态：轻缩 -> 下沉蹭 -> 左右摇摆 -> 回原样
+  if (petStartAt) {
+    const pp = (now - petStartAt) / PETTING_DURATION;
+    if (pp >= 1) { petStartAt = 0; }
+    else {
+      const q = pettingPose(pp);
+      o.scaleY *= q.squash;
+      o.scaleX *= 1 / Math.sqrt(q.squash);   // 体积感：压扁一点就宽一点
+      o.dy += q.sink;
+      o.dx += q.sway;
+      o.rot += q.tilt;
+    }
+  }
+
   return o;
 }
 
@@ -336,6 +352,56 @@ function artBoxSize(box, petW, availH, ratio) {
 function handLiftPx(petW, availH) {
   if (!artHand.ready) return 0;
   return artBoxSize(artHand, petW, availH, 0.62).h + 10;
+}
+
+/** 摸头时从宠物头顶飘出的小爱心 */
+function drawHearts(now, petRect) {
+  if (!petStartAt) return;
+  const prog = (now - petStartAt) / PETTING_DURATION;
+  if (prog < 0 || prog >= 1) return;
+  const q = pettingPose(prog);
+  if (q.bliss <= 0.05) return;
+
+  const base = Math.max(10, Math.min(26, petRect.w * 0.20));
+  const n = 3;
+  for (let i = 0; i < n; i++) {
+    // 每颗心错开时间飘出
+    const t = (prog - i * 0.16) / 0.62;
+    if (t <= 0 || t >= 1) continue;
+    const e = 1 - Math.pow(1 - t, 2);                     // 先快后慢
+    const x = petRect.cx + (i === 1 ? 12 : i === 2 ? -14 : 0) * (0.5 + t) + q.sway;
+    const y = petRect.top - 6 - e * (base * 3.2);
+    const alpha = Math.min(1, t * 3) * (1 - t) * q.bliss * 1.4;
+    const size = base * (0.55 + 0.45 * e) * (i === 1 ? 0.8 : 1);
+    const rot = (i - 1) * 0.22 + Math.sin(t * 5 + i) * 0.10;
+
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    ctx.translate(x, y);
+    ctx.rotate(rot);
+    ctx.scale(size / 16, size / 16);
+    // 心形路径（16x16 基准）
+    ctx.beginPath();
+    ctx.moveTo(0, 4.6);
+    ctx.bezierCurveTo(-7.6, -1.4, -3.6, -8.4, 0, -4.2);
+    ctx.bezierCurveTo(3.6, -8.4, 7.6, -1.4, 0, 4.6);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(0, -7, 0, 6);
+    g.addColorStop(0, "#ff9fb2");
+    g.addColorStop(1, "#ff6f8f");
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(214,74,110,.55)";
+    ctx.lineWidth = 1.1;
+    ctx.stroke();
+    // 高光
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha)) * 0.7;
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.ellipse(-2.2, -2.4, 1.5, 1.0, -0.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
 }
 
 /** 画摸头的手：从上方伸下，指尖落在头顶 */
@@ -458,6 +524,7 @@ function render(now) {
     top: cyp + o.scaleY * (o.dy - d.h * (1 - ct.y0)),
     scaleY: o.scaleY,
   };
+  drawHearts(now, petRect);
   drawHand(now, petRect);
   drawFist(now, petRect);
 }
@@ -601,6 +668,7 @@ window.addEventListener('mouseup', (e) => {
     S.clickP = 1; S.clickAnim = pack.animation.click;
     if (behaviorEnabled) doPat(B);
   handStartAt = performance.now();
+    petStartAt = performance.now();
     if (pack.bubble.enabled) { showBubble(randomLine()); S.bubbleTimer = pack.bubble.intervalSec; }
   }
 });
@@ -691,6 +759,7 @@ if (api.onQuickWalk) api.onQuickWalk((walking) => {
 if (api.onQuickPat) api.onQuickPat(() => {
   doPat(B);
   handStartAt = performance.now();
+  petStartAt = performance.now();
   S.clickP = 1; S.clickAnim = pack && pack.animation ? pack.animation.click : 'bounce';
   // 用户主动摸头：强制给反馈
   const line = (pack && pack.bubble.lines && pack.bubble.lines.length) ? randomLine() : '好舒服～';

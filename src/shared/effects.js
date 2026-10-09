@@ -123,6 +123,71 @@ export function fistState(progress, dir = 1) {
   };
 }
 
+/**
+ * 被摸头时宠物的「舒服」姿态（纯函数，可单测）
+ * 表现：先轻轻缩一下 -> 微微下沉蹭一蹭 -> 左右慢慢摇摆 -> 回到原样
+ * 目标：让它看起来是"被 rua 得很舒服"，而不是被弹了一下。
+ * @param progress 0..1 动画进度
+ * @returns { squash, sink, sway, tilt, bliss }
+ *   squash —— 纵向挤压系数（>1 更扁一点点，像陷进去）
+ *   sink   —— 下沉像素（正值向下）
+ *   sway   —— 水平位移像素
+ *   tilt   —— 倾斜角度（度）
+ *   bliss  —— 0..1「享受」强度（用于眯眼 / 冒爱心）
+ */
+export function pettingPose(progress) {
+  const p = clamp01(progress);
+  const RISE = 0.18;    // 缩一下
+  const SINK = 0.42;    // 下沉蹭
+  const SWAY_END = 0.84; // 摇摆
+  let squash, sink, sway, tilt, bliss;
+
+  if (p < RISE) {
+    const t = easeOutCubic(p / RISE);
+    squash = 1 + 0.05 * t;
+    sink = 2 * t;
+    sway = 0;
+    tilt = 0;
+    bliss = t * 0.7;
+  } else if (p < SINK) {
+    const t = (p - RISE) / (SINK - RISE);
+    squash = 1.05 + easeOutCubic(t) * 0.05;
+    sink = 2 + 4 * easeOutCubic(t);
+    sway = Math.sin(t * Math.PI) * 2;
+    tilt = 0;
+    bliss = 0.7 + 0.3 * easeOutCubic(t);
+  } else if (p < SWAY_END) {
+    const t = (p - SINK) / (SWAY_END - SINK);
+    const wave = Math.sin(t * Math.PI * 2.4);
+    squash = 1.10 - 0.04 * t;
+    sink = 6 - 3 * t;
+    sway = wave * 4.5 * (1 - t * 0.45);       // 左右蹭
+    tilt = wave * 7 * (1 - t * 0.5);          // 跟着轻轻歪头
+    bliss = 1;
+  } else {
+    const t = (p - SWAY_END) / (1 - SWAY_END);
+    const e = easeOutCubic(t);
+    squash = 1.06 - 0.06 * e;
+    sink = 3 * (1 - e);
+    sway = 0;
+    tilt = 0;
+    bliss = 1 - e;
+  }
+
+  // 夹取，避免 NaN 传播到绘制层
+  const n = (v, d) => (Number.isFinite(v) ? v : d);
+  return {
+    squash: n(squash, 1),
+    sink: n(sink, 0),
+    sway: n(sway, 0),
+    tilt: n(tilt, 0),
+    bliss: Math.max(0, Math.min(1, n(bliss, 0))),
+  };
+}
+
+/** 摸头舒适姿态的建议时长（毫秒）：比手部动画略长，让"舒服感"留一会儿 */
+export const PETTING_DURATION = 1500;
+
 /** 摸头动画的建议时长（毫秒） */
 export const HAND_DURATION = 1100;
 /** 拳击动画的建议时长（毫秒） */
