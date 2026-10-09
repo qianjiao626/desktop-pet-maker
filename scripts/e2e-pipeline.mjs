@@ -1,5 +1,6 @@
 import { app, nativeImage } from 'electron';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { decodeGif } from '../src/shared/gif.js';
@@ -62,8 +63,11 @@ app.whenReady().then(async () => {
   const frames = dec.frames.map((fr, i) => ({ name: 'frame_' + String(i).padStart(3,'0') + '.png', data: encodePNG(dec.width, dec.height, Buffer.from(fr.data)), durationMs: fr.delayMs }));
   const pack = normalizePack({ id: 'e2e', name: 'E2E', frames: frames.map(f => ({ file: f.name, durationMs: f.durationMs })), canvas: { width: SIZE, height: SIZE }, animation: { idle: 'play', fps: 8 } });
   const zip = zipCreate([{ name: 'pet.json', data: JSON.stringify(pack, null, 2) }, ...frames]);
-  fs.mkdirSync('examples', { recursive: true });
-  fs.writeFileSync('examples/e2e-pipeline.petpack', zip);
+  // 写到系统临时目录：examples/ 是「随包分发的内置宠物」目录，
+  // 不能把测试产物写进去（否则会跟着安装包一起发给用户）。
+  const outDir = path.join(os.tmpdir(), 'petmaker-e2e');
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, 'e2e-pipeline.petpack'), zip);
   const back = zipRead(zip);
   log('4) 打包: ' + back.length + ' 条目, ' + (zip.length/1024).toFixed(0) + ' KB');
   const p2 = JSON.parse(back.find(e => e.name === 'pet.json').data.toString('utf8'));

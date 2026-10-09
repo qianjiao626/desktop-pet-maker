@@ -74,7 +74,15 @@ for (const n of ['.git', 'tests', 'scripts', 'models', '.electron-cache']) {
 
   if (names) {
     const packs = names.filter((n) => /\.petpack$/.test(n));
-    check('内置宠物已随包分发', packs.length >= 40, 'asar 内找到 ' + packs.length + ' 个 .petpack');
+    // 断言跟随「examples/ 下实际有多少只内置宠物」，避免写死数字随内容变动而失效。
+    // 同时与源码目录核对，确保打包没漏也没多（曾因 e2e 产物写进 examples 而多出 1 个）。
+    let expect = 0;
+    try {
+      expect = fs.readdirSync(path.join(ROOT, 'examples')).filter((f) => /\.petpack$/i.test(f)).length;
+    } catch {}
+    check('内置宠物已随包分发', packs.length > 0 && (expect === 0 || packs.length === expect),
+      'asar 内 ' + packs.length + ' 个，examples 下 ' + expect + ' 个');
+    check('内不含测试产物', !packs.some((n) => /e2e/i.test(n)), packs.filter((n) => /e2e/i.test(n)).join(','));
   } else {
     // 兜底：直接在 asar 二进制里找宠物文件名（文件名以明文存在于 asar 头）
     const buf = fs.readFileSync(asarPath);
