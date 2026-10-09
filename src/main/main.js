@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu, screen, shell, globalShortcut } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu, screen, shell, globalShortcut, Tray, nativeImage } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +10,7 @@ import { computeLayout } from '../shared/layout.js';
 import { MODELS, listModels, downloadModel, deleteModel, isInstalled } from './models.js';
 import { segmentImage } from './segment.js';
 import { setCurrentPack, getCurrentPack, setPetWindow, getPetWindow, setMakerWindow, getMakerWindow, isPetAlive, setCurrentScale, getCurrentScale } from './state.js';
+import { buildTrayMenuTemplate, trayTooltip } from './tray.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -158,8 +159,10 @@ function createMakerWindow() {
   const win = new BrowserWindow({
     width: 1160, height: 800, minWidth: 940, minHeight: 660,
     backgroundColor: '#0f1117', title: '桌宠制作器', autoHideMenuBar: true,
+    icon: loadAppIcon(),
     webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false },
   });
+  win.on('closed', () => { setMakerWindow(null); refreshTray(); });
   setMakerWindow(win);
   attachDebug(win, 'maker');
   win.loadFile(path.join(ROOT, 'src', 'maker', 'index.html'));
@@ -200,6 +203,88 @@ function registerQuitShortcut() {
     console.warn('[pet] 全局快捷键注册异常: ' + err.message);
     return false;
   }
+}
+
+// ---------- 系统托盘 ----------
+// 关掉制作器窗口后，托盘仍在，用户随时能退出桌宠 / 重开制作器。
+let tray = null;
+
+function iconPath() { return path.join(ROOT, 'src', 'assets', 'icon.png'); }
+
+/** 加载应用图标：兼容 asar（createFromPath 读不了 asar 内的文件） */
+function loadAppIcon() {
+  try {
+    const buf = fs.readFileSync(iconPath());     // asar 内路径可用 fs 读
+    const img = nativeImage.createFromBuffer(buf);
+    if (!img.isEmpty()) return img;
+  } catch (err) {
+    console.warn('[icon] 读取图标失败: ' + (err && err.message));
+  }
+  return nativeImage.createEmpty();
+}
+
+function makerAlive() {
+  const w = getMakerWindow();
+  return !!(w && !w.isDestroyed());
+}
+
+function showMakerWindow() {
+  const w = getMakerWindow();
+  if (w && !w.isDestroyed()) {
+    if (w.isMinimized()) w.restore();
+    w.show();
+    w.focus();
+    return;
+  }
+  // 制作器窗口已被关闭：重建一个
+  const win = createMakerWindow();
+  win.show();
+}
+
+function togglePetVisible() {
+  const w = getPetWindow();
+  if (!w || w.isDestroyed()) return;
+  if (w.isVisible()) w.hide(); else w.showInactive();
+}
+
+function refreshTray() {
+  if (!tray || tray.isDestroyed()) return;
+  try {
+    const s = { petAlive: isPetAlive(), makerAlive: makerAlive() };
+    tray.setToolTip(trayTooltip(s));
+    const template = buildTrayMenuTemplate(s, (action) => {
+      if (action === 'quitPet') { quitPetNow(); refreshTray(); }
+      else if (action === 'togglePetVisible') { togglePetVisible(); }
+      else if (action === 'showMaker') { showMakerWindow(); }
+      else if (action === 'openPetsDir') { shell.openPath(petsDir()); }
+      else if (action === 'quitApp') { app.quit(); }
+    });
+    tray.setContextMenu(Menu.buildFromTemplate(template));
+    if (DEBUG) console.log('[tray] 菜单已刷新 petAlive=' + s.petAlive + ' makerAlive=' + s.makerAlive);
+  } catch (err) {
+    // 菜单刷新失败绝不能影响主流程（托盘仍在，只是菜单旧）
+    console.warn('[tray] 刷新菜单失败: ' + (err && err.message));
+  }
+}
+
+export function createTray() {
+  if (tray && !tray.isDestroyed()) return tray;
+  try {
+    const img = loadAppIcon();
+    tray = new Tray(img);
+  } catch (err) {
+    console.warn('[tray] 创建托盘失败: ' + (err && err.message));
+    return null;
+  }
+  // 左键单击：快速显示/聚焦制作器
+  tray.on('click', () => { showMakerWindow(); });
+  refreshTray();
+  return tray;
+}
+
+export function destroyTray() {
+  if (tray && !tray.isDestroyed()) tray.destroy();
+  tray = null;
 }
 
 function createPetWindow(pack) {
@@ -501,6 +586,7 @@ ipcMain.handle('quick:disable', () => {
   if (w && !w.isDestroyed()) w.close();
   setPetWindow(null);
   petWindow = null;
+  refreshTray();
   return { ok: true };
 });
 
@@ -647,6 +733,7 @@ app.whenReady().then(async () => {
     const seeded = seedBuiltinPets();
     if (seeded.length) console.log('[pet] 已安装内置宠物: ' + seeded.join('、'));
     createMakerWindow();
+    createTray();   // 常驻入口：关掉制作器窗口也能退出桌宠 / 重开
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createMakerWindow(); });
   } else {
     Menu.setApplicationMenu(null);
@@ -655,6 +742,7 @@ app.whenReady().then(async () => {
       currentPet = { pack };
       petWindow = createPetWindow(pack);
       setPetWindow(petWindow);
+      createTray();
     } catch (err) {
       dialog.showErrorBox('无法加载宠物包', String(err.message || err));
       app.quit();
@@ -662,8 +750,12 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on('window-all-closed', () => app.quit());
-app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch {} });
+app.on('window-all-closed', () => {
+  // 有托盘时常驻，不随窗口一起退出（否则又变成「关掉窗口就找不回来」）
+  if (tray && !tray.isDestroyed()) return;
+  app.quit();
+});
+app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch {} destroyTray(); });
 }
 
 // PETMAKER_NO_AUTOSTART=1 时不自启（供 e2e 测试自行驱动）

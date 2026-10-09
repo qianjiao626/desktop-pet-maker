@@ -15,6 +15,7 @@ const suites = [
   ['e2e-pet-multi.mjs', []],
   ['e2e-pet-budget.mjs', []],
   ['e2e-segment.mjs', ['--model=silueta', '--model=isnetGeneral', '--model=isnetAnime']],
+  ['e2e-tray.mjs', []],
   ['e2e-library.mjs', []],
   ['e2e-pipeline.mjs', []],
   ['e2e-download.mjs', []],
