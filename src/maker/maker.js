@@ -484,22 +484,44 @@ document.querySelectorAll('.tab').forEach((tab) => {
 });
 
 // ---------------- 宠物库 ----------------
-async function refreshLibrary() {
+// 列表数据缓存一份，搜索/排序在前端做，避免每次输入都重新读盘、重解压缩略图。
+let libCache = [];
+
+function libFiltered() {
+  const q = ($('#libSearch') ? $('#libSearch').value : '').trim().toLowerCase();
+  const by = ($('#libSort') ? $('#libSort').value : 'name');
+  let list = libCache.slice();
+  if (q) list = list.filter((it) => String(it.name || '').toLowerCase().includes(q));
+  if (by === 'size') list.sort((a, b) => (b.size || 0) - (a.size || 0));
+  else if (by === 'frames') list.sort((a, b) => (b.frames || 0) - (a.frames || 0));
+  else list.sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh'));
+  return list;
+}
+
+function renderLibrary() {
   const grid = $('#libGrid');
-  grid.innerHTML = '<div class="lib-empty">加载中…</div>';
-  const list = await window.api.listInstalled();
-  if (!list.length) {
+  const list = libFiltered();
+  const cnt = $('#libCount');
+  if (cnt) cnt.textContent = libCache.length ? (list.length + ' / ' + libCache.length + ' 只') : '';
+
+  if (!libCache.length) {
     grid.innerHTML = '<div class="lib-empty">🐾 这里空空的～<br />点下方「安装宠物包…」领一只带回家吧</div>';
     return;
   }
+  if (!list.length) {
+    grid.innerHTML = '<div class="lib-empty">🔍 没有匹配「' + escapeHtml(($('#libSearch').value || '').trim()) + '」的宠物</div>';
+    return;
+  }
+
   grid.innerHTML = '';
   for (const it of list) {
     const el = document.createElement('div');
     el.className = 'lib-item';
     if (it.broken) {
-      el.innerHTML = `<div class="nm">⚠ 损坏</div><div class="meta">${it.id}</div>`;
+      el.innerHTML = '<div class="nm">⚠ 损坏</div><div class="meta">' + escapeHtml(it.id) + '</div>';
     } else {
-      el.innerHTML = `<img src="${it.thumb}" alt="" /><div class="nm">${escapeHtml(it.name)}</div><div class="meta">${it.frames} 帧 · ${(it.size / 1024).toFixed(0)} KB</div>`;
+      el.innerHTML = '<img src="' + it.thumb + '" alt="" /><div class="nm">' + escapeHtml(it.name) + '</div>'
+        + '<div class="meta">' + it.frames + ' 帧 · ' + (it.size / 1024).toFixed(0) + ' KB</div>';
     }
     const acts = document.createElement('div');
     acts.className = 'acts';
@@ -515,6 +537,18 @@ async function refreshLibrary() {
     grid.appendChild(el);
   }
 }
+
+/** 重新读盘（安装/删除后调用） */
+async function refreshLibrary() {
+  const grid = $('#libGrid');
+  if (grid) grid.innerHTML = '<div class="lib-empty">加载中…</div>';
+  try { libCache = (await window.api.listInstalled()) || []; } catch { libCache = []; }
+  renderLibrary();
+}
+
+if ($('#libSearch')) $('#libSearch').addEventListener('input', () => renderLibrary());
+if ($('#libSort')) $('#libSort').addEventListener('change', () => renderLibrary());
+
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 $('#btnLibrary').onclick = () => { $('#libModal').hidden = false; refreshLibrary(); };

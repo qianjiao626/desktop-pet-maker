@@ -257,6 +257,15 @@
       <span class="lib-title">🐾 宠物库 <em class="lib-sub">挑一只带回家吧～</em></span>
       <button id="btnLibClose" class="ghost">✕</button>
     </div>
+    <div class="lib-tools">
+      <input type="text" id="libSearch" placeholder="🔍 搜索宠物名字…" autocomplete="off" spellcheck="false" />
+      <select id="libSort">
+        <option value="name">按名字</option>
+        <option value="size">按体积</option>
+        <option value="frames">按帧数</option>
+      </select>
+      <span class="lib-count" id="libCount"></span>
+    </div>
     <div class="lib-grid" id="libGrid"></div>
     <div class="modal-foot">
       <button id="btnLibOpenDir" class="ghost">打开文件夹</button>

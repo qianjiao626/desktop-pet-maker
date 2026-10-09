@@ -106,6 +106,17 @@ button.block{width:100%}
 .modal-head{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;
   border-bottom:1px solid var(--line);font-weight:600}
 .modal-foot{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--line)}
+.lib-tools{display:flex;align-items:center;gap:10px;padding:10px 16px 2px}
+/* 注意：上方 input[type=text]{width:100%} 会与 flex 冲突，把搜索框压成 24px 宽。
+   这里显式 width:auto + flex:1 1 auto 复位（实测修好后宽度正常）。 */
+.lib-tools input[type=text]{width:auto;flex:1 1 0%;min-width:0;padding:7px 11px;border-radius:9px;
+  border:1px solid var(--line);background:#161b28;color:#e8ecf5;font-size:12px;outline:none}
+.lib-tools input[type=text]:focus{border-color:#5b4bd6;box-shadow:0 0 0 3px rgba(91,75,214,.18)}
+/* 同样复位：全局 select{width:100%} 会把它撑到 600px+，把搜索框挤没。
+   实测 select 606px / input 24px -> 复位后两者比例正常。 */
+.lib-tools select{width:auto;flex:0 0 auto;padding:7px 9px;border-radius:9px;border:1px solid var(--line);
+  background:#161b28;color:#e8ecf5;font-size:12px;outline:none}
+.lib-count{font-size:11px;color:var(--dim);white-space:nowrap}
 .lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;padding:16px;overflow:auto}
 .lib-item{background:#1b2030;border:1px solid var(--line);border-radius:12px;padding:10px;text-align:center;
   display:flex;flex-direction:column;gap:6px}
