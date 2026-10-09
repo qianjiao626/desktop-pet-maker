@@ -271,12 +271,20 @@ const artHand = { el: null, ready: false, w: 0, h: 0 };
 const artFist = { el: null, ready: false, w: 0, h: 0 };
 
 /**
- * 白底黑线图 -> 透明底线条精灵（可旋转）
+ * 白底黑线稿 -> 透明底「彩色实心 + 深色描边」精灵（可旋转）
+ *
+ * 为什么要上色：原素材是纯黑线稿，抠掉白底后只剩黑线，
+ * 在深色背景/深色桌面上几乎看不见（用户反馈"看不太出来"）。
+ * 这里把线条围出的封闭区域填成肤色，线条本身留作描边。
+ *
  * @param img 已解码的 <img>
  * @param maxSide 处理时限制的最长边（节省内存）
  * @param rotateDeg 0 | 180 | -90 | 90
+ * @param opt.fill 填充色 [r,g,b]；opt.line 描边色 [r,g,b]；opt.close 封闭膨胀轮数
  */
-function makeLineSprite(img, maxSide, rotateDeg) {
+function makeLineSprite(img, maxSide, rotateDeg, opt = {}) {
+  const FILL = opt.fill || [252, 205, 166];    // 卡通肤色
+  const LINE = opt.line || [92, 60, 40];       // 柔和深棕描边（比纯黑更自然）
   const iw = img.naturalWidth, ih = img.naturalHeight;
   if (!iw || !ih) return null;
   const k = Math.min(1, maxSide / Math.max(iw, ih));
@@ -290,18 +298,115 @@ function makeLineSprite(img, maxSide, rotateDeg) {
   const d = scx.getImageData(0, 0, sw, sh);
   const px = d.data;
 
+  // 1) 先求墨迹强度图：white(0) -> ink(1)
+  const ink = new Uint8Array(sw * sh);
   let x0 = sw, y0 = sh, x1 = -1, y1 = -1;
   for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
-    const q = (y * sw + x) * 4;
+    const i = y * sw + x, q = i * 4;
     const lum = 0.299 * px[q] + 0.587 * px[q + 1] + 0.114 * px[q + 2];
-    const a = Math.max(0, Math.min(255, Math.round(255 - lum)));
-    px[q] = 0; px[q + 1] = 0; px[q + 2] = 0; px[q + 3] = a;
-    if (a > 18) {
+    const v = Math.max(0, Math.min(255, Math.round(255 - lum)));
+    ink[i] = v;
+    if (v > 18) {
       if (x < x0) x0 = x; if (x > x1) x1 = x;
       if (y < y0) y0 = y; if (y > y1) y1 = y;
     }
   }
   if (x1 < 0) return null;             // 全白 / 无内容
+
+  // 2) 判定「内部」：对墨迹做膨胀形成墙，再从四边洪水填充得到「外部」。
+  //    线稿断口过大时单纯闭运算会漏，所以再用「水平扫描线回填」兜底：
+  //    对每一行，位于左右两端墨迹之间的像素一律视为内部（实心）。
+  const wall = new Uint8Array(sw * sh);
+  for (let i = 0; i < wall.length; i++) wall[i] = ink[i] > 40 ? 1 : 0;
+  const closePasses = Number.isFinite(opt.close) ? opt.close : 3;
+  for (let pass = 0; pass < closePasses; pass++) {
+    const next = wall.slice();
+    for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
+      const i = y * sw + x;
+      if (wall[i]) continue;
+      if ((x > 0 && wall[i - 1]) || (x < sw - 1 && wall[i + 1]) ||
+          (y > 0 && wall[i - sw]) || (y < sh - 1 && wall[i + sw])) next[i] = 1;
+    }
+    wall.set(next);
+  }
+
+  // 3) 从四边洪水填充 -> 外部
+  const OUT = 1;
+  const mark = new Uint8Array(sw * sh);
+  const stack = [];
+  const pushIfBg = (x, y) => {
+    if (x < 0 || y < 0 || x >= sw || y >= sh) return;
+    const i = y * sw + x;
+    if (mark[i] || wall[i]) return;
+    mark[i] = OUT; stack.push(i);
+  };
+  for (let x = 0; x < sw; x++) { pushIfBg(x, 0); pushIfBg(x, sh - 1); }
+  for (let y = 0; y < sh; y++) { pushIfBg(0, y); pushIfBg(sw - 1, y); }
+  while (stack.length) {
+    const i = stack.pop();
+    const x = i % sw, y = (i - x) / sw;
+    pushIfBg(x - 1, y); pushIfBg(x + 1, y); pushIfBg(x, y - 1); pushIfBg(x, y + 1);
+  }
+
+  // 3b) 扫描线兜底：每行「最左墨迹」与「最右墨迹」之间的像素必属内部。
+  //     这能补掉断口导致的镂空（拳头那种粗线条断口尤其明显）。
+  const inside = new Uint8Array(sw * sh);
+  for (let y = 0; y < sh; y++) {
+    let first = -1, last = -1;
+    for (let x = 0; x < sw; x++) if (ink[y * sw + x] > 40) { if (first < 0) first = x; last = x; }
+    if (first < 0 || last <= first) continue;
+    for (let x = first; x <= last; x++) inside[y * sw + x] = 1;
+  }
+
+  // 3c) 近似「墨迹深度」：多轮腐蚀，剩余轮数越多说明越是墨迹深处（大黑块）。
+  const edgeDist = new Uint8Array(sw * sh);
+  {
+    let cur = new Uint8Array(sw * sh);
+    for (let i = 0; i < cur.length; i++) cur[i] = ink[i] > 40 ? 1 : 0;
+    for (let pass = 1; pass <= 4; pass++) {
+      const next = new Uint8Array(sw * sh);
+      let any = false;
+      for (let y = 1; y < sh - 1; y++) for (let x = 1; x < sw - 1; x++) {
+        const i = y * sw + x;
+        if (!cur[i]) continue;
+        if (cur[i - 1] && cur[i + 1] && cur[i - sw] && cur[i + sw]) { next[i] = 1; any = true; }
+      }
+      cur = next;
+      if (!any) break;
+      for (let i = 0; i < cur.length; i++) if (cur[i]) edgeDist[i] = pass;
+    }
+  }
+
+  // 4) 上色：墨迹 -> 描边色；被墨迹包围的非外部区域 -> 填充色；外部 -> 透明
+  for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
+    const i = y * sw + x, q = i * 4;
+    const v = ink[i];
+    const isInk = v > 40;                             // 原始墨迹 -> 描边
+    const isOutside = mark[i] === OUT;                // 外部背景 -> 透明
+
+    if (!isInk && v <= 6) { px[q + 3] = 0; continue; }   // 纯白 -> 透明
+
+    if (isInk) {
+      // 描边 vs 实心块的区分：
+      // 原素材里「指关节之间」是很大一块黑，若整块当描边会变成一坨黑。
+      // 这里用「墨迹到非墨迹的距离」近似判断：靠近轮廓的薄层 = 描边；
+      // 深处（被墨迹包住且周围也都是墨迹）= 大黑块 -> 改染填充色。
+      const deep = edgeDist[i] >= 2;      // 距墨迹边缘 >=2px 视为"深部"
+      const t = deep ? 0 : Math.min(1, v / 200);
+      px[q]     = Math.round(FILL[0] + (LINE[0] - FILL[0]) * t);
+      px[q + 1] = Math.round(FILL[1] + (LINE[1] - FILL[1]) * t);
+      px[q + 2] = Math.round(FILL[2] + (LINE[2] - FILL[2]) * t);
+      px[q + 3] = 255;
+    } else if (!isOutside || inside[i]) {
+      // 封闭区域内部（含扫描线兜底判定的内部）-> 实心填充，消除镂空
+      px[q] = FILL[0]; px[q + 1] = FILL[1]; px[q + 2] = FILL[2];
+      px[q + 3] = 255;
+    } else {
+      // 外部淡墨（抗锯齿过渡）-> 半透明描边
+      px[q] = LINE[0]; px[q + 1] = LINE[1]; px[q + 2] = LINE[2];
+      px[q + 3] = Math.min(255, Math.round(v * 3));
+    }
+  }
   scx.putImageData(d, 0, 0);
 
   const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
@@ -325,14 +430,16 @@ function makeLineSprite(img, maxSide, rotateDeg) {
 /** 加载并处理两个特效素材（失败只告警，不影响桌宠本体） */
 function loadArt() {
   const jobs = [
-    [ART_HAND_SRC, artHand, 320, 180],   // 手指朝下
-    [ART_FIST_SRC, artFist, 320, -90],   // 拳峰朝左
+    // 手掌：肤色填充 + 深棕描边（深色桌面上也看得清）
+    [ART_HAND_SRC, artHand, 320, 180, { fill: [252, 205, 166], line: [96, 62, 42], close: 3 }],
+    // 拳头：略深一点的肤色，配暖棕描边，冲击感更明显
+    [ART_FIST_SRC, artFist, 320, -90, { fill: [246, 190, 148], line: [120, 62, 44], close: 5 }],
   ];
-  return Promise.all(jobs.map(([src, box, maxSide, deg]) => new Promise((res) => {
+  return Promise.all(jobs.map(([src, box, maxSide, deg, opt]) => new Promise((res) => {
     const im = new Image();
     im.onload = () => {
       try {
-        const sp = makeLineSprite(im, maxSide, deg);
+        const sp = makeLineSprite(im, maxSide, deg, opt);
         if (sp) { box.el = sp.el; box.w = sp.w; box.h = sp.h; box.ready = true; }
       } catch (err) { console.warn('[pet] 特效素材处理失败: ' + err.message); }
       res();

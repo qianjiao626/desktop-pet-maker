@@ -209,6 +209,22 @@
         <p class="note">把当前帧合成一组无缝循环动画（自动扩展画布，避免动作被裁切）。原图会保留，可随时「恢复原图」。</p>
       </div>
 
+      <div class="ai-box">
+        <div class="ai-head"><span class="ai-title">大头照 → Q 版身体</span><span class="ai-tag ok">离线</span></div>
+        <p class="note">把「一张已抠好背景的大头照」自动长出 Q 版小短腿与小圆手，并生成循环动画。适合上传头像类图片。</p>
+        <label class="row">动作模式
+          <select id="qMode">
+            <option value="walk">走路（双腿交替）</option>
+            <option value="crawl">爬动（手脚并用）</option>
+          </select>
+        </label>
+        <label class="row">帧数 <span class="val" id="qFramesV">12</span>
+          <input type="range" id="qFrames" min="4" max="24" value="12" />
+        </label>
+        <button id="btnGenQBody" class="primary block">生成 Q 版身体动画</button>
+        <p class="note">四肢配色会自动取自头像主色调。生成后可继续用「导出」保存为宠物包。</p>
+      </div>
+
       <p class="note">多帧动画：可用「添加帧」补充图片，按文件名顺序排列；或用上方工具从单张图生成。</p>
     </div>
 

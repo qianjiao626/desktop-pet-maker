@@ -3,6 +3,7 @@ import {
   floodCut, colorKeyCut, keepLargestComponent, trimBounds, cropData, flipHorizontal, alignFrames,
 } from '../shared/imageops.js';
 import { decodeGif, parseGifHeader } from '../shared/gif.js';
+import { composeQBody } from './qcompose.js';
 import { synthesizeMotion, MOTION_NAMES, motionCanvasSize } from '../shared/motion.js';
 import { fitFrameLimit, fmtBytes } from '../shared/budget.js';
 import { sanitizeSpeech, isSpeakable, pushSpeech } from '../shared/speech.js';
@@ -571,7 +572,50 @@ $('#btnLibInstall').onclick = async () => {
 
 // ================= 从单张图生成动画 =================
 $('#motionFrames') && $('#motionFrames').addEventListener('input', () => syncLabels());
+$('#qFrames') && $('#qFrames').addEventListener('input', () => { const el = $('#qFramesV'); if (el) el.textContent = $('#qFrames').value; });
 $('#motionAmp') && $('#motionAmp').addEventListener('input', () => syncLabels());
+
+$('#btnGenQBody') && ($('#btnGenQBody').onclick = () => {
+  if (!state.frames.length) { setStatus('请先导入一张大头照', 'err'); return; }
+  const cur = state.frames[state.activeIdx];
+  if (!cur) { setStatus('没有可用的帧', 'err'); return; }
+
+  // 用当前帧的像素构造 canvas
+  const sw = cur.current.width, sh = cur.current.height;
+  const src = document.createElement('canvas');
+  src.width = sw; src.height = sh;
+  const sx = src.getContext('2d', { willReadFrequently: true });
+  const imgData = sx.createImageData(sw, sh);
+  imgData.data.set(cur.current.data);
+  sx.putImageData(imgData, 0, 0);
+
+  const mode = $('#qMode') ? $('#qMode').value : 'walk';
+  const frames = $('#qFrames') ? parseInt($('#qFrames').value, 10) : 12;
+  setStatus('正在生成 Q 版身体…');
+
+  try {
+    const res = composeQBody(src, { mode, frames });
+    if (!res || !res.frames.length) throw new Error('合成失败');
+
+    // 替换为多帧：每帧取出 RGBA
+    const list = res.frames.map((fr) => {
+      const cx = fr.canvas.getContext('2d', { willReadFrequently: true });
+      const d = cx.getImageData(0, 0, fr.canvas.width, fr.canvas.height);
+      return {
+        current: { width: fr.canvas.width, height: fr.canvas.height, data: new Uint8ClampedArray(d.data) },
+        original: null,
+        durationMs: fr.durationMs,
+        name: mode + '.png',
+      };
+    });
+    state.frames = list;
+    state.activeIdx = 0;
+    rebuildAll();
+    setStatus('✅ 已生成 ' + list.length + ' 帧（' + (mode === 'crawl' ? '爬动' : '走路') + '，' + res.width + '×' + res.height + '）', 'ok');
+  } catch (err) {
+    setStatus('生成失败：' + (err && err.message ? err.message : err), 'err');
+  }
+});
 
 $('#btnGenMotion') && ($('#btnGenMotion').onclick = () => {
   if (!state.frames.length) { setStatus('请先导入一张图片', 'err'); return; }
