@@ -9,7 +9,7 @@ import { petPackFileName, safeFileName } from '../shared/safeid.js';
 import { computeLayout } from '../shared/layout.js';
 import { MODELS, listModels, downloadModel, deleteModel, isInstalled } from './models.js';
 import { segmentImage } from './segment.js';
-import { setCurrentPack, getCurrentPack, setPetWindow, getPetWindow, setMakerWindow, getMakerWindow, isPetAlive } from './state.js';
+import { setCurrentPack, getCurrentPack, setPetWindow, getPetWindow, setMakerWindow, getMakerWindow, isPetAlive, setCurrentScale, getCurrentScale } from './state.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -149,6 +149,7 @@ function quitPetNow() {
   if (w && !w.isDestroyed()) w.close();
   setPetWindow(null);
   petWindow = null;
+  setCurrentScale(null);   // 退出后回到默认大小，避免下次启用继承上次的小尺寸
 }
 
 function unregisterQuitShortcut() {
@@ -405,6 +406,9 @@ ipcMain.handle('quick:enable', (e, payload) => {
     if (!pack || !Array.isArray(frames) || !frames.length) {
       return { ok: false, errors: ['缺少宠物数据'] };
     }
+    // 复用用户上次调好的大小（退出后已清空 -> 回到包内默认）
+    const saved = getCurrentScale();
+    if (saved != null && pack.render) pack.render.scale = saved;
     setCurrentPack({ pack, frames });
 
     const existing = getPetWindow();
@@ -481,6 +485,15 @@ ipcMain.on('pet:setPos', (e, { x, y }) => {
 // 设置宠物窗口的内容区尺寸。
 // 注意：不要在这里同步调用 setPosition（bounds 会滞后，导致窗口漂移或被 DPI 二次缩放），
 // 位置统一由 pet:setPos 通道负责。
+// 调整宠物显示大小（制作器滑块 / 滚轮）。转发给渲染进程，由其重排并保持"脚不离地"。
+ipcMain.on('pet:setScale', (e, scale) => {
+  const v = Number(scale);
+  if (!Number.isFinite(v)) return;
+  const k = Math.min(3, Math.max(0.1, v));
+  setCurrentScale(k);
+  const w = getPetWindow();
+  if (w && !w.isDestroyed()) w.webContents.send('quick:scale', k);
+});
 ipcMain.on('pet:setSize', (e, { w, h }) => {
   if (!petWindow || petWindow.isDestroyed()) return;
   const nw = Math.max(40, Math.round(w));

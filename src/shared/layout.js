@@ -14,7 +14,7 @@ export const BUBBLE_H = 92;   // 为气泡预留的高度
  * @param frameSizes 每帧的原始像素尺寸 [{w,h}]（可选；缺省用 canvas）
  */
 export function computeLayout(pack, frameSizes) {
-  const scale = (pack && pack.render && pack.render.scale) || 0.6;
+  const scale = (pack && pack.render && pack.render.scale) || 0.3;
   const canvasW = (pack && pack.canvas && pack.canvas.width) || 260;
   const canvasH = (pack && pack.canvas && pack.canvas.height) || 260;
 

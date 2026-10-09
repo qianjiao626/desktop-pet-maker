@@ -33,6 +33,11 @@
         <label class="qb-switch" title="让桌宠自己在桌面上走来走去">
           <input type="checkbox" id="chkWalk" checked disabled /> <span>到处爬动</span>
         </label>
+        <label class="qb-size" title="调整桌宠显示大小（也可直接在桌宠上滚轮缩放）">
+          <span>大小</span>
+          <input type="range" id="qScale" min="10" max="200" value="30" disabled />
+          <span class="qb-size-val" id="qScaleV">30%</span>
+        </label>
         <button id="btnPat" class="qbtn qbtn-pat" disabled>✋ 摸摸头</button>
         <button id="btnHit" class="qbtn qbtn-hit" disabled>👊 挨拳击</button>
       </div>
@@ -133,8 +138,8 @@
     <div class="tabpane" data-pane="look">
       <label class="row">宠物名称<input type="text" id="petName" value="我的桌宠" maxlength="24" /></label>
       <label class="row">作者署名<input type="text" id="petAuthor" placeholder="选填" maxlength="24" /></label>
-      <label class="row">显示大小 <span class="val" id="scaleV">60%</span>
-        <input type="range" id="scale" min="15" max="200" value="60" />
+      <label class="row">显示大小 <span class="val" id="scaleV">30%</span>
+        <input type="range" id="scale" min="15" max="200" value="30" />
       </label>
       <label class="chk"><input type="checkbox" id="keepAbove" checked /> 始终显示在其他窗口之上</label>
       <label class="row">初始位置

@@ -13,7 +13,7 @@ export const DEFAULT_PACK = {
   // 统一画布尺寸（所有帧按此归一化，避免抖动）
   canvas: { width: 0, height: 0 },
   render: {
-    scale: 0.6,
+    scale: 0.3,
     flip: false,
   },
   animation: {

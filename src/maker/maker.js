@@ -309,7 +309,7 @@ function currentImages() {
 function applyPack(pack) {
   $('#petName').value = pack.name || '我的桌宠';
   $('#petAuthor').value = pack.author || '';
-  if (pack.render) $('#scale').value = Math.round((pack.render.scale ?? 0.6) * 100);
+  if (pack.render) $('#scale').value = Math.round((pack.render.scale ?? 0.3) * 100);
   if (pack.animation) {
     $('#idleAnim').value = pack.animation.idle || 'breathe';
     $('#idleSpeed').value = Math.round((pack.animation.idleSpeed ?? 1) * 100);
@@ -765,6 +765,28 @@ function bindQuick() {
     quickUpdateButtons();
     setStatus('已停用桌宠', 'ok');
   };
+
+  // ---- 快捷条「大小」滑块：拖动实时改变正在跑的桌宠（也可直接在桌宠上滚轮） ----
+  const qScale = $('#qScale'), qScaleV = $('#qScaleV'), mainScale = $('#scale');
+  const pushScale = (pct, fromQuick) => {
+    const v = Math.max(10, Math.min(300, Math.round(pct)));
+    if (qScale && qScale.value !== String(v)) qScale.value = String(v);
+    if (qScaleV) qScaleV.textContent = v + '%';
+    if (mainScale && mainScale.value !== String(v)) {
+      mainScale.value = String(v);
+      if (typeof syncLabels === 'function') syncLabels();
+      else { const el = $('#scaleV'); if (el) el.textContent = v + '%'; }
+    }
+    if (QK.enabled) window.api.setScale(v / 100);
+    void fromQuick;
+  };
+  if (qScale) {
+    qScale.oninput = () => pushScale(parseInt(qScale.value, 10), true);
+    qScale.onchange = () => setStatus('桌宠大小 ' + qScale.value + '%', 'ok');
+  }
+  if (mainScale) {
+    mainScale.addEventListener('input', () => pushScale(parseInt(mainScale.value, 10), false));
+  }
 
   if (pat) pat.onclick = async () => {
     const r = await window.api.quickPat();

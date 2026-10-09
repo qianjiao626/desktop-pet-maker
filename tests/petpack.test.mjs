@@ -3,6 +3,8 @@ import { normalizePack, validatePack, SCHEMA_VERSION } from '../src/shared/petpa
 
 const p = normalizePack({ render: { scale: 99 }, animation: { idle: 'bogus', idleSpeed: 99 }, bubble: { lines: [] } });
 ok('scale 上限钳制=4', p.render.scale === 4);
+ok('scale 默认更小（0.3）', normalizePack({}).render.scale === 0.3);
+ok('scale 下限钳制=0.05', normalizePack({ render: { scale: 0 } }).render.scale === 0.05);
 ok('非法 idle 回退', p.animation.idle === 'breathe');
 ok('idleSpeed 上限钳制=3', p.animation.idleSpeed === 3);
 ok('空台词回退默认', p.bubble.lines.length > 0);

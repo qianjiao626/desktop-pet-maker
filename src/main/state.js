@@ -6,9 +6,13 @@ let currentPack = null;      // { pack, frames:[{file,dataUrl,durationMs}], sour
 let petWindowRef = null;
 let makerWindowRef = null;
 
+let currentScale = null;    // 用户当前缩放（重启桌宠时沿用；退出时清空回默认）
+
 export function setCurrentPack(v) { currentPack = v; }
 export function getCurrentPack() { return currentPack; }
 export function clearCurrentPack() { currentPack = null; }
+export function setCurrentScale(v) { currentScale = (typeof v === "number" && Number.isFinite(v)) ? v : null; }
+export function getCurrentScale() { return currentScale; }
 
 export function setPetWindow(w) { petWindowRef = w; }
 export function getPetWindow() { return petWindowRef; }
