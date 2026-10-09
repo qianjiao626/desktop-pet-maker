@@ -70,10 +70,12 @@ function seedBuiltinPets() {
       const to = path.join(dst, f);
       if (fs.existsSync(to)) continue;            // 已装过（或用户删过又重装）就不动
       try {
-        const { pack } = readPackFile(from);      // 先校验再复制
-        fs.copyFileSync(from, to);
+        const buf = fs.readFileSync(from);        // 先整体读入（asar 内路径可读）
+        fs.writeFileSync(to, buf);                // 再写到真实用户目录
+        const { pack } = readPackFile(from);      // 校验可解析
         installed.push(pack.name || f);
       } catch (err) {
+        // 失败要能看见：打包版里被静默吞掉过一次（宠物库空、无任何提示）
         console.warn('[pet] 内置宠物载入失败: ' + f + ' -> ' + err.message);
       }
     }

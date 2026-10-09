@@ -44,7 +44,9 @@ const opts = {
   // 若留在 asar 内，加载器会回退到系统 PATH，命中 Windows 自带的
   // C:\Windows\System32\onnxruntime.dll (1.17.1)，与本包 1.30.0 绑定不兼容。
   asar: { unpack: '**/node_modules/**/*.{node,dll,so,dylib}' },
-  ignore: [/^\/(dist|models|examples|tests|scripts|\.git|\.electron-cache)($|\/)/],
+  // 注意：examples/ 必须随包分发——内置宠物（.petpack）就放在那里；
+  // 早期版本误把 examples 整个排除，导致打包后宠物库是空的（已修）。
+  ignore: [/^\/(dist|models|tests|scripts|\.git|\.electron-cache)($|\/)/],
 };
 if (cached) {
   const stage = path.join(ROOT, '.electron-cache');

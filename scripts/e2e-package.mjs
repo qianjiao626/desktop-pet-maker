@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -55,9 +56,31 @@ check('保留 zh-CN 语言包', locs.includes('zh-CN.pak'), locs.join(','));
 check('保留 en-US 语言包', locs.includes('en-US.pak'));
 check('语言包已裁剪(<=3)', locs.length > 0 && locs.length <= 3, 'n=' + locs.length);
 
-// 冗余不得进入产物
-for (const n of ['.git', 'tests', 'scripts', 'models', 'examples', '.electron-cache']) {
+// 冗余不得进入产物（examples 例外：内置宠物必须随包分发）
+for (const n of ['.git', 'tests', 'scripts', 'models', '.electron-cache']) {
   check('不含 ' + n, !fs.existsSync(path.join(dir, n)));
+}
+
+// 内置宠物必须随包分发：examples/*.petpack 要能在 app.asar 里找到。
+// 早期 ignore 规则误把 examples 整个排除，打包版宠物库会空空如也（已修）。
+{
+  const asarPath = path.join(dir, 'resources', 'app.asar');
+  let names = null;
+  try {
+    const require2 = createRequire(path.join(ROOT, 'scripts', 'x.js'));
+    const asar = require2('@electron/asar');
+    names = asar.listPackage(asarPath);
+  } catch { /* 走下面的二进制兜底 */ }
+
+  if (names) {
+    const packs = names.filter((n) => /\.petpack$/.test(n));
+    check('内置宠物已随包分发', packs.length >= 40, 'asar 内找到 ' + packs.length + ' 个 .petpack');
+  } else {
+    // 兜底：直接在 asar 二进制里找宠物文件名（文件名以明文存在于 asar 头）
+    const buf = fs.readFileSync(asarPath);
+    const hit = buf.includes(Buffer.from('小黄龙.petpack')) || buf.includes(Buffer.from('熊猫团.petpack'));
+    check('内置宠物已随包分发（二进制兜底检测）', hit, 'asar 列表不可用时的退化检测');
+  }
 }
 
 const mb = sizeMB(dir);

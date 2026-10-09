@@ -47,6 +47,20 @@
 - 说明：本项目用其中的 2D 零件（身体形状 / 表情 / 手势）拼装出角色，并生成 6 帧呼吸动画；
   零件本身未作修改。生成脚本见 `scripts/make-shapes.mjs`。
 
+### OpenGameArt 萌系动物素材 — CC0-1.0（公共领域）
+
+- 来源：https://opengameart.org
+- 许可：**CC0-1.0**（各素材页面均标注 CC0；可自由用于个人与商业项目）
+- 使用位置：`examples` 中的「北极熊 / 小企鹅 / 小黄鸭 / 胖橘猫 / 大胖鸡」
+- 具体素材页：
+  - https://opengameart.org/content/cute-polar-bear-character（肥动物·北极熊）
+  - https://opengameart.org/content/cute-penguin-character（家禽·企鹅）
+  - https://opengameart.org/content/cute-ducky-duck-character（家禽·小鸭）
+  - https://opengameart.org/content/orange-fat-cat（胖橘猫）
+  - https://opengameart.org/content/fat-bird-sprites（胖鸡）
+- 说明：这批素材**自带逐帧 Idle 动画**（12 帧），本项目仅做等比下采样到 256px 并统一画布后打包；
+  素材造型未作修改。生成脚本见 `scripts/make-cute-pets.mjs`。
+
 > 注：`examples` 中的「小黄龙 / 奶团子 / 喵喵 / 呱呱 / 咚咚」为本项目**原创**形象（程序化绘制），非第三方素材。
 
 ## npm 依赖
