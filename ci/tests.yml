@@ -1,0 +1,50 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: 单元测试 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # 单测是纯 Node（不需要 Electron 运行时），跨平台直接可跑
+      - run: npm test
+
+  e2e:
+    name: 端到端测试 (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # e2e 依赖 Electron 的图形环境与原生模块，先在 Windows 上跑全套
+      - name: 运行端到端测试
+        run: npm run test:e2e
+        env:
+          ELECTRON_DISABLE_SECURITY_WARNINGS: '1'
+          PETMAKER_NO_LAUNCH: '1'
+      - name: 上传失败时的日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: |
+            *.log
+          if-no-files-found: ignore
