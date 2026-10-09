@@ -18,80 +18,41 @@
 
 ## 美术素材
 
-> 说明：Kenney「圆形动物」素材（熊猫团 / 小黄鸭 等 30 只）曾用于内置宠物，
-> 但因风格与整体不统一，**已从内置宠物库移除**（生成脚本与素材包本身未受影响）。
-> 下文保留其许可记录以备查。
+> 说明：内置宠物库**已全部改为程序化原创绘制**（圆润萌系风格，比例参考通用桌面助手的审美，
+> 但造型完全原创，不复制任何第三方 IP）。
+> 因此下列第三方素材包**当前均未再用于内置宠物的成品图像**，仅保留许可记录以备查证历史版本。
 
-### Kenney 动物素材包 — CC0-1.0（公共领域）
+### 曾使用的第三方素材（现已不用于内置宠物成品）
 
+#### Kenney 动物素材包 — CC0-1.0（公共领域）
 - 来源：https://kenney.nl/assets/animal-pack-remastered
 - 作者：Kenney Vleugels（Kenney.nl）
-- 许可：**Creative Commons Zero (CC0)** —— 官方 License.txt 原文：
-  "You may use these assets in personal and commercial projects.
-   Credit (Kenney or www.kenney.nl) would be nice but is not mandatory."
-- 使用位置：`examples/*.petpack` 中的内置卡通动物（熊熊 / 小黄鸭 / 企鹅豆 等）
-- 说明：本项目为这些**静态**圆形动物素材程序化生成了呼吸/摆动多帧动画后再打包；
-  素材本身未作修改，仅做缩放与逐帧变换。虽 CC0 不强制署名，仍在此明确标注来源。
+- 许可：**CC0**（可用于个人与商业项目，署名非必须）
+- 现状：**已移除**，内置库不再包含该素材生成的宠物
 
-### Kenney 怪物零件包 — CC0-1.0（公共领域）
-
+#### Kenney 怪物零件包 — CC0-1.0（公共领域）
 - 来源：https://kenney.nl/assets/monster-builder-pack
-- 作者：Kenney Vleugels（Kenney.nl）
-- 许可：**CC0-1.0**（License.txt 同 Animal Pack：可用于个人与商业项目，署名非必须）
-- 使用位置：`examples` 中的「小黄怪 / 小绿怪 / 小蓝怪 / 小红怪 / 小白怪 / 小紫怪」
-- 说明：本项目用其中的 2D 零件（身体 / 眼睛 / 嘴 / 手臂 / 腿）**拼装**出小怪物，
-  并程序化生成 6 帧呼吸动画；零件本身未作修改。生成脚本见 `scripts/make-monsters.mjs`。
-
-### Kenney 形状角色包 — CC0-1.0（公共领域）
-
-- 来源：https://kenney.nl/assets/shape-characters
-- 作者：Kenney Vleugels（Kenney.nl）
 - 许可：**CC0-1.0**
-- 使用位置：`examples` 中的「小圆橙 / 小方绿 / 小菱红 / 小方正 / 小圆紫」
-- 说明：本项目用其中的 2D 零件（身体形状 / 表情 / 手势）拼装出角色，并生成 6 帧呼吸动画；
-  零件本身未作修改。生成脚本见 `scripts/make-shapes.mjs`。
+- 现状：**已替换**。小怪物现由 `scripts/make-monsters.mjs` 程序化原创绘制
 
-### OpenGameArt 萌系动物素材 — CC0-1.0（公共领域）
+#### Kenney 形状角色包 — CC0-1.0（公共领域）
+- 来源：https://kenney.nl/assets/shape-characters
+- 许可：**CC0-1.0**
+- 现状：**已替换**。形状小朋友现由 `scripts/make-shapes.mjs` 程序化原创绘制
 
+#### OpenGameArt 萌系动物素材 — CC0-1.0（公共领域）
 - 来源：https://opengameart.org
-- 许可：**CC0-1.0**（各素材页面均标注 CC0；可自由用于个人与商业项目）
-- 使用位置：`examples` 中的「北极熊 / 小企鹅 / 小黄鸭 / 胖橘猫 / 大胖鸡」
-- 具体素材页：
-  - https://opengameart.org/content/cute-polar-bear-character（肥动物·北极熊）
-  - https://opengameart.org/content/cute-penguin-character（家禽·企鹅）
-  - https://opengameart.org/content/cute-ducky-duck-character（家禽·小鸭）
-  - https://opengameart.org/content/orange-fat-cat（胖橘猫）
-  - https://opengameart.org/content/fat-bird-sprites（胖鸡）
-- 说明：这批素材**自带逐帧 Idle 动画**（12 帧），本项目仅做等比下采样到 256px 并统一画布后打包；
-  素材造型未作修改。生成脚本见 `scripts/make-cute-pets.mjs`。
+- 许可：**CC0-1.0**
+- 现状：**已替换**。北极熊 / 小企鹅 / 小黄鸭 / 胖橘猫 / 大胖鸡 现由
+  `scripts/make-classic-pets.mjs`、`scripts/make-classic-pets2.mjs`、`scripts/make-cats.mjs`
+  程序化原创绘制
 
-> 注：`examples` 中的「小黄龙 / 奶团子 / 喵喵 / 呱呱 / 咚咚」为本项目**原创**形象（程序化绘制），非第三方素材。
-
-## npm 依赖
-
-| 包 | 许可 | 用途 |
-|---|---|---|
-| electron | MIT | 运行时容器（devDependency） |
-| gifuct-js | MIT | 仅作参考与测试素材来源 |
-| omggif | MIT | 仅测试用：生成测试 GIF（devDependency） |
-
-## 未采用的方案（许可说明）
-
-- `@imgly/background-removal`（AI 抠图）：**AGPL-3.0**，与本项目 MIT 不兼容，故**未采用**。
-## AI 抠图模型（可选，运行时下载）
-
-本项目**不使用** `@imgly/background-removal`（**AGPL-3.0**，与本项目 MIT 许可不兼容），
-也**不使用** `bria-rmbg` / RMBG-2.0（BRIA 许可，商用需付费协议）。
-
-所使用的模型全部为 **Apache-2.0**，来源与许可如下：
-
-| 模型 | 来源仓库 | 许可 |
-|---|---|---|
-| silueta | https://github.com/xuebinqin/U-2-Net | Apache-2.0 |
-| isnet-general-use | https://github.com/xuebinqin/DIS | Apache-2.0 |
-| isnet-anime | https://github.com/SkyTNT/anime-segmentation | Apache-2.0 |
-
-模型文件托管于 https://github.com/danielgatis/rembg/releases （rembg 本身为 MIT，但**模型权重带有各自独立许可**，故逐个核对如上）。
+#### 内置宠物的当前生成脚本（全部原创、无外部依赖）
+- `scripts/make-blue-bot.mjs` —— 小蓝机器人（12 帧）
+- `scripts/make-monsters.mjs` —— 6 只小怪物（6 帧）
+- `scripts/make-shapes.mjs` —— 5 只形状小朋友（6 帧）
+- `scripts/make-classic-pets.mjs` / `make-classic-pets2.mjs` / `make-cats.mjs` —— 经典萌宠与猫咪（6 帧）
+- `scripts/make-examples.js` —— 小黄龙 / 奶团子 / 喵喵 / 呱呱 / 咚咚（6 帧）
 
 ### 推理引擎
 

@@ -1,0 +1,17 @@
+# 统一行尾，避免 Windows 上反复出现 "LF will be replaced by CRLF" 警告
+* text=auto eol=lf
+*.mjs text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.yml text eol=lf
+*.png binary
+*.jpg binary
+*.petpack binary
+*.zip binary
+*.exe binary
+*.dll binary
+*.node binary
+*.onnx binary

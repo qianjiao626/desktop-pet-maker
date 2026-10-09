@@ -1,162 +1,204 @@
-// 生成「小怪物」内置宠物（用 Kenney monster-builder-pack 的 2D 零件拼装，CC0）
-// 零件是「整条肢体」：手臂自带肩部圆头、腿自带胯部圆头，必须贴合身体边缘摆放。
-import { app, nativeImage } from 'electron';
-import fs from 'node:fs';
-import path from 'node:path';
-import { encodePNG } from '../src/shared/png.js';
-import { zipCreate } from '../src/shared/zip.js';
-import { normalizePack } from '../src/shared/petpack.js';
+// 重做 6 只「小怪物」：圆润萌系（与萌系动物 / 小蓝机器人同一审美），纯程序化绘制
+// 替换原来 Kenney 拼装的几何色块风格
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { encodePNG } from "../src/shared/png.js";
+import { zipCreate } from "../src/shared/zip.js";
+import { normalizePack } from "../src/shared/petpack.js";
 
-const SRC = path.join(process.env.TEMP, 'kenney-packs', 'monster-builder-pack', 'PNG', 'Default');
-const OUTDIR = path.resolve('examples');
-const CANVAS = 300;
-const BODY = 165;                 // 身体原始尺寸
-const CX = CANVAS / 2;
-const BODY_CY = CANVAS * 0.50;    // 身体中心
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const OUT = path.resolve(__dirname, "..", "examples");
+const SIZE = 256;
+const PREVIEW = path.resolve(__dirname, "_preview");
+fs.mkdirSync(PREVIEW, { recursive: true });
 
-function loadLayer(name) {
-  const p = path.join(SRC, name + '.png');
-  if (!fs.existsSync(p)) return null;
-  const img = nativeImage.createFromPath(p);
-  const sz = img.getSize();
-  return { bmp: img.toBitmap(), w: sz.width, h: sz.height };
+const sh = (c, k) => [Math.min(255, c[0] * k), Math.min(255, c[1] * k), Math.min(255, c[2] * k)];
+
+function makeCanvas() { return { px: new Uint8ClampedArray(SIZE * SIZE * 4) }; }
+
+function put(cv, x, y, col, a) {
+  if (x < 0 || y < 0 || x >= SIZE || y >= SIZE || a <= 0) return;
+  const i = (y * SIZE + x) * 4;
+  const na = a / 255, oa = cv.px[i + 3] / 255;
+  const A = na + oa * (1 - na);
+  if (A <= 0) return;
+  cv.px[i]     = Math.round((col[0] * na + cv.px[i]     * oa * (1 - na)) / A);
+  cv.px[i + 1] = Math.round((col[1] * na + cv.px[i + 1] * oa * (1 - na)) / A);
+  cv.px[i + 2] = Math.round((col[2] * na + cv.px[i + 2] * oa * (1 - na)) / A);
+  cv.px[i + 3] = Math.round(A * 255);
 }
 
-/** src-over 合成：以 (ax, ay) 为图层锚点，放到画布 (dx, dy) */
-function blit(dst, layer, dx, dy, ax = 0.5, ay = 0.5) {
-  const { bmp, w, h } = layer;
-  const ox = Math.round(dx - w * ax), oy = Math.round(dy - h * ay);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const s = (y * w + x) * 4, a = bmp[s + 3] / 255;
-    if (a <= 0) continue;
-    const px = ox + x, py = oy + y;
-    if (px < 0 || py < 0 || px >= CANVAS || py >= CANVAS) continue;
-    const d = (py * CANVAS + px) * 4;
-    const da = dst[d + 3] / 255;
-    const oa = a + da * (1 - a);
-    if (oa <= 0) continue;
-    dst[d]     = Math.round((bmp[s + 2] * a + dst[d]     * da * (1 - a)) / oa);
-    dst[d + 1] = Math.round((bmp[s + 1] * a + dst[d + 1] * da * (1 - a)) / oa);
-    dst[d + 2] = Math.round((bmp[s]     * a + dst[d + 2] * da * (1 - a)) / oa);
-    dst[d + 3] = Math.round(oa * 255);
-  }
-}
-
-/** 拼装一只小怪物 */
-function compose(spec) {
-  const cv = new Uint8ClampedArray(CANVAS * CANVAS * 4);
-  const half = BODY / 2;
-
-  // 腿：从身体两侧下方伸出（锚点取零件顶部中心 = 胯部）
-  for (const l of spec.legs) {
-    const ly = loadLayer(l.layer);
-    if (ly) blit(cv, ly, CX + l.dx, BODY_CY + half * 0.92, 0.5, 0.04);
-  }
-  // 手臂：从身体两侧伸出（锚点取零件顶部中心 = 肩部）
-  for (const a of spec.arms) {
-    const al = loadLayer(a.layer);
-    if (al) blit(cv, al, CX + a.dx, BODY_CY - half * 0.28, 0.5, 0.04);
-  }
-  // 身体
-  blit(cv, loadLayer(spec.body), CX, BODY_CY, 0.5, 0.5);
-
-  // 眼睛
-  for (const e of spec.eyes) {
-    const el = loadLayer(e.layer);
-    if (el) blit(cv, el, CX + e.dx, BODY_CY + e.dy, 0.5, 0.5);
-  }
-  // 嘴
-  if (spec.mouth) {
-    const m = loadLayer(spec.mouth);
-    if (m) blit(cv, m, CX, BODY_CY + (spec.mouthDy || 34), 0.5, 0.5);
-  }
-  return cv;
-}
-
-/** 生成 6 帧呼吸 / 摆动动画（以脚底为锚点，压扁不下沉） */
-function animate(base) {
-  const motions = [
-    { sy: 1.00, dy: 0 }, { sy: 1.04, dy: -3 }, { sy: 1.02, dy: -1 },
-    { sy: 1.05, dy: -4 }, { sy: 1.03, dy: -2 }, { sy: 1.02, dy: -1 },
-  ];
-  const anchorY = CANVAS * 0.95;
-  return motions.map((m) => {
-    const out = new Uint8ClampedArray(CANVAS * CANVAS * 4);
-    const kx = 1 / Math.sqrt(m.sy);
-    for (let y = 0; y < CANVAS; y++) for (let x = 0; x < CANVAS; x++) {
-      const s = (y * CANVAS + x) * 4, a = base[s + 3];
-      if (!a) continue;
-      const sx = Math.round((x - CX) / kx + CX);
-      const sy = Math.round((y - anchorY) / m.sy + anchorY + m.dy);
-      if (sx < 0 || sy < 0 || sx >= CANVAS || sy >= CANVAS) continue;
-      const d = (sy * CANVAS + sx) * 4;
-      if (out[d + 3] >= a) continue;
-      out[d] = base[s]; out[d+1] = base[s+1]; out[d+2] = base[s+2]; out[d+3] = a;
+function ellipse(cv, ox, oy, rx, ry, col, alpha = 255) {
+  if (rx <= 0 || ry <= 0) return;
+  for (let y = Math.max(0, Math.floor(oy - ry - 1)); y <= Math.min(SIZE - 1, Math.ceil(oy + ry + 1)); y++)
+    for (let x = Math.max(0, Math.floor(ox - rx - 1)); x <= Math.min(SIZE - 1, Math.ceil(ox + rx + 1)); x++) {
+      const d = Math.hypot((x - ox) / rx, (y - oy) / ry);
+      if (d > 1) { const k = Math.min(1, (d - 1) * Math.min(rx, ry)); if (k >= 1) continue; put(cv, x, y, col, alpha * (1 - k)); }
+      else put(cv, x, y, col, alpha);
     }
-    return encodePNG(CANVAS, CANVAS, Buffer.from(out));
-  });
 }
 
-// 6 只小怪物：圆润身体 + 大眼 + 开心嘴（可爱优先）
-const MONSTERS = [
-  { name:'小黄怪', body:'body_yellowA',
-    eyes:[{layer:'eye_cute_light',dx:-30,dy:-16},{layer:'eye_cute_light',dx:30,dy:-16}],
-    mouth:'mouth_closed_happy', mouthDy:36,
-    arms:[{layer:'arm_yellowA',dx:-88},{layer:'arm_yellowC',dx:88}],
-    legs:[{layer:'leg_yellowB',dx:-36},{layer:'leg_yellowB',dx:36}] },
-  { name:'小绿怪', body:'body_greenA',
-    eyes:[{layer:'eye_cute_light',dx:-30,dy:-16},{layer:'eye_cute_light',dx:30,dy:-16}],
-    mouth:'mouth_closed_happy', mouthDy:36,
-    arms:[{layer:'arm_greenA',dx:-88},{layer:'arm_greenC',dx:88}],
-    legs:[{layer:'leg_greenB',dx:-36},{layer:'leg_greenB',dx:36}] },
-  { name:'小蓝怪', body:'body_blueA',
-    eyes:[{layer:'eye_human_blue',dx:-30,dy:-16},{layer:'eye_human_blue',dx:30,dy:-16}],
-    mouth:'mouth_closed_happy', mouthDy:36,
-    arms:[{layer:'arm_blueA',dx:-88},{layer:'arm_blueC',dx:88}],
-    legs:[{layer:'leg_blueB',dx:-36},{layer:'leg_blueB',dx:36}] },
-  { name:'小红怪', body:'body_redA',
-    eyes:[{layer:'eye_cute_light',dx:-30,dy:-16},{layer:'eye_cute_light',dx:30,dy:-16}],
-    mouth:'mouth_closed_happy', mouthDy:36,
-    arms:[{layer:'arm_redA',dx:-88},{layer:'arm_redC',dx:88}],
-    legs:[{layer:'leg_redB',dx:-36},{layer:'leg_redB',dx:36}] },
-  { name:'小白怪', body:'body_whiteA',
-    eyes:[{layer:'eye_human',dx:-30,dy:-16},{layer:'eye_human',dx:30,dy:-16}],
-    mouth:'mouth_closed_teeth', mouthDy:36,
-    arms:[{layer:'arm_whiteA',dx:-88},{layer:'arm_whiteC',dx:88}],
-    legs:[{layer:'leg_whiteB',dx:-36},{layer:'leg_whiteB',dx:36}] },
-  { name:'小紫怪', body:'body_darkA',
-    eyes:[{layer:'eye_cute_light',dx:-30,dy:-16},{layer:'eye_cute_light',dx:30,dy:-16}],
-    mouth:'mouth_closed_happy', mouthDy:36,
-    arms:[{layer:'arm_darkA',dx:-88},{layer:'arm_darkC',dx:88}],
-    legs:[{layer:'leg_darkB',dx:-36},{layer:'leg_darkB',dx:36}] },
+/** 圆润三角形（耳朵/角），带抗锯齿 */
+function tri(cv, p1, p2, p3, col, alpha = 255) {
+  const minX = Math.floor(Math.min(p1[0], p2[0], p3[0]) - 2), maxX = Math.ceil(Math.max(p1[0], p2[0], p3[0]) + 2);
+  const minY = Math.floor(Math.min(p1[1], p2[1], p3[1]) - 2), maxY = Math.ceil(Math.max(p1[1], p2[1], p3[1]) + 2);
+  const sign = (a, b, c) => (a[0] - c[0]) * (b[1] - c[1]) - (b[0] - c[0]) * (a[1] - c[1]);
+  for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) {
+    const pt = [x, y];
+    const d1 = sign(pt, p1, p2), d2 = sign(pt, p2, p3), d3 = sign(pt, p3, p1);
+    const neg = d1 < 0 || d2 < 0 || d3 < 0, pos = d1 > 0 || d2 > 0 || d3 > 0;
+    if (neg && pos) continue;
+    put(cv, x, y, col, alpha);
+  }
+}
+
+/**
+ * 画一只圆润小怪物
+ * spec: { body, belly, accent, ears: 'horn'|'antenna'|'round'|'fin', tail }
+ */
+function drawMonster(spec, o = {}) {
+  const { squash = 1, bob = 0, arm = 0, blink = false, wobble = 0 } = o;
+  const cv = makeCanvas();
+  const cx = SIZE / 2;
+  const cy = SIZE / 2 + 6 + bob;
+  const rx = SIZE * 0.325;
+  const ry = SIZE * 0.335 * squash;
+  const dark = sh(spec.body, 0.84);
+
+  // 尾巴 / 背鳍（画在最底层）
+  if (spec.tail === 'fin') {
+    for (let i = 0; i <= 10; i++) {
+      const k = i / 10;
+      ellipse(cv, cx + rx * (0.62 + k * 0.42) + wobble * k * 3, cy - ry * (0.10 + k * 0.34),
+        rx * (0.10 - k * 0.045), ry * (0.16 - k * 0.075), sh(spec.accent, 0.96));
+    }
+  }
+  if (spec.tail === 'zap') {
+    for (let i = 0; i <= 12; i++) {
+      const k = i / 12;
+      ellipse(cv, cx + rx * (0.70 + k * 0.55) + wobble * k * 4, cy + ry * (0.12 - k * 0.30),
+        rx * (0.085 - k * 0.04), ry * (0.085 - k * 0.04), spec.accent);
+    }
+  }
+
+  // 耳朵 / 角 / 天线（在身体之后但贴着顶部）
+  if (spec.ears === 'horn') {
+    for (const s of [-1, 1]) {
+      for (let i = 0; i <= 10; i++) {
+        const k = i / 10;
+        ellipse(cv, cx + s * rx * (0.34 + k * 0.06), cy - ry * (0.86 + k * 0.38),
+          rx * (0.135 - k * 0.075), ry * (0.135 - k * 0.070), spec.accent);
+      }
+    }
+  } else if (spec.ears === 'antenna') {
+    for (const s of [-1, 1]) {
+      for (let i = 0; i <= 12; i++) {
+        const k = i / 12;
+        ellipse(cv, cx + s * rx * (0.34 + k * 0.20) + wobble * k * 3, cy - ry * (0.84 + k * 0.62),
+          rx * (0.055 - k * 0.022), ry * (0.055 - k * 0.022), sh(spec.body, 0.92));
+      }
+      ellipse(cv, cx + s * rx * 0.54 + wobble * 3, cy - ry * 1.46, rx * 0.115, ry * 0.115, spec.accent);
+    }
+  } else if (spec.ears === 'fin') {
+    for (const s of [-1, 1]) {
+      tri(cv, [cx + s * rx * 0.30, cy - ry * 0.78], [cx + s * rx * 0.82, cy - ry * 1.16], [cx + s * rx * 0.92, cy - ry * 0.62], sh(spec.body, 0.90));
+      tri(cv, [cx + s * rx * 0.40, cy - ry * 0.80], [cx + s * rx * 0.74, cy - ry * 1.04], [cx + s * rx * 0.80, cy - ry * 0.66], spec.accent);
+    }
+  } else {
+    for (const s of [-1, 1]) {
+      ellipse(cv, cx + s * rx * 0.62, cy - ry * 0.86, rx * 0.19, ry * 0.25, sh(spec.body, 0.92));
+      ellipse(cv, cx + s * rx * 0.62, cy - ry * 0.86, rx * 0.11, ry * 0.15, sh(spec.accent, 1.0));
+    }
+  }
+
+  // 手脚（先画，压在身体下）
+  ellipse(cv, cx - rx * 0.96, cy + ry * 0.24 + arm * 8, rx * 0.175, ry * 0.20, dark);
+  ellipse(cv, cx + rx * 0.96, cy + ry * 0.24 - arm * 8, rx * 0.175, ry * 0.20, dark);
+  ellipse(cv, cx - rx * 0.42, cy + ry * 0.92, rx * 0.25, ry * 0.155, dark);
+  ellipse(cv, cx + rx * 0.42, cy + ry * 0.92, rx * 0.25, ry * 0.155, dark);
+
+  // 身体：外圈 + 主色 + 顶部高光
+  ellipse(cv, cx, cy, rx * 1.045, ry * 1.045, dark);
+  ellipse(cv, cx, cy, rx, ry, spec.body);
+  ellipse(cv, cx - rx * 0.20, cy - ry * 0.34, rx * 0.60, ry * 0.50, sh(spec.body, 1.10), 120);
+  // 肚皮
+  ellipse(cv, cx, cy + ry * 0.30, rx * 0.54, ry * 0.42, spec.belly, 235);
+
+  // 眼睛（大眼 + 双高光）
+  const eyeX = rx * 0.33, eyeY = cy - ry * 0.16;
+  if (blink) {
+    for (const s of [-1, 1]) {
+      for (let x = -1; x <= 1; x++) ellipse(cv, cx + s * eyeX + x * 2, eyeY, rx * 0.10, ry * 0.026, [42, 38, 52]);
+    }
+  } else {
+    for (const s of [-1, 1]) {
+      ellipse(cv, cx + s * eyeX, eyeY, rx * 0.093, ry * 0.108, [34, 32, 44]);
+      ellipse(cv, cx + s * eyeX - rx * 0.030, eyeY - ry * 0.042, rx * 0.034, ry * 0.040, [255, 255, 255]);
+      ellipse(cv, cx + s * eyeX + rx * 0.028, eyeY + ry * 0.040, rx * 0.016, ry * 0.019, [255, 255, 255], 175);
+    }
+  }
+
+  // 腮红（用 accent 的柔化版）
+  ellipse(cv, cx - rx * 0.58, cy + ry * 0.10, rx * 0.13, ry * 0.075, spec.accent, 165);
+  ellipse(cv, cx + rx * 0.58, cy + ry * 0.10, rx * 0.13, ry * 0.075, spec.accent, 165);
+
+  // 嘴（小 w 形）
+  for (let x = -1; x <= 1; x++) {
+    ellipse(cv, cx - rx * 0.075 + x, cy + ry * 0.15, rx * 0.036, ry * 0.030, [110, 68, 78], 205);
+    ellipse(cv, cx + rx * 0.075 + x, cy + ry * 0.15, rx * 0.036, ry * 0.030, [110, 68, 78], 205);
+  }
+  return cv.px;
+}
+
+function toPNG(px) { return encodePNG(SIZE, SIZE, Buffer.from(px.buffer, px.byteOffset, px.length)); }
+
+const FRAMES = [
+  { o: {}, dur: 190 },
+  { o: { squash: 1.045, bob: -3, arm: 0.5, wobble: 0.5 }, dur: 190 },
+  { o: { squash: 1.02, bob: -1, arm: 0.1, wobble: 0.15 }, dur: 190 },
+  { o: { squash: 1.06, bob: -4, arm: -0.5, wobble: -0.5 }, dur: 190 },
+  { o: { squash: 1.03, bob: -2, wobble: -0.2 }, dur: 190 },
+  { o: { squash: 1.02, bob: -1, blink: true, wobble: 0.1 }, dur: 300 },
 ];
 
-app.whenReady().then(() => {
-  if (!fs.existsSync(SRC)) { console.error('未找到零件目录: ' + SRC); app.quit(); return; }
-  const made = [];
-  for (const spec of MONSTERS) {
-    const need = [spec.body, ...spec.eyes.map(e => e.layer), spec.mouth,
-      ...(spec.arms || []).map(a => a.layer), ...(spec.legs || []).map(l => l.layer)];
-    const missing = need.filter(n => n && !fs.existsSync(path.join(SRC, n + '.png')));
-    if (missing.length) { console.log('跳过 ' + spec.name + '（缺零件: ' + missing.join(', ') + '）'); continue; }
+// 6 只小怪物（配色明显区分，风格统一）
+const MONS = [
+  { name: '小绿怪', body: [116, 206, 132], belly: [206, 242, 200], accent: [255, 168, 176], ears: 'fin',   tail: 'fin' },
+  { name: '小蓝怪', body: [118, 172, 240], belly: [208, 230, 255], accent: [255, 170, 180], ears: 'antenna', tail: 'zap' },
+  { name: '小红怪', body: [245, 128, 138], belly: [255, 214, 214], accent: [255, 210, 130], ears: 'horn',  tail: 'zap' },
+  { name: '小黄怪', body: [250, 205, 95],  belly: [255, 240, 190], accent: [255, 158, 150], ears: 'horn',  tail: 'fin' },
+  { name: '小紫怪', body: [172, 142, 236], belly: [226, 214, 255], accent: [255, 176, 190], ears: 'antenna', tail: 'fin' },
+  { name: '小白怪', body: [242, 240, 250], belly: [255, 255, 255], accent: [255, 168, 178], ears: 'round', tail: 'fin' },
+];
 
-    const base = compose(spec);
-    const frames = animate(base);
-    const files = frames.map((data, i) => ({ name: 'frame_' + String(i).padStart(3, '0') + '.png', data }));
-    const pack = normalizePack({
-      id: 'monster-' + spec.name, name: spec.name, author: 'Kenney.nl (CC0)',
-      frames: files.map(f => ({ file: f.name, durationMs: 180 })),
-      canvas: { width: CANVAS, height: CANVAS },
-      render: { scale: 0.3 },
-      animation: { idle: 'play', idleSpeed: 1, fps: 5, click: 'bounce', hover: 'grow' },
-      physics: { gravity: 1.2, bounce: 0.55, roam: true, roamSpeed: 1 },
-      bubble: { enabled: true, lines: ['咕噜咕噜～', '我是' + spec.name + '！', '陪我玩嘛～'] },
-      behavior: { startCorner: 'bottom-right', keepAbove: true },
-    });
-    fs.writeFileSync(path.join(OUTDIR, spec.name + '.petpack'),
-      zipCreate([{ name: 'pet.json', data: JSON.stringify(pack, null, 2) }, ...files]));
-    made.push(spec.name);
-  }
-  console.log('生成: ' + made.join('、'));
-  app.quit();
-}).catch(e => { console.error('FATAL ' + e.message + '\n' + e.stack); app.quit(); });
+const LINES = {
+  '小绿怪': ['嗷呜～我是小绿怪！', '要不要一起玩？', '我今天也很乖'],
+  '小蓝怪': ['噼里啪啦～', '我的天线会发光！', '抱抱我嘛'],
+  '小红怪': ['哼！我不凶的', '不要怕我呀', '我超软的'],
+  '小黄怪': ['嘿嘿嘿～', '我最喜欢晒太阳', '摸摸我的角'],
+  '小紫怪': ['咕噜咕噜～', '我是紫紫小怪', '来陪我嘛'],
+  '小白怪': ['白白软软的～', '我是小白怪', '一起睡觉吧'],
+};
+
+const made = [];
+for (const spec of MONS) {
+  const files = FRAMES.map((f, i) => ({ name: 'frame_' + String(i).padStart(3, '0') + '.png', data: toPNG(drawMonster(spec, f.o)) }));
+  const pack = normalizePack({
+    id: 'monster-' + spec.name,
+    name: spec.name,
+    author: '桌宠制作器',
+    frames: files.map((f, i) => ({ file: f.name, durationMs: FRAMES[i].dur })),
+    canvas: { width: SIZE, height: SIZE },
+    render: { scale: 0.3 },
+    animation: { idle: 'play', idleSpeed: 1, fps: 5, click: 'bounce', hover: 'grow' },
+    physics: { gravity: 1.2, bounce: 0.55, roam: true, roamSpeed: 1 },
+    bubble: { enabled: true, lines: LINES[spec.name] },
+    behavior: { startCorner: 'bottom-right', keepAbove: true },
+  });
+  const file = path.join(OUT, spec.name + '.petpack');
+  fs.writeFileSync(file, zipCreate([{ name: 'pet.json', data: JSON.stringify(pack, null, 2) }, ...files]));
+  made.push(file);
+  fs.writeFileSync(path.join(PREVIEW, spec.name + '.png'), toPNG(drawMonster(spec, FRAMES[3].o)));
+}
+console.log('已重做: ' + made.map(f => path.basename(f)).join(', '));
