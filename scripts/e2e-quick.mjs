@@ -154,10 +154,17 @@ app.whenReady().then(async () => {
     check('挨拳击进入 hit 状态', onHit.behavior.state === 'hit', onHit.behavior.state);
     check('受击计数递增', (onHit.behavior.hitCount || 0) === 1, String(onHit.behavior.hitCount));
     check('制作器提示给了它一拳', /一拳/.test(await mx('document.querySelector("#status").textContent')));
-    await sleep(1800);
+    // 受击瞬间先取「击退速度」：位移会被物理碰撞（撞到屏幕边缘/虫子）干扰，
+    // 速度才是「这一拳有没有打出去」的直接证据。只在受击窗口内采样一次，避免时序脆弱。
+    await sleep(120);
+    const hitVel = await pw.webContents.executeJavaScript('window.__petDebug()');
+    const vx = Math.abs((hitVel.body && hitVel.body.vx) || 0);
+    await sleep(1700);
     const afterHit = await pw.webContents.executeJavaScript('window.__petDebug()');
     check('受击后自动恢复', afterHit.behavior.state !== 'hit', afterHit.behavior.state);
-    check('受击产生了位移', Math.abs(afterHit.body.x - beforeHit.body.x) > 5, "dx=" + (afterHit.body.x - beforeHit.body.x).toFixed(1));
+    // 判定：要么产生了明显位移，要么受击瞬间有击退速度（二者其一即可，避免被碰撞误判为失败）
+    const dx = Math.abs(afterHit.body.x - beforeHit.body.x);
+    check('受击产生了位移或击退速度', dx > 5 || vx > 0.5, 'dx=' + dx.toFixed(1) + ' vx=' + vx.toFixed(2));
   }
 
   // ---- 7c. 输入文本让它说出来 ----
