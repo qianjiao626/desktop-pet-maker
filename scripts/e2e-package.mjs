@@ -94,6 +94,15 @@ for (const n of ['.git', 'tests', 'scripts', 'models', '.electron-cache']) {
 const mb = sizeMB(dir);
 log('  体积: ' + mb.toFixed(1) + ' MB');
 check('体积已裁剪(<600MB)', mb > 100 && mb < 600, mb.toFixed(1) + 'MB');
+// GPU 组件应被裁掉（本工具纯 CPU 推理，见 src/main/segment.js 的 executionProviders）
+{
+  const ortBin2 = path.join(unpacked, 'node_modules', 'onnxruntime-node', 'bin', 'napi-v6', platform, arch);
+  const files2 = fs.existsSync(ortBin2) ? fs.readdirSync(ortBin2) : [];
+  const gpu = files2.filter((f) => ['DirectML.dll', 'dxcompiler.dll', 'dxil.dll'].includes(f));
+  check('已裁掉 GPU 组件（DirectML/dxcompiler/dxil）', gpu.length === 0,
+    gpu.length ? '残留: ' + gpu.join(',') : '已裁掉，省约 36MB');
+  check('CPU 推理所需的 dll 仍在', files2.some((f) => f === 'onnxruntime.dll'));
+}
 
 log('');
 log('==== PACKAGE E2E: ' + pass + '/' + (pass + fail) + ' ====');
