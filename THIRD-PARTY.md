@@ -38,6 +38,15 @@
 - 说明：本项目用其中的 2D 零件（身体 / 眼睛 / 嘴 / 手臂 / 腿）**拼装**出小怪物，
   并程序化生成 6 帧呼吸动画；零件本身未作修改。生成脚本见 `scripts/make-monsters.mjs`。
 
+### Kenney 形状角色包 — CC0-1.0（公共领域）
+
+- 来源：https://kenney.nl/assets/shape-characters
+- 作者：Kenney Vleugels（Kenney.nl）
+- 许可：**CC0-1.0**
+- 使用位置：`examples` 中的「小圆橙 / 小方绿 / 小菱红 / 小方正 / 小圆紫」
+- 说明：本项目用其中的 2D 零件（身体形状 / 表情 / 手势）拼装出角色，并生成 6 帧呼吸动画；
+  零件本身未作修改。生成脚本见 `scripts/make-shapes.mjs`。
+
 > 注：`examples` 中的「小黄龙 / 奶团子 / 喵喵 / 呱呱 / 咚咚」为本项目**原创**形象（程序化绘制），非第三方素材。
 
 ## npm 依赖
