@@ -30,6 +30,10 @@ body{
   display:flex;align-items:center;justify-content:center;
 }
 .stage.dragover{border-color:var(--accent);box-shadow:inset 0 0 0 2px rgba(91,140,255,.35)}
+.stage-empty .steps{display:flex;flex-direction:column;gap:7px;margin:14px 0 12px;align-items:center}
+.stage-empty .step{font-size:12.5px;color:#c7cee0;background:rgba(255,255,255,.05);
+  padding:6px 14px;border-radius:9px;min-width:212px;text-align:left}
+.stage-empty .step b{color:var(--accent);margin-right:6px}
 .stage-empty{text-align:center;color:var(--dim);display:flex;flex-direction:column;align-items:center;gap:10px}
 .stage-empty .big{font-size:20px;color:var(--txt);font-weight:600}
 .stage-empty .sub{font-size:11px;opacity:.6}

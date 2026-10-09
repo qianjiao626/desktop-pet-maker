@@ -60,10 +60,15 @@
 
     <div class="stage" id="stage">
       <div class="stage-empty" id="stageEmpty">
-        <div class="big">拖拽图片到这里</div>
+        <div class="big">拖一张图片进来</div>
+        <div class="steps">
+          <div class="step"><b>①</b> 拖入图片（照片也行）</div>
+          <div class="step"><b>②</b> 自动抠掉背景</div>
+          <div class="step"><b>③</b> 点「启用桌宠」</div>
+        </div>
         <div class="sub">或</div>
         <button id="btnChoose" class="primary">选择图片</button>
-        <div class="hint">支持 PNG / JPG / WEBP / <b>GIF</b> / BMP<br />拖入 GIF 自动拆帧；拖入多张图即多帧动画</div>
+        <div class="hint">支持 PNG / JPG / WEBP / <b>GIF</b> / BMP<br />纯色背景的照片可以直接用（会自动抠图）；<br />GIF 自动拆帧，多张图 = 多帧动画</div>
       </div>
       <div class="stage-view" id="stageView" hidden>
         <img id="previewImg" alt="预览" draggable="false" />

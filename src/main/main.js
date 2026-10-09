@@ -392,7 +392,16 @@ ipcMain.handle('pet:uninstall', (e, id) => {
 });
 
 // 版本号唯一来源是 package.json；UI 不再硬编码（否则会像 v0.2 vs 0.8.0 那样脱节）
-ipcMain.handle('app:version', () => app.getVersion());
+// 版本号以 package.json 为准。
+// 注意：开发模式（electron .）下 app.getVersion() 返回的是 **Electron 的版本**
+// （实测显示成 v44.7.0），而不是应用版本；打包后才正确。所以这里显式读 package.json 兜底。
+ipcMain.handle('app:version', () => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+    if (pkg && pkg.version) return String(pkg.version);
+  } catch {}
+  return app.getVersion();
+});
 ipcMain.handle('app:openDataDir', () => { shell.openPath(petsDir()); return { ok: true, path: petsDir() }; });
 
 // ---------- AI 抠图 ----------
