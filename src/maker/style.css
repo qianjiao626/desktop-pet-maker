@@ -159,6 +159,14 @@ button.block{width:100%}
   repeating-linear-gradient(45deg,#232a3b 0 6px,#252d40 6px 12px)}
 .lib-item .nm{margin-top:6px;font-size:12.5px}
 .lib-item .acts button{border-radius:8px}
+/* 收藏星标：常驻显示但默认淡，已收藏时高亮 */
+.lib-item .lib-fav{position:absolute;top:6px;left:6px;width:24px;height:24px;padding:0;border-radius:8px;
+  border:1px solid rgba(255,255,255,.14);background:rgba(16,20,32,.62);color:#c8cee0;font-size:13px;line-height:1;
+  cursor:pointer;opacity:.62;transition:opacity .15s,transform .15s,color .15s,background .15s}
+.lib-item:hover .lib-fav{opacity:1}
+.lib-item .lib-fav:hover{transform:scale(1.12);color:#ffd766;background:rgba(16,20,32,.86)}
+.lib-item .lib-fav.on{opacity:1;color:#ffd766;border-color:rgba(255,215,102,.5);
+  background:rgba(255,215,102,.14);text-shadow:0 0 8px rgba(255,215,102,.55)}
 .lib-empty{grid-column:1/-1;text-align:center;color:var(--dim);padding:40px 0;font-size:12px}
 /* ---- AI 抠图面板 ---- */
 .ai-box{margin-top:10px;padding:11px 12px;border-radius:12px;border:1px solid #33406a;

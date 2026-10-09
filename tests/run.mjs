@@ -16,6 +16,7 @@ await import('./budget.test.mjs');
 await import('./displays.test.mjs');
 await import('./motion.test.mjs');
 await import('./align.test.mjs');
+await import('./library.test.mjs');
 await import('./tray.test.mjs');
 await import('./ipc.test.mjs');
 const { pass, total } = report('桌宠制作器 单元测试');

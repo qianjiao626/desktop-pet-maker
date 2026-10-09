@@ -7,6 +7,7 @@ import { zipCreate, zipRead } from '../shared/zip.js';
 import { normalizePack, validatePack } from '../shared/petpack.js';
 import { petPackFileName, safeFileName } from '../shared/safeid.js';
 import { computeLayout } from '../shared/layout.js';
+import { emptyState, normalizeState, toggleFavorite, touchRecent, forgetPet } from '../shared/library.js';
 import { MODELS, listModels, downloadModel, deleteModel, isInstalled } from './models.js';
 import { segmentImage } from './segment.js';
 import { setCurrentPack, getCurrentPack, setPetWindow, getPetWindow, setMakerWindow, getMakerWindow, isPetAlive, setCurrentScale, getCurrentScale } from './state.js';
@@ -98,6 +99,19 @@ function savePosition(id, x, y) {
   try { fs.writeFileSync(positionsFile(), JSON.stringify(p, null, 2)); } catch {}
 }
 function getPosition(id) { const p = loadPositions(); return (id && p[id]) || null; }
+
+// ---------- 宠物库偏好（收藏 / 最近使用） ----------
+// 存放在 userData/library.json，与 positions.json 同级。
+// 按宠物 id 记录，不写进 .petpack（用户偏好不该污染可分享的宠物包）。
+function libraryFile() { return path.join(app.getPath('userData'), 'library.json'); }
+function loadLibraryPrefs() {
+  try { return normalizeState(JSON.parse(fs.readFileSync(libraryFile(), 'utf8'))); }
+  catch { return emptyState(); }
+}
+function saveLibraryPrefs(state) {
+  try { fs.writeFileSync(libraryFile(), JSON.stringify(normalizeState(state), null, 2)); }
+  catch (err) { console.warn('[library] 保存偏好失败: ' + (err && err.message)); }
+}
 
 // ---------- 宠物包读写（多帧） ----------
 function mimeOf(file) { return MIME[path.extname(file).toLowerCase()] || 'image/png'; }
@@ -480,8 +494,26 @@ ipcMain.handle('pet:uninstall', (e, id) => {
   try {
     const full = path.join(petsDir(), id);
     if (fs.existsSync(full)) fs.unlinkSync(full);
+    // 同时清掉它的收藏/最近使用记录，避免留下点不开的幽灵条目
+    saveLibraryPrefs(forgetPet(loadLibraryPrefs(), id));
     return { ok: true };
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
+// ---------- 宠物库偏好 IPC（收藏 / 最近使用）----------
+ipcMain.handle('library:get', () => loadLibraryPrefs());
+
+ipcMain.handle('library:toggleFav', (e, id) => {
+  const next = toggleFavorite(loadLibraryPrefs(), id);
+  saveLibraryPrefs(next);
+  return next;
+});
+
+// 记一次「使用」：启动宠物后调用
+ipcMain.handle('library:touch', (e, id) => {
+  const next = touchRecent(loadLibraryPrefs(), id);
+  saveLibraryPrefs(next);
+  return next;
 });
 
 // 版本号唯一来源是 package.json；UI 不再硬编码（否则会像 v0.2 vs 0.8.0 那样脱节）

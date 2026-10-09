@@ -7,6 +7,7 @@ import { composeQBody } from './qcompose.js';
 import { synthesizeMotion, MOTION_NAMES, motionCanvasSize } from '../shared/motion.js';
 import { fitFrameLimit, fmtBytes } from '../shared/budget.js';
 import { sanitizeSpeech, isSpeakable, pushSpeech } from '../shared/speech.js';
+import { emptyState, normalizeState, isFavorite, toggleFavorite, filterLibrary } from '../shared/library.js';
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $('#status');
@@ -567,18 +568,15 @@ document.querySelectorAll('.tab').forEach((tab) => {
 // 列表数据缓存一份，搜索/排序在前端做，避免每次输入都重新读盘、重解压缩略图。
 let libCache = [];
 
+// 过滤 + 排序统一走 src/shared/library.js（有单测覆盖，避免前端另写一套规则）
+let libPrefs = emptyState();
+
 function libFiltered() {
-  const q = ($('#libSearch') ? $('#libSearch').value : '').trim().toLowerCase();
-  const by = ($('#libSort') ? $('#libSort').value : 'name');
-  const scope = libScope;
-  let list = libCache.slice();
-  if (scope === 'builtin') list = list.filter((it) => it.builtin);
-  else if (scope === 'mine') list = list.filter((it) => !it.builtin);
-  if (q) list = list.filter((it) => String(it.name || '').toLowerCase().includes(q));
-  if (by === 'size') list.sort((a, b) => (b.size || 0) - (a.size || 0));
-  else if (by === 'frames') list.sort((a, b) => (b.frames || 0) - (a.frames || 0));
-  else list.sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh'));
-  return list;
+  return filterLibrary(libCache, {
+    query: ($('#libSearch') ? $('#libSearch').value : ''),
+    sort: ($('#libSort') ? $('#libSort').value : 'name'),
+    scope: libScope,
+  }, libPrefs);
 }
 
 function renderLibrary() {
@@ -592,7 +590,18 @@ function renderLibrary() {
     return;
   }
   if (!list.length) {
-    grid.innerHTML = '<div class="lib-empty">🔍 没有匹配「' + escapeHtml(($('#libSearch').value || '').trim()) + '」的宠物</div>';
+    const q = ($('#libSearch').value || '').trim();
+    if (q) {
+      grid.innerHTML = '<div class="lib-empty">🔍 没有匹配「' + escapeHtml(q) + '」的宠物</div>';
+    } else if (libScope === 'fav') {
+      grid.innerHTML = '<div class="lib-empty">★ 还没有收藏的宠物<br />点卡片右上角的星标就能收藏</div>';
+    } else if (libScope === 'recent') {
+      grid.innerHTML = '<div class="lib-empty">🕘 还没有使用记录<br />启动过的宠物会出现在这里</div>';
+    } else if (libScope === 'mine') {
+      grid.innerHTML = '<div class="lib-empty">🐾 你还没安装自己的宠物<br />点下方「安装宠物包…」或在制作器里导出一只</div>';
+    } else {
+      grid.innerHTML = '<div class="lib-empty">🐾 这里空空的～</div>';
+    }
     return;
   }
 
@@ -603,11 +612,24 @@ function renderLibrary() {
     if (it.broken) {
       el.innerHTML = '<div class="nm">⚠ 损坏</div><div class="meta">' + escapeHtml(it.id) + '</div>';
     } else {
+      const fav = isFavorite(libPrefs, it.id);
       el.innerHTML = '<img src="' + it.thumb + '" alt="" />'
+        + '<button class="lib-fav' + (fav ? ' on' : '') + '" title="'
+        + (fav ? '取消收藏' : '收藏') + '">' + (fav ? '★' : '☆') + '</button>'
         // 只给「用户自己装的」打标：内置宠物占多数，全都标反而成了噪音
         + (it.builtin ? '' : '<span class="lib-badge mine">我的</span>')
         + '<div class="nm">' + escapeHtml(it.name) + '</div>'
         + '<div class="meta">' + it.frames + ' 帧 · ' + (it.size / 1024).toFixed(0) + ' KB</div>';
+      el.querySelector('.lib-fav').onclick = async (ev) => {
+        ev.stopPropagation();
+        const prev = libPrefs;
+        libPrefs = toggleFavorite(libPrefs, it.id);   // 立即反馈
+        renderLibrary();
+        try {
+          const saved = await window.api.libraryToggleFav(it.id);
+          if (saved) { libPrefs = normalizeState(saved); renderLibrary(); }
+        } catch { libPrefs = prev; renderLibrary(); setStatus('收藏保存失败', 'err'); }
+      };
     }
     const acts = document.createElement('div');
     acts.className = 'acts';
@@ -625,6 +647,8 @@ function renderLibrary() {
           const modal = $('#libModal');
           if (modal) modal.hidden = true;
           setStatus('✅「' + it.name + '」已出现在桌面上（若没看到，可能在屏幕另一角）', 'ok');
+          // 记一次使用（失败不影响启动）
+          try { const saved = await window.api.libraryTouch(it.id); if (saved) libPrefs = normalizeState(saved); } catch {}
           setTimeout(() => { run.disabled = false; run.textContent = '启动'; }, 2200);
         } else {
           run.disabled = false;
@@ -646,7 +670,12 @@ function renderLibrary() {
 async function refreshLibrary() {
   const grid = $('#libGrid');
   if (grid) grid.innerHTML = '<div class="lib-empty">加载中…</div>';
-  try { libCache = (await window.api.listInstalled()) || []; } catch { libCache = []; }
+  // 偏好（收藏/最近使用）与宠物列表一起拉，避免渲染时星标状态闪一下
+  try {
+    const [list, prefs] = await Promise.all([window.api.listInstalled(), window.api.libraryGet()]);
+    libCache = list || [];
+    libPrefs = normalizeState(prefs);
+  } catch { libCache = []; libPrefs = emptyState(); }
   renderLibrary();
 }
 
