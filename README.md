@@ -334,12 +334,15 @@ npm run package          # 输出 dist/desktop-pet-maker-<platform>-<arch>/
 npm run package:win      # 明确指定 win32 x64
 ```
 
-产物是**免安装目录**（约 453MB，裁剪后），双击 `desktop-pet-maker.exe` 即可运行。打包会：
+产物是**免安装目录**（约 419MB，裁剪后），双击 `desktop-pet-maker.exe` 即可运行。打包会：
 
 - 复用本地 Electron 缓存 zip（弱网/离线可用，自动重试 4 次）
 - 以 asar 封装业务代码
 - **把 `node_modules/**` 下的 `.node / .dll / .so / .dylib` 解包到 `app.asar.unpacked`**（见下方坑）
 - **裁剪**非目标平台的 onnxruntime 二进制（省约 200MB）与多余语言包（仅留 zh-CN / en-US）
+- **裁掉 GPU 组件**（`DirectML.dll` / `dxcompiler.dll` / `dxil.dll`，约 36MB）：
+  本工具显式使用 `executionProviders: ['cpu']` 纯 CPU 推理，这些是 DirectML 后端才需要的；
+  裁剪后 AI 抠图仍通过 selftest 验证
 
 ### ⚠️ 原生模块必须解包（重要）
 
