@@ -545,7 +545,10 @@ let libCache = [];
 function libFiltered() {
   const q = ($('#libSearch') ? $('#libSearch').value : '').trim().toLowerCase();
   const by = ($('#libSort') ? $('#libSort').value : 'name');
+  const scope = libScope;
   let list = libCache.slice();
+  if (scope === 'builtin') list = list.filter((it) => it.builtin);
+  else if (scope === 'mine') list = list.filter((it) => !it.builtin);
   if (q) list = list.filter((it) => String(it.name || '').toLowerCase().includes(q));
   if (by === 'size') list.sort((a, b) => (b.size || 0) - (a.size || 0));
   else if (by === 'frames') list.sort((a, b) => (b.frames || 0) - (a.frames || 0));
@@ -575,7 +578,10 @@ function renderLibrary() {
     if (it.broken) {
       el.innerHTML = '<div class="nm">⚠ 损坏</div><div class="meta">' + escapeHtml(it.id) + '</div>';
     } else {
-      el.innerHTML = '<img src="' + it.thumb + '" alt="" /><div class="nm">' + escapeHtml(it.name) + '</div>'
+      el.innerHTML = '<img src="' + it.thumb + '" alt="" />'
+        // 只给「用户自己装的」打标：内置宠物占多数，全都标反而成了噪音
+        + (it.builtin ? '' : '<span class="lib-badge mine">我的</span>')
+        + '<div class="nm">' + escapeHtml(it.name) + '</div>'
         + '<div class="meta">' + it.frames + ' 帧 · ' + (it.size / 1024).toFixed(0) + ' KB</div>';
     }
     const acts = document.createElement('div');
@@ -601,6 +607,16 @@ async function refreshLibrary() {
   renderLibrary();
 }
 
+let libScope = 'all';
+if ($('#libSeg')) {
+  $('#libSeg').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-scope]');
+    if (!btn) return;
+    libScope = btn.dataset.scope;
+    for (const b of $('#libSeg').querySelectorAll('button')) b.classList.toggle('on', b === btn);
+    renderLibrary();
+  });
+}
 if ($('#libSearch')) $('#libSearch').addEventListener('input', () => renderLibrary());
 if ($('#libSort')) $('#libSort').addEventListener('change', () => renderLibrary());
 

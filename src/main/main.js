@@ -335,15 +335,23 @@ ipcMain.handle('pet:launchPath', (e, p) => {
 // 宠物库
 ipcMain.handle('pet:listInstalled', () => {
   const dir = petsDir();
+  // 内置宠物清单：与 examples/ 下同名的包视为「内置」（随程序分发、可删除）
+  const builtinNames = new Set();
+  try {
+    for (const f of fs.readdirSync(builtinPetsDir())) if (/\.petpack$/i.test(f)) builtinNames.add(f);
+  } catch { /* 读不到就不标注 */ }
+
   const out = [];
   for (const f of fs.readdirSync(dir)) {
     if (!/\.(petpack|zip)$/i.test(f)) continue;
     const full = path.join(dir, f);
+    const builtin = builtinNames.has(f);
     try {
       const { pack, frames } = readPackFile(full);
-      out.push({ id: f, name: pack.name, author: pack.author, frames: frames.length, file: full, thumb: frames[0].dataUrl, size: fs.statSync(full).size });
+      out.push({ id: f, name: pack.name, author: pack.author, frames: frames.length, file: full,
+        thumb: frames[0].dataUrl, size: fs.statSync(full).size, builtin });
     } catch (err) {
-      out.push({ id: f, name: f, broken: true, error: String(err.message || err), file: full });
+      out.push({ id: f, name: f, broken: true, error: String(err.message || err), file: full, builtin });
     }
   }
   out.sort((a, b) => String(a.name).localeCompare(String(b.name), 'zh'));
