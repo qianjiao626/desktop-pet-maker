@@ -1,0 +1,43 @@
+name: package
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: '目标平台'
+        required: true
+        default: 'win32'
+        type: choice
+        options: [win32, darwin, linux]
+      arch:
+        description: '架构'
+        required: true
+        default: 'x64'
+        type: choice
+        options: [x64, arm64]
+
+jobs:
+  build:
+    runs-on: ${{ inputs.platform == 'darwin' && 'macos-latest' || inputs.platform == 'linux' && 'ubuntu-latest' || 'windows-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 打包
+        run: node scripts/pack.mjs ${{ inputs.platform }} ${{ inputs.arch }}
+      - name: 压缩产物
+        shell: bash
+        run: |
+          cd dist
+          ls -la
+          for d in desktop-pet-maker-*; do
+            [ -d "$d" ] && zip -r "$d.zip" "$d"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-pet-maker-${{ inputs.platform }}-${{ inputs.arch }}
+          path: dist/*.zip
+          retention-days: 14
