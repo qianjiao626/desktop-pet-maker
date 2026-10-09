@@ -51,6 +51,38 @@ function petsDir() {
   fs.mkdirSync(d, { recursive: true });
   return d;
 }
+// 内置示例宠物所在的目录（随应用分发；打包后位于 app.asar 内也能读取）
+function builtinPetsDir() { return path.join(ROOT, 'examples'); }
+
+/**
+ * 把内置示例宠物复制进用户宠物库（首次运行 / 库为空时）。
+ * 内置角色（小黄龙等）让用户开箱即用；已存在的同名包不覆盖，避免冲掉用户的修改或删除。
+ */
+function seedBuiltinPets() {
+  const installed = [];
+  try {
+    const src = builtinPetsDir();
+    if (!fs.existsSync(src)) return installed;
+    const dst = petsDir();
+    for (const f of fs.readdirSync(src)) {
+      if (!/\.petpack$/i.test(f)) continue;
+      const from = path.join(src, f);
+      const to = path.join(dst, f);
+      if (fs.existsSync(to)) continue;            // 已装过（或用户删过又重装）就不动
+      try {
+        const { pack } = readPackFile(from);      // 先校验再复制
+        fs.copyFileSync(from, to);
+        installed.push(pack.name || f);
+      } catch (err) {
+        console.warn('[pet] 内置宠物载入失败: ' + f + ' -> ' + err.message);
+      }
+    }
+  } catch (err) {
+    console.warn('[pet] 安装内置宠物失败: ' + err.message);
+  }
+  return installed;
+}
+
 // 旧的简易实现已由 shared/safeid.js 的 safeFileName 取代（处理保留名/限长/路径穿越）
 
 // ---------- 位置记忆 ----------
@@ -578,6 +610,9 @@ app.whenReady().then(async () => {
 
   if (isMaker) {
     Menu.setApplicationMenu(null);
+    // 首次运行把内置卡通宠物装进宠物库（开箱即用）
+    const seeded = seedBuiltinPets();
+    if (seeded.length) console.log('[pet] 已安装内置宠物: ' + seeded.join('、'));
     createMakerWindow();
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createMakerWindow(); });
   } else {

@@ -115,6 +115,17 @@ button.block{width:100%}
 .lib-item .meta{font-size:10px;color:var(--dim)}
 .lib-item .acts{display:flex;gap:6px;margin-top:auto}
 .lib-item .acts button{flex:1;padding:5px 0;font-size:11px}
+.lib-title{display:flex;align-items:baseline;gap:8px}
+.lib-sub{font-style:normal;font-size:11px;color:var(--dim);font-weight:400}
+.lib-item{position:relative;overflow:hidden;transition:transform .18s cubic-bezier(.2,1.3,.4,1),box-shadow .18s,border-color .18s}
+.lib-item::before{content:"";position:absolute;inset:0 0 auto 0;height:3px;
+  background:linear-gradient(90deg,#ffd15e,#ff9aa2,#8fd6a8,#8fc4ff);opacity:.85}
+.lib-item:hover{transform:translateY(-4px);box-shadow:0 12px 26px rgba(0,0,0,.42);border-color:#4a5570}
+.lib-item img{background:
+  radial-gradient(circle at 50% 42%, rgba(255,255,255,.10), transparent 62%),
+  repeating-linear-gradient(45deg,#232a3b 0 6px,#252d40 6px 12px)}
+.lib-item .nm{margin-top:6px;font-size:12.5px}
+.lib-item .acts button{border-radius:8px}
 .lib-empty{grid-column:1/-1;text-align:center;color:var(--dim);padding:40px 0;font-size:12px}
 /* ---- AI 抠图面板 ---- */
 .ai-box{margin-top:10px;padding:11px 12px;border-radius:12px;border:1px solid #33406a;

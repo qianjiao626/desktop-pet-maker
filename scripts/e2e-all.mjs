@@ -27,7 +27,9 @@ for (const [file, args] of suites) {
   console.log('\n########## ' + file + ' ##########');
   const r = spawnSync(electron, [path.join('scripts', file), ...args], {
     cwd: ROOT, stdio: 'inherit',
-    env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1' },
+    // PETMAKER_NO_LAUNCH=1：禁止真的拉起宠物子进程，否则会留下 --pet= 孤儿进程，
+    // 让后续套件连不上/挂起（pet:runInstalled / pet:launch 都受此开关保护）。
+    env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', PETMAKER_NO_LAUNCH: '1' },
   });
   if (r.status !== 0) { failed++; console.log('!! ' + file + ' 退出码 ' + r.status); }
 }

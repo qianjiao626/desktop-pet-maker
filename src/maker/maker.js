@@ -488,7 +488,10 @@ async function refreshLibrary() {
   const grid = $('#libGrid');
   grid.innerHTML = '<div class="lib-empty">加载中…</div>';
   const list = await window.api.listInstalled();
-  if (!list.length) { grid.innerHTML = '<div class="lib-empty">还没有已安装的宠物<br />点击下方「安装宠物包…」</div>'; return; }
+  if (!list.length) {
+    grid.innerHTML = '<div class="lib-empty">🐾 这里空空的～<br />点下方「安装宠物包…」领一只带回家吧</div>';
+    return;
+  }
   grid.innerHTML = '';
   for (const it of list) {
     const el = document.createElement('div');

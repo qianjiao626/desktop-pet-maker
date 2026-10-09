@@ -72,7 +72,7 @@ app.whenReady().then(async () => {
   await sleep(900);
   check('库弹窗已打开', await js("!document.querySelector('#libModal').hidden"));
   const emptyText = await js("document.querySelector('#libGrid').textContent");
-  check('初始为空提示', /还没有已安装的宠物/.test(emptyText), emptyText.trim().slice(0, 30));
+  check('初始为空提示', /空空的|还没有已安装的宠物/.test(emptyText), emptyText.trim().slice(0, 30));
 
   // ---- 2. 安装两个宠物（打桩文件选择对话框）----
   const A = makePackFile('库测试A', [255, 120, 40], 3);
