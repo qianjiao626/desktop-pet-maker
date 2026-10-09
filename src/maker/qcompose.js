@@ -61,8 +61,7 @@ export function composeQBody(srcCanvas, opts = {}) {
 
     // ---- 腿：两条短腿，按姿态前后摆 ----
     for (const [side, swing] of [[-1, pose.legL], [1, pose.legR]]) {
-      // 爬动：腿略靠内（四足动物的后腿更靠中线），走路：正常间距
-      const lx = cx + side * (mode === 'crawl' ? m.gap * 0.82 : m.gap);
+      const lx = cx + side * m.gap;
       const tipX = lx + swing * m.legW * 0.55;
       ctx.strokeStyle = colorStr;
       ctx.lineWidth = m.legW * 1.05;
@@ -77,7 +76,7 @@ export function composeQBody(srcCanvas, opts = {}) {
       // 小脚掌（同样：先 beginPath 再画，避免把腿的描边叠加进来）
       ctx.beginPath();
       ctx.ellipse(tipX + side * m.legW * 0.18, hipY + m.legH * 0.58,
-        m.legW * (mode === 'crawl' ? 0.50 : 0.62), m.legW * (mode === 'crawl' ? 0.33 : 0.40), 0, 0, Math.PI * 2);
+        m.legW * 0.62, m.legW * 0.40, 0, 0, Math.PI * 2);
       ctx.fillStyle = colorStr;
       ctx.fill();
       ctx.strokeStyle = lineStr;
@@ -87,8 +86,10 @@ export function composeQBody(srcCanvas, opts = {}) {
 
     // ---- 头（先画，作为身体的"大头"）----
     ctx.save();
+    // 注意：不要用 rotate/位移做「前倾」——任何超出合成画布的绘制都会让
+    // 后处理把画布撑大、主体缩小（实测 crawl 因此变成 636x487）。
+    // 爬动完全靠 limbSequence 的四肢姿态区分，包围盒与走路一致。
     ctx.translate(cx, headY + hh / 2 + bob);
-    if (pose.lean) ctx.rotate((pose.lean * Math.PI) / 180);
     ctx.scale(1 / Math.sqrt(pose.squash), pose.squash);   // 体积感
     ctx.drawImage(srcCanvas, -hw / 2, -hh / 2, hw, hh);
     ctx.restore();
@@ -104,17 +105,27 @@ export function composeQBody(srcCanvas, opts = {}) {
       // means a smaller head in crawl mode naturally pushes hands outward.
       // 手掌只露在头外侧一点点：偏移 = 头半宽 + 手掌半径*0.55（再多就会像"第二个圆"）
       const spread = 1.0;
-      // 手要明显高于脚：实测 drop=0.58 时手与脚只差 8px，视觉上糊成一片。
-      const drop = mode === 'crawl' ? 0.44 : 0.58;
-      const ax = cx + side * (hw / 2 * spread + rx * 0.55);
-      const ay = headY + hh * drop + bob + swing * m.armH * (mode === 'crawl' ? 0.06 : 0.34);
-      // 手与身体之间的一小段手臂
-      ctx.strokeStyle = colorStr;
-      ctx.lineWidth = Math.max(2, m.handR * 0.5);
-      ctx.lineCap = 'round';
+      const drop = 0.66;
+      // 手掌往内收一点，与头部边缘重叠：确保手-臂-头是同一个连通块，
+      // 否则会被「只保留最大主体」当成杂散块删掉（实测会丢一只手）。
+      // 手掌中心：内侧缘压在头轮廓内（保证连通）、外侧缘露在头外（看得见）
+      const ax = cx + side * (hw / 2 * spread + rx * 0.34);
+      const ay = headY + hh * drop + bob + swing * m.armH * 0.34;
+      // 手臂：从头内部连到手掌的实心形状（不用超粗圆头线，否则会撑大画布）。
+      // 起点在头内部，保证手-臂-头是连通区域。
+      const ax0 = cx + side * (hw / 2 * 0.50);
+      const ay0 = ay - swing * m.armH * 0.06;
+      const armW = Math.max(4, m.handR * 0.52);
       ctx.beginPath();
-      ctx.moveTo(cx + side * (hw / 2 * 0.80), ay - swing * m.armH * 0.06);
-      ctx.lineTo(ax, ay);
+      ctx.moveTo(ax0, ay0 - armW / 2);
+      ctx.lineTo(ax, ay - armW / 2);
+      ctx.lineTo(ax, ay + armW / 2);
+      ctx.lineTo(ax0, ay0 + armW / 2);
+      ctx.closePath();
+      ctx.fillStyle = colorStr;
+      ctx.fill();
+      ctx.strokeStyle = lineStr;
+      ctx.lineWidth = Math.max(1, m.handR * 0.14);
       ctx.stroke();
       // 圆手掌（注意：必须重新 beginPath，否则描边路径会带上刚才那条手臂线，
       // 把手臂重复描一遍 —— 视觉上像多了个圆，实测爬动模式最明显）

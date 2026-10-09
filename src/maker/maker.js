@@ -94,7 +94,11 @@ function needsFrameNormalize() {
 
 function unifyAllFrames() {
   const mode = $('#alignMode') ? $('#alignMode').value : 'none';
-  if (mode !== 'none' && state.frames.length > 1) {
+  // 由「大头照 → Q 版身体」生成的帧已经精确对齐：
+  // 再按 alignMode 移动主体会把固定的头挪下来、与四肢重叠（实测爬动模式）。
+  // 因此这类帧只统一画布尺寸，不做主体对齐。
+  const allComposed = state.frames.every((f) => f.qComposed || (f.current && f.current.qComposed));
+  if (!allComposed && mode !== 'none' && state.frames.length > 1) {
     const res = alignFrames(
       state.frames.map((f) => ({ data: f.current.data, width: f.current.width, height: f.current.height, name: f.name, durationMs: f.durationMs })),
       { mode }
@@ -627,6 +631,10 @@ $('#btnGenQBody') && ($('#btnGenQBody').onclick = () => {
     });
     state.frames = list;
     state.activeIdx = 0;
+    // 标记：这些帧已由 composeQBody 精确对齐，后处理不要再移动主体。
+    // 注意要把标记同时挂到帧对象与 current 数据上：processFrame 会替换 f.current，
+    // 若标记只挂在一处，重建后会丢失（实测 crawl 因此仍走了主体对齐）。
+    for (const f of list) { f.qComposed = true; if (f.current) f.current.qComposed = true; }
     rebuildAll();
     setStatus('✅ 已生成 ' + list.length + ' 帧（' + (mode === 'crawl' ? '爬动' : '走路') + '，' + res.width + '×' + res.height + '）', 'ok');
   } catch (err) {
