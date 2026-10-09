@@ -33,6 +33,9 @@ contextBridge.exposeInMainWorld('api', {
   installPack: (srcPath) => ipcRenderer.invoke('pet:install', srcPath),
   runInstalled: (id) => ipcRenderer.invoke('pet:runInstalled', id),
   uninstall: (id) => ipcRenderer.invoke('pet:uninstall', id),
+  libraryGet: () => ipcRenderer.invoke('library:get'),
+  libraryToggleFav: (id) => ipcRenderer.invoke('library:toggleFav', id),
+  libraryTouch: (id) => ipcRenderer.invoke('library:touch', id),
 
   // AI 抠图
   listModels: () => ipcRenderer.invoke('ai:listModels'),
