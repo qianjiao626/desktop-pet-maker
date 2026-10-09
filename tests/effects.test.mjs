@@ -83,6 +83,31 @@ ok('拳: 时长为正', FIST_DURATION > 0);
   }
 }
 
+// ============ 静态守护（通用）：pet.js 用到的任何 shared 导出都必须已 import ============
+// 背景：漏 import 时 node --check 通过、单测全绿，但渲染进程一跑到那行就抛
+// ReferenceError 并中断渲染循环（已两次踩到：PETTING_DURATION、createBug）。
+{
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const petSrc = readFileSync('src/pet/pet.js', 'utf8');
+  const imported = new Set();
+  for (const m of petSrc.matchAll(/import \{([^}]+)\} from '\.\.\/shared\/[^']+'/g)) {
+    for (const name of m[1].split(',')) imported.add(name.trim().split(/\s+as\s+/)[0]);
+  }
+  const body = petSrc.replace(/^import[\s\S]*?;$/gm, '');
+  const files = readdirSync('src/shared').filter((f) => f.endsWith('.js'));
+  let checked = 0;
+  for (const f of files) {
+    const mod = readFileSync('src/shared/' + f, 'utf8');
+    for (const m of mod.matchAll(/export (?:function|const|let|class)\s+(\w+)/g)) {
+      const name = m[1];
+      if (!new RegExp('(^|[^\\w.$])' + name + '\\b').test(body)) continue;
+      checked++;
+      if (!imported.has(name)) ok('pet.js 已导入 ' + name + '（来自 ' + f + '）', false, '漏 import 会在运行时抛 ReferenceError');
+    }
+  }
+  ok('通用 import 守护已扫描 shared 导出', checked > 0, '检查了 ' + checked + ' 个被使用的导出');
+}
+
 // ============ 被摸头时的「舒服」姿态 ============
 {
   const s0 = pettingPose(0);

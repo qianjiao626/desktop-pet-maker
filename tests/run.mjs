@@ -9,6 +9,7 @@ await import('./models.test.mjs');
 await import('./effects.test.mjs');
 await import('./speech.test.mjs');
 await import('./behavior.test.mjs');
+await import('./bugchase.test.mjs');
 await import('./safeid.test.mjs');
 await import('./budget.test.mjs');
 await import('./displays.test.mjs');
