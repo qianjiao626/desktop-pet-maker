@@ -591,7 +591,24 @@ $('#btnGenQBody') && ($('#btnGenQBody').onclick = () => {
 
   const mode = $('#qMode') ? $('#qMode').value : 'walk';
   const frames = $('#qFrames') ? parseInt($('#qFrames').value, 10) : 12;
-  setStatus('正在生成 Q 版身体…');
+
+  // 先检测：如果图下方已有大量内容，说明它已含身体（不是纯头像），
+  // 叠加四肢会与原身体重叠 —— 提前告知，避免生成出奇怪的图。
+  try {
+    let low = 0, tot = 0;
+    const d = cur.current.data, cw = sw, ch = sh;
+    const y0 = Math.floor(ch * 0.72);
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+      if (d[(y * cw + x) * 4 + 3] < 40) continue;
+      tot++; if (y >= y0) low++;
+    }
+    const ratio = tot ? low / tot : 0;
+    if (ratio > 0.30) {
+      setStatus('⚠ 这张图下方已有很多内容（像是完整身体，不是纯头像）。生成后可「恢复原图」再试。', 'err');
+    } else {
+      setStatus('正在生成 Q 版身体…');
+    }
+  } catch { /* 检测失败不阻塞 */ }
 
   try {
     const res = composeQBody(src, { mode, frames });

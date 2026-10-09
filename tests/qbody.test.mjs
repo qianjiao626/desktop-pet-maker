@@ -45,15 +45,23 @@ ok('帧数被夹取(下限 2)', limbSequence({ frames: 0 }).length === 2);
 
 // ============ 取色 ============
 {
-  // 造 8x8：左半红 右半蓝，红更多
+  // 造 8x8：大部分是浅肤色，少量深色「头发」。
+  // 取色应得到肤色而不是深色（这正是修复过的行为：深发占多数时不能把四肢染成深色）。
   const w = 8, h = 8, d = new Uint8ClampedArray(w * h * 4);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const q = (y * w + x) * 4;
-    const red = x < 5;
-    d[q] = red ? 220 : 40; d[q + 1] = red ? 40 : 60; d[q + 2] = red ? 40 : 230; d[q + 3] = 255;
+    const dark = y < 3;                       // 顶部 3 行是头发
+    d[q] = dark ? 70 : 255; d[q + 1] = dark ? 52 : 223; d[q + 2] = dark ? 78 : 196; d[q + 3] = 255;
   }
   const c = dominantColor(d, w, h);
-  ok('取色: 取到占多数的红色', c[0] > 150 && c[1] < 100, c.join(','));
+  ok('取色: 深色头发不干扰（取到肤色）', c[0] > 200 && c[1] > 150, c.join(','));
+}
+{
+  // 全是深色（没有可用的亮色）-> 必须回退到默认肤色，不能染成深色
+  const w = 4, h = 4, d = new Uint8ClampedArray(w * h * 4);
+  for (let i = 0; i < w * h; i++) { const q = i * 4; d[q] = 40; d[q+1] = 30; d[q+2] = 50; d[q+3] = 255; }
+  const c = dominantColor(d, w, h);
+  ok('取色: 无亮色时回退默认肤色', c[0] > 200 && c[1] > 150, c.join(','));
 }
 ok('取色: 空输入返回默认肤色', Array.isArray(dominantColor(null, 0, 0)) && dominantColor(null, 0, 0).length === 3);
 ok('取色: 全透明输入返回默认', dominantColor(new Uint8ClampedArray(4 * 4 * 4), 4, 4).length === 3);

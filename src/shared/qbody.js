@@ -21,21 +21,50 @@ export function bodyMetrics(head, opt = {}) {
   const hw = Math.max(8, finite(head && head.width, 128));
   const hh = Math.max(8, finite(head && head.height, 128));
   const s = clamp(finite(opt.scale, 1), 0.2, 4);
+  // 爬动模式需要给四肢留空间：头适当缩小（实测头太大时手无处可放，
+  // 只能从头的内部伸出，看起来像"多了一个圆"）。
+  const headShrink = clamp(finite(opt.headShrink, 1), 0.4, 1);
 
   const legW = hw * 0.24 * s;          // 腿宽（Q 版：粗短）
   const legH = hh * 0.26 * s;          // 腿长（再短一点）
-  const armW = hw * 0.26 * s;          // 手宽（Q 版：圆润小手）
-  const armH = hh * 0.26 * s;          // 手长
+  const armW = hw * 0.26 * s;          // 手臂粗细基准
+  const armH = hh * 0.26 * s;          // 手臂长度基准
+  // 手掌是「小手」：显式给尺寸，不再用 armH 直接当半径
+  // （原来 armH*0.58 让手掌半径接近头的 1/3，和脚掌叠在一起像"四个圆" —— 实测）
+  const handR = hw * 0.115 * s;        // 手掌半径（相对头宽，控制在 ~11%）
   const gap = hw * 0.22 * s;           // 两腿中心间距的一半
 
   return {
-    headW: hw * s,
-    headH: hh * s,
-    legW, legH, armW, armH, gap,
+    headScale: headShrink,               // 头部额外缩放（爬动 < 1）
+    headW: hw * s * headShrink,
+    headH: hh * s * headShrink,
+    legW, legH, armW, armH, handR, gap,
     // 画布：头 + 腿 + 上下浮动余量
-    canvasW: Math.round(Math.max(hw * 1.5, hw * s + legW * 2 + gap * 2 + 24)),
-    canvasH: Math.round(hh * s + legH * 1.9 + armH * 0.6),
+    canvasW: Math.round(Math.max(hw * 1.5, hw * s * headShrink + legW * 2 + gap * 2 + 24)),
+    canvasH: Math.round(hh * s * headShrink + legH * 1.9 + armH * 0.6),
   };
+}
+
+/**
+ * 估计「图像下方是否已有身体/腿」。
+ * 纯头像：内容集中在中上部；已有身体的图：下方也有大量不透明像素。
+ * 用于自动调整四肢长度，避免和素材自带的腿重叠。
+ * @param data RGBA
+ * @returns 0..1（下方内容占比，越大越像"已有身体"）
+ */
+export function lowerBodyRatio(data, w, h, { alphaThreshold = 40 } = {}) {
+  if (!data || !data.length || !w || !h) return 0;
+  let lower = 0, total = 0;
+  const y0 = Math.floor(h * 0.72);          // 只看底部 28%
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const a = data[(y * w + x) * 4 + 3];
+      if (a < alphaThreshold) continue;
+      total++;
+      if (y >= y0) lower++;
+    }
+  }
+  return total ? lower / total : 0;
 }
 
 /**
@@ -102,22 +131,33 @@ export function limbSequence({ mode = 'walk', frames = 12 } = {}) {
  * @param data RGBA 像素（Uint8ClampedArray）
  */
 export function dominantColor(data, w, h, { alphaThreshold = 40 } = {}) {
-  if (!data || !data.length) return [248, 205, 170];
+  const DEFAULT_SKIN = [248, 205, 170];
+  if (!data || !data.length) return DEFAULT_SKIN;
   const bins = new Map();
   const n = w * h;
   for (let i = 0; i < n; i++) {
     const q = i * 4;
     if (data[q + 3] < alphaThreshold) continue;
-    const r = data[q] >> 4, g = data[q + 1] >> 4, b = data[q + 2] >> 4;   // 4bit 分箱
-    const k = (r << 8) | (g << 4) | b;
-    const cur = bins.get(k) || { n: 0, r: 0, g: 0, b: 0 };
-    cur.n++; cur.r += data[q]; cur.g += data[q + 1]; cur.b += data[q + 2];
-    bins.set(k, cur);
+    const r = data[q], g = data[q + 1], b = data[q + 2];
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    // 只要"明亮且不偏灰"的像素：避免取到头发（深色）当皮肤色。
+    // 实测：不做这层过滤时，深色头发占多数会让四肢变成深紫色大块。
+    if (lum < 150) continue;
+    const maxc = Math.max(r, g, b), minc = Math.min(r, g, b);
+    const sat = maxc === 0 ? 0 : (maxc - minc) / maxc;
+    if (sat > 0.55) continue;              // 过饱和（如纯色头发/亮色背景）
+    const key = (r >> 4) << 8 | (g >> 4) << 4 | (b >> 4);
+    const cur = bins.get(key) || { n: 0, r: 0, g: 0, b: 0 };
+    cur.n++; cur.r += r; cur.g += g; cur.b += b;
+    bins.set(key, cur);
   }
   let best = null;
   for (const v of bins.values()) if (!best || v.n > best.n) best = v;
-  if (!best) return [248, 205, 170];
-  return [Math.round(best.r / best.n), Math.round(best.g / best.n), Math.round(best.b / best.n)];
+  if (!best) return DEFAULT_SKIN;          // 没有合适的亮色 -> 用默认肤色
+  const out = [Math.round(best.r / best.n), Math.round(best.g / best.n), Math.round(best.b / best.n)];
+  // 结果太暗也回退（双保险）
+  const lum = 0.299 * out[0] + 0.587 * out[1] + 0.114 * out[2];
+  return lum < 150 ? DEFAULT_SKIN : out;
 }
 
 /** 由主色推导一个略深的描边色 */
