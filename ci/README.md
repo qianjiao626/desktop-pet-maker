@@ -8,6 +8,14 @@ GitHub 规定：**修改 `.github/workflows/` 下的文件，token 必须带 `wo
 当前用于提交的 GitHub token 只有 `repo` 权限，写该目录会被拒绝（实测返回 404）。
 写入普通目录则正常（201）。
 
+## 当前状态
+
+这两个工作流文件已通过 **GitHub Contents API** 提交到仓库（走 `api.github.com`）——
+因为当 `git push` 到 `github.com:443` 被网络重置时，API 通道仍然可用。
+
+但它们**尚未生效**：GitHub 只在 `.github/workflows/` 下识别工作流。
+补上 `workflow` 权限后按上面的命令移动即可。
+
 ## 如何启用
 
 1. 到 GitHub 生成一个**带 `workflow` 权限**的 token：
