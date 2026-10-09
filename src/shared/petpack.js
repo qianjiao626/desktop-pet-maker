@@ -41,6 +41,7 @@ export const DEFAULT_PACK = {
   behavior: {
     startCorner: 'bottom-right', // bottom-right | bottom-left | center | remember
     keepAbove: true,
+    bugChase: true,   // 是否开启「抓虫子」小玩法
   },
 };
 
@@ -144,6 +145,7 @@ export function normalizePack(input = {}) {
     behavior: {
       startCorner: pick(beh.startCorner, CORNERS, d.behavior.startCorner),
       keepAbove: beh.keepAbove === undefined ? d.behavior.keepAbove : !!beh.keepAbove,
+      bugChase: beh.bugChase === undefined ? d.behavior.bugChase : !!beh.bugChase,
     },
   };
 }

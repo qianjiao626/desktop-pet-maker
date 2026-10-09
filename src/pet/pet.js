@@ -42,10 +42,12 @@ let petStartAt = 0;     // 被摸头的「舒服」姿态开始时间（独立�
 let fistStartAt = 0;    // 拳头：动画开始时间（0=不显示）
 let fistDir = 1;        // 拳头来向 1=从右来 / -1=从左来
 let bug = null;         // 桌面上的小虫子（抓虫子玩法）
+let bugChaseEnabled = true;  // 是否开启抓虫子（可由制作器勾选框控制）
 let petOffset = 0;      // 宠物在窗口内的横向偏移（追虫时用于靠近虫子，不移动整个窗口）
 let bugSpawnTimer = 5;  // 多少秒后出现下一只虫子（首只早点出现，玩法更快被看到）
 let bugCatchCount = 0;  // 累计抓到几只（调试用）
 let userSpokeAt = 0;    // 用户最近一次主动说话的时间（期间不弹抓虫气泡，避免顶掉用户的话）
+let catchCelebrateAt = 0; // 抓到虫子的庆祝动画开始时间（冒爱心用）
 let hitKnockDir = 0;    // 击退方向
 
 const S = {
@@ -467,6 +469,53 @@ function drawBug() {
   ctx.restore();
 }
 
+/** 抓住虫子后的庆祝：头顶冒爱心与小星星 */
+function drawCatchCelebrate(now) {
+  if (!catchCelebrateAt) return;
+  const life = 900;
+  const t = (now - catchCelebrateAt) / life;
+  if (t >= 1) { catchCelebrateAt = 0; return; }
+  const baseX = canvasCssW / 2 + petOffset;
+  const baseY = canvasCssH - (frameDraw[S.frameIdx] ? frameDraw[S.frameIdx].h : 80) - 8;
+  for (let i = 0; i < 4; i++) {
+    const tt = (t - i * 0.12) / 0.7;
+    if (tt <= 0 || tt >= 1) continue;
+    const e = 1 - Math.pow(1 - tt, 2);
+    const x = baseX + (i - 1.5) * 15 * (0.5 + e);
+    const y = baseY - e * 34;
+    const alpha = Math.min(1, tt * 3) * (1 - tt);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha)) * 0.95;
+    ctx.translate(x, y);
+    ctx.rotate((i - 1.5) * 0.3 + tt * 1.2);
+    if (i % 2 === 0) {
+      // 爱心
+      ctx.scale(0.9, 0.9);
+      ctx.beginPath();
+      ctx.moveTo(0, 4.6);
+      ctx.bezierCurveTo(-7.6, -1.4, -3.6, -8.4, 0, -4.2);
+      ctx.bezierCurveTo(3.6, -8.4, 7.6, -1.4, 0, 4.6);
+      ctx.closePath();
+      ctx.fillStyle = "#ff8fa3";
+      ctx.fill();
+    } else {
+      // 小星星
+      ctx.beginPath();
+      const R = 6, r = 2.4;
+      for (let k = 0; k < 10; k++) {
+        const ang = (Math.PI / 5) * k - Math.PI / 2;
+        const rad = k % 2 === 0 ? R : r;
+        const px = Math.cos(ang) * rad, py = Math.sin(ang) * rad;
+        if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fillStyle = "#ffd75e";
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
 /** 摸头时从宠物头顶飘出的小爱心 */
 function drawHearts(now, petRect) {
   if (!petStartAt) return;
@@ -638,6 +687,7 @@ function render(now) {
     scaleY: o.scaleY,
   };
   drawBug();
+  drawCatchCelebrate(now);
   drawHearts(now, petRect);
   drawHand(now, petRect);
   drawFist(now, petRect);
@@ -654,7 +704,7 @@ function loop(ts) {
     advanceFrame(dtMs);
     if (!S.dragging && dt > 0) {
       // ---- 抓虫子：优先于普通待机行为 ----
-      const chasing = behaviorEnabled ? tickBug(dtMs) : null;
+      const chasing = (behaviorEnabled && bugChaseEnabled) ? tickBug(dtMs) : (bug = null, null);
       if (chasing) {
         // 追虫：宠物在「窗口内」横向挪过去靠近虫子（不移动整个窗口）。
         // 早先给窗口加速度的做法会卡在屏幕边缘（窗口仅 ~160px，贴边就无路可走）。
@@ -668,6 +718,7 @@ function loop(ts) {
             bugCatchCount++;
             S.clickP = 1; S.clickAnim = 'jump';
             // 用户刚说过话就先不抢话（气泡是同一块 UI，会互相顶掉）
+            catchCelebrateAt = performance.now();      // 冒爱心庆祝
             const quiet = (performance.now() - userSpokeAt) > 4000;
             if (pack.bubble.enabled && quiet) { showBubble('抓到啦！'); S.bubbleTimer = pack.bubble.intervalSec; }
           }
@@ -779,6 +830,7 @@ canvas.addEventListener('mousedown', (e) => {
     if (Math.hypot(e.clientX - bug.x, cy - (gy - 6)) <= rad) {
       if (catchBug(bug)) {
         bugCatchCount++;
+        catchCelebrateAt = performance.now();
         const quiet = (performance.now() - userSpokeAt) > 4000;
         if (pack.bubble.enabled && quiet) { showBubble('抓到啦！'); S.bubbleTimer = pack.bubble.intervalSec; }
       }
@@ -904,6 +956,11 @@ window.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 // ---- 快速模式指令（来自制作器窗口） ----
+if (api.onQuickBugChase) api.onQuickBugChase((on) => {
+  bugChaseEnabled = !!on;
+  if (!bugChaseEnabled) { bug = null; }        // 关掉时清掉场上的虫子
+});
+
 if (api.onQuickWalk) api.onQuickWalk((walking) => {
   behaviorEnabled = !!walking;
   if (!behaviorEnabled) {
@@ -972,6 +1029,7 @@ window.__petDebug = () => ({
   behavior: { state: B.state, walkDir: B.walkDir, enabled: behaviorEnabled, remaining: Math.round(B.remaining), hitCount: B.hitCount, patCount: B.patCount },
   bug: bug ? { x: Math.round(bug.x), state: bug.state, alive: bug.alive } : null,
   bugCatchCount,
+  bugChaseEnabled,
   loadedFrames: images.length,
   loadedBytes: images.reduce((a, im) => a + im.naturalWidth * im.naturalHeight * 4, 0),
   W, H,
@@ -1014,6 +1072,7 @@ window.__petDebug = () => ({
     if (!allAreas.length) allAreas = [area];
 
     userScale = clampScale(pack.render.scale);
+    bugChaseEnabled = !pack.behavior || pack.behavior.bugChase !== false;   // 默认开启
     computeSizes();
     // 先把窗口尺寸设到位（不带动画，避免尺寸与内部计算脱节）
     api.setSize(W, H);

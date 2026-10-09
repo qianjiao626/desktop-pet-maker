@@ -477,6 +477,12 @@ ipcMain.handle('quick:disable', () => {
   return { ok: true };
 });
 
+// 开关「抓虫子」小玩法（推给宠物渲染进程）
+ipcMain.handle('quick:setBugChase', (e, on) => {
+  const w = getPetWindow();
+  if (w && !w.isDestroyed()) w.webContents.send('quick:bugchase', !!on);
+  return { ok: isPetAlive(), bugChase: !!on };
+});
 ipcMain.handle('quick:isEnabled', () => ({ enabled: isPetAlive() }));
 
 ipcMain.handle('quick:setWalk', (e, walking) => {

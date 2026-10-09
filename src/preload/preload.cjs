@@ -46,11 +46,13 @@ contextBridge.exposeInMainWorld('api', {
   quickDisable: () => ipcRenderer.invoke('quick:disable'),
   quickIsEnabled: () => ipcRenderer.invoke('quick:isEnabled'),
   quickSetWalk: (walking) => ipcRenderer.invoke('quick:setWalk', walking),
+  quickSetBugChase: (on) => ipcRenderer.invoke('quick:setBugChase', !!on),
   quickPat: () => ipcRenderer.invoke('quick:pat'),
   onQuickState: (cb) => ipcRenderer.on('quick:state', (e, v) => cb(v)),
 
   // 宠物侧接收指令
   onQuickWalk: (cb) => ipcRenderer.on('quick:walk', (e, v) => cb(v)),
+  onQuickBugChase: (cb) => ipcRenderer.on('quick:bugchase', (e, v) => cb(v)),
   setScale: (v) => ipcRenderer.send('pet:setScale', v),
   onQuickScale: (cb) => ipcRenderer.on('quick:scale', (e, v) => cb(v)),
   onQuickPat: (cb) => ipcRenderer.on('quick:pat', () => cb()),

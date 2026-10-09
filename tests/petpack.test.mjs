@@ -4,6 +4,9 @@ import { normalizePack, validatePack, SCHEMA_VERSION } from '../src/shared/petpa
 const p = normalizePack({ render: { scale: 99 }, animation: { idle: 'bogus', idleSpeed: 99 }, bubble: { lines: [] } });
 ok('scale 上限钳制=4', p.render.scale === 4);
 ok('scale 默认更小（0.3）', normalizePack({}).render.scale === 0.3);
+ok('bugChase 默认开启', normalizePack({}).behavior.bugChase === true);
+ok('bugChase 可关闭', normalizePack({ behavior: { bugChase: false } }).behavior.bugChase === false);
+ok('bugChase 非法值回退为布尔', normalizePack({ behavior: { bugChase: 'x' } }).behavior.bugChase === true);
 ok('scale 下限钳制=0.05', normalizePack({ render: { scale: 0 } }).render.scale === 0.05);
 ok('非法 idle 回退', p.animation.idle === 'breathe');
 ok('idleSpeed 上限钳制=3', p.animation.idleSpeed === 3);
