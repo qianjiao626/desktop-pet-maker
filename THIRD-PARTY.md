@@ -16,6 +16,21 @@
 - 来源：https://github.com/shachaf/jsgif
 - 用于 gifuct-js 的 `deinterlace`
 
+## 美术素材
+
+### Kenney 动物素材包 — CC0-1.0（公共领域）
+
+- 来源：https://kenney.nl/assets/animal-pack-remastered
+- 作者：Kenney Vleugels（Kenney.nl）
+- 许可：**Creative Commons Zero (CC0)** —— 官方 License.txt 原文：
+  "You may use these assets in personal and commercial projects.
+   Credit (Kenney or www.kenney.nl) would be nice but is not mandatory."
+- 使用位置：`examples/*.petpack` 中的内置卡通动物（熊熊 / 小黄鸭 / 企鹅豆 等）
+- 说明：本项目为这些**静态**圆形动物素材程序化生成了呼吸/摆动多帧动画后再打包；
+  素材本身未作修改，仅做缩放与逐帧变换。虽 CC0 不强制署名，仍在此明确标注来源。
+
+> 注：`examples` 中的「小黄龙 / 奶团子 / 喵喵 / 呱呱 / 咚咚」为本项目**原创**形象（程序化绘制），非第三方素材。
+
 ## npm 依赖
 
 | 包 | 许可 | 用途 |
