@@ -20,6 +20,7 @@ function setStatus(msg, cls = '') { statusEl.textContent = msg; statusEl.classNa
 
 const state = {
   frames: [],        // [{ original: ImageData, current: ImageData, name }]
+  clips: [],         // 已保存的动作片段 [{ id, name, frames:[{data:ImageData,durationMs}], weight }]
   activeIdx: 0,
   playing: false,
   playT: 0,
@@ -355,11 +356,20 @@ function readPack() {
     author: $('#petAuthor').value || '',
     createdAt: new Date().toISOString(),
     frames,
+    // 已生成的动作片段（可多个）。为空数组时与老包行为一致。
+    clips: state.clips.map((c) => ({
+      id: c.id,
+      name: c.name,
+      frames: c.frames.map((f, i) => ({ file: 'clip_' + c.id + '_' + String(i).padStart(3, '0') + '.png', durationMs: f.durationMs })),
+      weight: c.weight,
+    })),
     canvas: { width: state.frames[0] ? state.frames[0].current.width : 0, height: state.frames[0] ? state.frames[0].current.height : 0 },
     render: { scale: parseInt($('#scale').value, 10) / 100, flip: false },
     animation: {
       idle: $('#idleAnim').value,
       idleSpeed: parseInt($('#idleSpeed').value, 10) / 100,
+      // 多动作片段的切换间隔（秒）。0 = 用运行时默认（4~12 秒随机）。
+      clipIntervalSec: parseInt($('#clipInterval').value, 10) / 10,
       fps: parseInt($('#fps').value, 10),
       click: $('#clickAnim').value,
       hover: $('#hoverAnim').value,
@@ -386,10 +396,20 @@ function currentImages() {
   return state.frames.map((f) => ({ dataUrl: imageDataToDataURL(f.current), durationMs: Math.round(1000 / parseInt($('#fps').value, 10)) }));
 }
 
+/** 片段帧的图片数据（按 clipId 分组），导出时与 pack.clips 一起写进包 */
+function currentClipImages() {
+  const out = {};
+  for (const c of state.clips) {
+    out[c.id] = c.frames.map((f) => ({ dataUrl: imageDataToDataURL(f.data), durationMs: f.durationMs }));
+  }
+  return out;
+}
+
 function applyPack(pack) {
   $('#petName').value = pack.name || '我的桌宠';
   $('#petAuthor').value = pack.author || '';
   if (pack.render) $('#scale').value = Math.round((pack.render.scale ?? 0.3) * 100);
+  if (pack.animation && $('#clipInterval')) $('#clipInterval').value = String(Math.round((pack.animation.clipIntervalSec || 0) * 10));
   if (pack.animation) {
     $('#idleAnim').value = pack.animation.idle || 'breathe';
     $('#idleSpeed').value = Math.round((pack.animation.idleSpeed ?? 1) * 100);
@@ -434,6 +454,10 @@ function syncLabels() {
   if ($('#aiThreshV')) $('#aiThreshV').textContent = (parseInt($('#aiThresh').value, 10) / 100).toFixed(2);
   if ($('#motionFramesV')) $('#motionFramesV').textContent = $('#motionFrames').value;
   if ($('#motionAmpV')) $('#motionAmpV').textContent = $('#motionAmp').value + '%';
+  if ($('#clipIntervalV')) {
+    const v = parseInt($('#clipInterval').value, 10);
+    $('#clipIntervalV').textContent = v === 0 ? '自动' : (v / 10).toFixed(1) + 's';
+  }
 }
 
 // ---------------- 事件 ----------------
@@ -724,18 +748,19 @@ bindRange('friction', () => { currentTemplate = null; currentMyTemplate = null; 
 bindRange('throwScale', () => { currentTemplate = null; currentMyTemplate = null; markTemplateButtons(); });
 bindRange('interval', () => { currentTemplate = null; currentMyTemplate = null; markTemplateButtons(); });
 bindRange('duration', () => { currentTemplate = null; currentMyTemplate = null; markTemplateButtons(); });
+bindRange('clipInterval');
 
 $('#previewImg').onclick = () => { state.clickP = 1; };
 
 $('#btnPreviewPet').onclick = async () => {
   if (!state.frames.length) return;
   setStatus('正在启动桌面预览…');
-  const r = await window.api.launchPreview(readPack(), currentImages());
+  const r = await window.api.launchPreview(readPack(), currentImages(), currentClipImages());
   setStatus(r.ok ? '预览已启动（查看屏幕右下角）' : '预览失败：' + (r.errors || []).join(';'), r.ok ? 'ok' : 'err');
 };
 $('#btnExport').onclick = async () => {
   if (!state.frames.length) return;
-  const r = await window.api.savePack(readPack(), currentImages(), $('#petName').value || 'mypet');
+  const r = await window.api.savePack(readPack(), currentImages(), $('#petName').value || 'mypet', currentClipImages());
   if (r.canceled) { setStatus('已取消'); return; }
   if (!r.ok) { setStatus('导出失败：' + (r.errors || []).join(';'), 'err'); return; }
   setStatus('✅ 已导出：' + r.path, 'ok');
@@ -783,7 +808,7 @@ if ($('#shareModal')) $('#shareModal').onclick = (e) => { if (e.target.id === 's
 $('#btnExportShare').onclick = async () => {
   if (!state.frames.length) { setStatus('请先导入图片', 'err'); return; }
   setStatus('正在生成分享页…');
-  const r = await window.api.exportShareHtml(readPack(), currentImages());
+  const r = await window.api.exportShareHtml(readPack(), currentImages(), currentClipImages());
   if (r.canceled) { setStatus('已取消'); return; }
   if (!r.ok) { setStatus('导出失败：' + (r.errors || []).join(';'), 'err'); return; }
   setStatus('✅ 分享页已导出（' + Math.round(r.bytes / 1024) + ' KB）：' + r.path, 'ok');
@@ -792,7 +817,7 @@ $('#btnExportShare').onclick = async () => {
 
 $('#btnExportFolder').onclick = async () => {
   if (!state.frames.length) { setStatus('请先导入图片', 'err'); return; }
-  const r = await window.api.exportFolder(readPack(), currentImages());
+  const r = await window.api.exportFolder(readPack(), currentImages(), currentClipImages());
   if (r.canceled) { setStatus('已取消'); return; }
   setStatus(r.ok ? '✅ 已导出文件夹：' + r.path : '导出失败：' + (r.errors || []).join(';'), r.ok ? 'ok' : 'err');
 };
@@ -1101,6 +1126,26 @@ $('#btnPoseFit').onclick = async () => {
 };
 // 生成骨架微动作：把当前帧当作标准立绘，按选中的微动作烘出多帧。
 // 闸门在 canAnimate（主进程）：素材不合格会直接拒绝并说明原因。
+/** 渲染「动作片段」列表（可删） */
+function renderClipList() {
+  const box = $('#clipList');
+  if (!box) return;
+  if (!state.clips.length) { box.innerHTML = ''; return; }
+  box.innerHTML = state.clips.map((c) =>
+    '<span class="clip-chip" data-clip="' + escapeHtml(c.id) + '">'
+    + escapeHtml(c.name) + ' · ' + c.frames.length + '帧'
+    + '<button class="clip-del" title="移除这个片段">✕</button></span>'
+  ).join('');
+  for (const b of box.querySelectorAll('.clip-del')) {
+    b.onclick = (ev) => {
+      ev.stopPropagation();
+      const id = ev.target.closest('.clip-chip').dataset.clip;
+      state.clips = state.clips.filter((x) => x.id !== id);
+      renderClipList();
+      setStatus('已移除片段', 'ok');
+    };
+  }
+}
 $('#btnPoseAnim').onclick = async () => {
   if (POSE.busy || !state.frames.length) return;
   const frame = state.frames[state.activeIdx] || state.frames[0];
@@ -1135,6 +1180,22 @@ $('#btnPoseAnim').onclick = async () => {
     }
     const keepGen = { motionSource: src, generatedFrom: '微动作 ' + motionId };
     Object.assign(newFrames[0], keepGen);
+    const asClip = !!($('#chkSaveAsClip') && $('#chkSaveAsClip').checked);
+    if (asClip) {
+      // 存为片段：主帧不动，只把这段动作登记下来，运行时随机切换
+      const cid = 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36);
+      const moName = (POSE.info && (POSE.info.motions || []).find((m) => m.id === motionId));
+      state.clips.push({
+        id: cid,
+        name: (moName ? moName.name : motionId),
+        weight: 1,
+        frames: newFrames.map((f) => ({ data: f.current, durationMs: 110 })),
+      });
+      renderClipList();
+      POSE.busy = false; poseUpdateButtons();
+      setStatus('✅ 已存为动作片段「' + (moName ? moName.name : motionId) + '」（共 ' + newFrames.length + ' 帧）。现在可以继续生成别的动作，导出后桌宠会随机切换。', 'ok');
+      return;
+    }
     state.frames = newFrames;
     state.activeIdx = 0;
     if ($('#idleAnim')) $('#idleAnim').value = 'play';

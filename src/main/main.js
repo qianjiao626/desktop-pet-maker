@@ -161,7 +161,23 @@ function readPackFile(p) {
     frames.push({ file: f.file, dataUrl: `data:${mimeOf(f.file)};base64,${b.toString('base64')}`, durationMs: f.durationMs });
   }
   if (!frames.length) throw new Error('宠物包无可用的帧图片');
-  return { pack, frames, file: p };
+
+  // 多动作片段：把每段的帧图片也解出来给运行时。
+  // 缺帧的片段**整段丢弃**（宁可不播这段，也不要让运行时拿到坏数据）。
+  const clips = [];
+  for (const c of (pack.clips || [])) {
+    const cf = [];
+    let broken = false;
+    for (const f of c.frames) {
+      const b = map.get(f.file);
+      if (!b) { broken = true; break; }
+      cf.push({ file: f.file, dataUrl: `data:${mimeOf(f.file)};base64,${b.toString('base64')}`, durationMs: f.durationMs });
+    }
+    if (broken || !cf.length) { console.warn('[pack] 片段缺帧，已跳过: ' + c.id); continue; }
+    clips.push({ id: c.id, name: c.name, frames: cf, weight: c.weight });
+  }
+
+  return { pack, frames, clips, file: p };
 }
 
 function dataUrlToBuffer(dataUrl) {
@@ -171,7 +187,18 @@ function dataUrlToBuffer(dataUrl) {
 }
 
 // images: [{ dataUrl, durationMs }]
-function buildPackAndEntries(pack, images) {
+/**
+ * 组装宠物包内容。
+ *
+ * 两处帧来源：
+ *   1) images：主帧序列（决定帧数/画布，也是老包唯一来源）
+ *   2) pack.clips：可选的多动作片段，每段有自己的帧
+ * clips 里的帧文件必须**一并写进压缩包**，否则运行时找不到文件
+ * （只写主帧的话，片段会指向不存在的图片 —— 实测会加载失败）。
+ *
+ * @param clipImages { [clipId]: [{dataUrl, durationMs}] } 与 pack.clips 顺序对应
+ */
+function buildPackAndEntries(pack, images, clipImages) {
   if (!Array.isArray(images) || !images.length) throw new Error('没有可导出的图片');
   const files = [];
   const frames = [];
@@ -182,12 +209,35 @@ function buildPackAndEntries(pack, images) {
     files.push({ name, data: buf });
     frames.push({ file: name, durationMs: Math.max(16, Math.round(img.durationMs || 120)) });
   });
-  const p = normalizePack({ ...pack, frames });
+
+  // 把 clips 的帧也写进去，并把 pack.clips 的文件名重写成实际写入的名字
+  const rawClips = Array.isArray(pack && pack.clips) ? pack.clips : [];
+  const clips = [];
+  for (const c of rawClips) {
+    if (!c || !Array.isArray(c.frames) || !c.frames.length) continue;
+    const src = (clipImages && clipImages[c.id]) || null;
+    if (!src || !src.length) continue;              // 没有对应图片数据就跳过（不产生坏片段）
+    const cframes = [];
+    for (let i = 0; i < src.length; i++) {
+      const img = src[i];
+      if (!img || !img.dataUrl) continue;
+      const { mime, buf } = dataUrlToBuffer(img.dataUrl);
+      const ext = MIME_TO_EXT[mime] || '.png';
+      const name = `clip_${safeFileName(String(c.id), { maxLen: 24, fallback: 'c' })}_${String(i).padStart(3, '0')}${ext}`;
+      files.push({ name, data: buf });
+      cframes.push({ file: name, durationMs: Math.max(16, Math.round(img.durationMs || c.frames[i]?.durationMs || 110)) });
+    }
+    if (!cframes.length) continue;
+    const w = Number(c.weight);
+    clips.push({ id: String(c.id || ('clip' + clips.length)), name: String(c.name || c.id || '片段'), frames: cframes, weight: Number.isFinite(w) && w > 0 ? w : 1 });
+  }
+
+  const p = normalizePack({ ...pack, frames, clips });
   return { pack: p, files };
 }
 
-function writePackFile(pack, images, outPath) {
-  const { pack: p, files } = buildPackAndEntries(pack, images);
+function writePackFile(pack, images, outPath, clipImages) {
+  const { pack: p, files } = buildPackAndEntries(pack, images, clipImages);
   const v = validatePack(p);
   if (!v.ok) throw new Error(v.errors.join('；'));
   const entries = [
@@ -429,7 +479,7 @@ ipcMain.handle('image:openMany', async () => {
     });
 });
 
-ipcMain.handle('pack:save', async (e, { pack, images, suggestedName }) => {
+ipcMain.handle('pack:save', async (e, { pack, images, suggestedName, clipImages }) => {
   const v = validatePack({ ...pack, frames: (images || []).map((_, idx) => ({ file: 'f' + idx })) });
   if (!v.ok) return { ok: false, errors: v.errors };
   const r = await dialog.showSaveDialog({
@@ -438,7 +488,7 @@ ipcMain.handle('pack:save', async (e, { pack, images, suggestedName }) => {
     filters: [{ name: '桌宠包', extensions: ['petpack', 'zip'] }],
   });
   if (r.canceled || !r.filePath) return { ok: false, canceled: true };
-  try { return { ok: true, path: writePackFile(pack, images, r.filePath).path }; }
+  try { return { ok: true, path: writePackFile(pack, images, r.filePath, clipImages).path }; }
   catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
 
@@ -454,9 +504,9 @@ ipcMain.handle('pack:open', async () => {
 
 // 导出「零依赖分享页」：一个自包含 HTML，双击就能在浏览器里看桌宠动起来。
 // 同时把 .petpack 的 base64 塞进去，所以把这个 HTML 拖回桌宠制作器也能还原成完整宠物。
-ipcMain.handle('share:exportHtml', async (e, { pack, images }) => {
+ipcMain.handle('share:exportHtml', async (e, { pack, images, clipImages }) => {
   try {
-    const { pack: p, files } = buildPackAndEntries(pack, images);
+    const { pack: p, files } = buildPackAndEntries(pack, images, clipImages);
     const v = validatePack(p);
     if (!v.ok) return { ok: false, errors: v.errors };
     const petpackBuf = zipCreate([
@@ -562,11 +612,11 @@ ipcMain.handle('share:readHtml', (e, htmlPath) => {
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
 
-ipcMain.handle('pack:exportFolder', async (e, { pack, images }) => {
+ipcMain.handle('pack:exportFolder', async (e, { pack, images, clipImages }) => {
   const r = await dialog.showOpenDialog({ title: '选择导出文件夹', properties: ['openDirectory', 'createDirectory'] });
   if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true };
   try {
-    const { pack: p, files } = buildPackAndEntries(pack, images);
+    const { pack: p, files } = buildPackAndEntries(pack, images, clipImages);
     const dir = path.join(r.filePaths[0], safeFileName(p.name));
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'pet.json'), JSON.stringify(p, null, 2));
@@ -582,10 +632,10 @@ function launchPet(packPath) {
   child.unref();
 }
 
-ipcMain.handle('pet:launch', (e, { pack, images }) => {
+ipcMain.handle('pet:launch', (e, { pack, images, clipImages }) => {
   try {
     const tmp = path.join(app.getPath('userData'), 'preview');
-    const out = writePackFile(pack, images, path.join(tmp, 'preview-' + Date.now() + '.petpack'));
+    const out = writePackFile(pack, images, path.join(tmp, 'preview-' + Date.now() + '.petpack'), clipImages);
     launchPet(out.path);
     return { ok: true, path: out.path };
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }

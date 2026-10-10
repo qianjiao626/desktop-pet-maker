@@ -7,11 +7,11 @@ contextBridge.exposeInMainWorld('api', {
   // 制作器
   openImage: () => ipcRenderer.invoke('image:open'),
   openImages: () => ipcRenderer.invoke('image:openMany'),
-  savePack: (pack, images, suggestedName) =>
-    ipcRenderer.invoke('pack:save', { pack, images, suggestedName }),
+  savePack: (pack, images, suggestedName, clipImages) =>
+    ipcRenderer.invoke('pack:save', { pack, images, suggestedName, clipImages }),
   openPack: () => ipcRenderer.invoke('pack:open'),
-  exportFolder: (pack, images) => ipcRenderer.invoke('pack:exportFolder', { pack, images }),
-  launchPreview: (pack, images) => ipcRenderer.invoke('pet:launch', { pack, images }),
+  exportFolder: (pack, images, clipImages) => ipcRenderer.invoke('pack:exportFolder', { pack, images, clipImages }),
+  launchPreview: (pack, images, clipImages) => ipcRenderer.invoke('pet:launch', { pack, images, clipImages }),
   launchPetPath: (p) => ipcRenderer.invoke('pet:launchPath', p),
 
   // 运行时
@@ -39,7 +39,7 @@ contextBridge.exposeInMainWorld('api', {
     try { return webUtils.getPathForFile(file); } catch { return ''; }
   },
   // 零依赖分享页：导出一个自包含 HTML；收到 .html 时能从里面还原出宠物包
-  exportShareHtml: (pack, images) => ipcRenderer.invoke('share:exportHtml', { pack, images }),
+  exportShareHtml: (pack, images, clipImages) => ipcRenderer.invoke('share:exportHtml', { pack, images, clipImages }),
   readShareHtml: (p) => ipcRenderer.invoke('share:readHtml', p),
 
   // 我的模板（自定义性格模板）

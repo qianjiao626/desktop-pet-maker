@@ -8,6 +8,7 @@ import { handState, fistState, pettingPose, strugglePose, HAND_DURATION, FIST_DU
 import { computeLayout, computeFramePlacement, OVER, MARGIN } from '../shared/layout.js';
 import { createBug, stepBug, catchBug, isBugActive, canPounce } from '../shared/bugchase.js';
 import { commonGroundOffset } from '../shared/groundcontact.js';
+import { createClipScheduler, clipFrameAt } from '../shared/clips.js';
 
 // 跳跃时最大抬高像素（渲染层视觉高度，不影响物理与窗口尺寸）
 const HOP_HEIGHT = 26;
@@ -30,7 +31,9 @@ const bubbleText = $('#bubbleText');
 const menuEl = $('#menu');
 
 let pack = null;
-let images = [];            // HTMLImageElement[]
+let images = [];            // HTMLImageElement[]（当前正在播放的那一段）
+let clipScheduler = null;   // 多动作片段调度器（包里有 clips 时才非 null）
+let clipImages = new Map(); // clipId -> { images, durs }
 let frameDurs = [];         // ms
 let W = 0, H = 0;           // 窗口尺寸
 let workArea = { x: 0, y: 0, width: 1280, height: 720 };
@@ -376,6 +379,30 @@ function computeTransform(now) {
   }
 
   return o;
+}
+
+/**
+ * 多动作片段调度：到点就把 images/frameDurs 换成另一段的帧。
+ *
+ * 为什么直接换 images 而不是另建一套渲染路径：
+ *   运行时其余逻辑（尺寸、命中、特效、物理）都是围绕 images/frameDurs 写的。
+ *   换掉这两个数组即可让整条链路自动适配，改动面最小、风险最低。
+ *   换完要重新算尺寸与 alpha 图 —— 不同片段的帧图片尺寸可能不同。
+ */
+function tickClips(dtMs) {
+  if (!clipScheduler || !clipScheduler.hasClips()) return;
+  const r = clipScheduler.tick(dtMs);
+  if (!r.changed || !r.clip) return;
+  const entry = clipImages.get(r.clip.id);
+  if (!entry || !entry.images.length) return;
+  images = entry.images;
+  frameDurs = entry.durs;
+  S.frameIdx = 0;
+  S.frameT = 0;
+  // 片段换了 -> 尺寸可能不同 -> 重算布局、alpha 图与落点
+  setupGround();
+  api.setSize(W, H);
+  api.setPos(Math.round(S.body.x), Math.round(S.body.y));
 }
 
 function advanceFrame(dtMs) {
@@ -942,6 +969,7 @@ function loop(ts) {
   lastT = ts;
 
   if (pack) {
+    tickClips(dtMs);
     advanceFrame(dtMs);
     if (!S.dragging && dt > 0) {
       // ---- 抓虫子：优先于普通待机行为 ----
@@ -1382,6 +1410,34 @@ window.__petDebug = () => ({
 
     frameDurs = pack.frames.map((f) => f.durationMs);
     images = await Promise.all(framesToLoad.map((f) => loadImage(f.dataUrl)));
+
+    // 多动作片段：包里带 clips 时，把每段的图片也加载进来。
+    // 加载失败的片段直接丢弃（一个坏片段不能让整只宠物起不来）。
+    if (Array.isArray(r.clips) && r.clips.length) {
+      const loaded = [];
+      for (const c of r.clips) {
+        const fr = Array.isArray(c.frames) ? c.frames : [];
+        if (!fr.length) continue;
+        try {
+          const ims = await Promise.all(fr.map((f) => loadImage(f.dataUrl)));
+          clipImages.set(c.id, { images: ims, durs: fr.map((f) => f.durationMs || 110) });
+          loaded.push({ id: c.id, name: c.name, frames: fr.map((f) => ({ file: f.file, durationMs: f.durationMs || 110 })), weight: c.weight });
+        } catch (err) {
+          console.warn('[pet] 动作片段加载失败，已跳过: ' + c.id + ' -> ' + (err && err.message));
+        }
+      }
+      if (loaded.length) {
+        // 调度参数：4~12 秒换一次动作，避免"刚换又换"或"半天不动"
+        // 切换间隔：默认 4~12 秒（太短显得烦躁，太长又像没在动）。
+        // 可由宠物包指定（animation.clipIntervalSec），方便用户调、也方便测试用极短间隔验证。
+        const sec = Number(pack.animation && pack.animation.clipIntervalSec);
+        const opt = Number.isFinite(sec) && sec > 0
+          ? { minMs: sec * 1000, maxMs: sec * 1000 }
+          : { minMs: 4000, maxMs: 12000 };
+        clipScheduler = createClipScheduler(loaded, opt);
+        console.log('[pet] 已加载 ' + loaded.length + ' 个动作片段，将随机切换');
+      }
+    }
 
     area = await api.workArea();
     workArea = area;

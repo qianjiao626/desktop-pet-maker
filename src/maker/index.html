@@ -303,6 +303,13 @@
       <div class="pose-motion">
         <label class="row">微动作<select id="poseMotion"></select></label>
         <button id="btnPoseAnim" class="primary block" disabled>🎬 生成微动作（只适用于标准立绘）</button>
+        <label class="chk"><input type="checkbox" id="chkSaveAsClip" checked /> 存为「动作片段」而不是替换主帧</label>
+        <label class="row">动作切换间隔 <span class="val" id="clipIntervalV">自动</span>
+          <input type="range" id="clipInterval" min="0" max="60" value="0" />
+        </label>
+        <div class="clip-list" id="clipList"></div>
+        <p class="note">存成片段后，桌宠上桌会<b>按权重随机切换这些动作</b>，而不是永远循环同一段。
+        想撤掉某个片段，点它右边的 ✕。</p>
         <p class="note">微动作幅度控制在 7° 以内 —— 静态图没有背面与关节内侧的像素，
         大幅动作必然露馅（实测三条路线都失败）。所以这里只做「自然的小动作」。</p>
       </div>

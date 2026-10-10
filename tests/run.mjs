@@ -33,6 +33,7 @@ await import('./pose.test.mjs');
 await import('./material.test.mjs');
 await import('./limb.test.mjs');
 await import('./groundcontact.test.mjs');
+await import('./clips.test.mjs');
 await import('./autofit.test.mjs');
 await import('./dnd.test.mjs');
 await import('./library.test.mjs');
