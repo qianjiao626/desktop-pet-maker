@@ -4,7 +4,7 @@ import { pickAreaForBounds, areaChanged } from '../shared/displays.js';
 import { planRuntimeFrames } from '../shared/budget.js';
 import { createBehavior, tickBehavior, enterState, pat as doPat, isWalking, targetVelocityX, stateLabel, hit as doHit, isReacting, hopPose, dozePose, shouldSnore, lookAtPose } from '../shared/behavior.js';
 import { sanitizeSpeech, speechDuration } from '../shared/speech.js';
-import { handState, fistState, pettingPose, HAND_DURATION, FIST_DURATION, PETTING_DURATION } from '../shared/effects.js';
+import { handState, fistState, pettingPose, strugglePose, HAND_DURATION, FIST_DURATION, PETTING_DURATION } from '../shared/effects.js';
 import { computeLayout, computeFramePlacement, OVER, MARGIN } from '../shared/layout.js';
 import { createBug, stepBug, catchBug, isBugActive, canPounce } from '../shared/bugchase.js';
 
@@ -13,6 +13,9 @@ const HOP_HEIGHT = 26;
 
 // 看向鼠标时，把自带的摇摆倾斜压到这个比例，避免两种倾斜叠加后乱晃
 const LOOK_SWAY_DAMP = 0.25;
+
+// 拖拽挣扎时，把自带倾斜压到这个比例，避免叠加后超出挣扎姿态声明的幅度上限
+const DRAG_ROT_DAMP = 0.15;
 
 // 最近一帧的真实渲染姿态（调试钩子用）
 const lastPose = { dx: 0, dy: 0, scaleX: 1, scaleY: 1, rot: 0 };
@@ -225,7 +228,17 @@ function computeTransform(now) {
       o.scaleX *= dz.scaleX;
       o.dy += 2;                       // 微微下沉，像坐下来打盹
       // 睡着后偶尔冒呼噜（由 sleepTick 节流，这里只读标志）
-      if (snorePending && pack.bubble.enabled) { showBubble('Zzz…'); S.bubbleTimer = pack.bubble.intervalSec; snorePending = false; }
+      // 打呼不能抢用户的话：用户刚发言时（userSpokeAt 起 3s 内）或气泡正显示时，跳过这次呼噜。
+      // —— 之前无条件覆盖，实测会把手动输入的话立刻顶掉（QUICK 套件的真实回归）。
+      if (snorePending && pack.bubble.enabled) {
+        const spokeRecently = userSpokeAt && (now - userSpokeAt) < 3000;
+        const bubbleShowing = S.bubbleHideAt && now < S.bubbleHideAt;
+        if (!spokeRecently && !bubbleShowing) {
+          showBubble('Zzz…');
+          S.bubbleTimer = pack.bubble.intervalSec;
+        }
+        snorePending = false;
+      }
     } else if (B.state === 'pat') {
       // 兜底姿态：真正的"舒服"表现由下面的 pettingPose 叠加
       o.dy -= 3;
@@ -266,6 +279,22 @@ function computeTransform(now) {
     o.rot += lp.rot;
     o.dx += lp.dx;
     o.dy += lp.dy;
+  }
+
+  // 「被拎起来会挣扎」：拖着走时左右晃 + 上下轻摆，甩得越快晃得越厉害
+  // 放在注视之后叠加：拖拽是用户直接操作，优先级更高
+  if (S.dragging) {
+    // 用已有采样点估速度：让"甩得猛"看起来更挣扎
+    const v = drag ? estimateThrowVelocity(drag.samples) : { vx: 0, vy: 0 };
+    const sp = Math.hypot(v.vx || 0, v.vy || 0);
+    const st = strugglePose(now / 1000, sp);
+    // 先压掉自带倾斜（呼吸摇摆 / 走路摆 / 注视），避免与挣扎叠加超出声明上限
+    o.rot *= DRAG_ROT_DAMP;
+    o.rot += st.rot;
+    o.dx += st.dx;
+    o.dy += st.dy;
+    o.scaleX *= st.scaleX;
+    o.scaleY *= st.scaleY;
   }
 
   // 记录本帧最终姿态（供调试钩子/自动化断言读取）
@@ -1202,7 +1231,30 @@ window.__forceHop = () => { try { enterState(B, 'hop'); return true; } catch { r
 
 // 测试用：强制进入打瞌睡 / 注入光标坐标（便于自动化断言姿态，不依赖真实鼠标移动）
 window.__forceDoze = () => { try { enterState(B, 'doze'); return true; } catch { return false; } };
+// 测试用：强制醒来（让"注视"断言不受睡眠状态干扰）
+window.__forceWake = () => {
+  try {
+    if (B.state === 'doze' || B.state === 'idle' || B.state === 'lookAround') enterState(B, 'walk');
+    return B.state;
+  } catch { return null; }
+};
 let cursorFrozen = false;   // 测试用：冻结光标，忽略主进程推送
+// 测试用：直接进入/退出拖拽态并注入拖拽速度（真实鼠标事件在自动化里难以稳定驱动）
+window.__forceDragForTest = (speed = 0) => {
+  try {
+    S.dragging = true;
+    drag = {
+      startSX: 0, startSY: 0, startX: S.body.x, startY: S.body.y,
+      samples: [
+        { t: performance.now() - 100, x: S.body.x, y: S.body.y },
+        { t: performance.now(), x: S.body.x + speed * 0.1, y: S.body.y },
+      ],
+    };
+    return true;
+  } catch { return false; }
+};
+window.__endDragForTest = () => { try { S.dragging = false; drag = null; return true; } catch { return false; } };
+
 window.__setCursorForTest = (p, freeze = true) => {
   if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
     cursorScreen = { x: p.x, y: p.y };
@@ -1222,6 +1274,12 @@ window.__petDebug = () => ({
     hopWeight: B.weights.hop, // 跳跃权重（关掉后应为 0）
     lookEnabled,
     cursor: cursorScreen ? { x: cursorScreen.x, y: cursorScreen.y } : null,
+    dragging: !!S.dragging,
+    dragSpeed: (() => {
+      if (!S.dragging || !drag) return 0;
+      const v = estimateThrowVelocity(drag.samples);
+      return Math.round(Math.hypot(v.vx || 0, v.vy || 0));
+    })(),
   },
   // 最近一帧真实用于绘制的姿态：验证「跳跃确实抬高了」靠这个，而不是靠状态名
   pose: { ...lastPose },
