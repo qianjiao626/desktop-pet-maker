@@ -12,6 +12,7 @@ import { emptyState, normalizeState, isFavorite, toggleFavorite, filterLibrary }
 import { classifyDroppedFiles, isShareFile } from '../shared/dnd.js';
 import { PERSONALITY_TEMPLATES, applyTemplate, templateFlags, matchTemplate } from '../shared/templates.js';
 import { applyCustomTemplate, matchCustomTemplate } from '../shared/mytemplates.js';
+import { renderLimbFrames } from './limbrender.js';
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $('#status');
@@ -945,6 +946,11 @@ async function refreshPoseInfo() {
   // 引导文案
   const g = $('#poseGuide');
   if (g) g.innerHTML = (info.guide || []).map((x) => '<div>' + escapeHtml(x) + '</div>').join('');
+  // 微动作下拉框
+  const sel = $('#poseMotion');
+  if (sel && info.motions && !sel.options.length) {
+    sel.innerHTML = info.motions.map((m) => '<option value="' + m.id + '">' + m.emoji + ' ' + m.name + '</option>').join('');
+  }
   if (info.installed) poseSetTag('✓ 已就绪', 'ok');
   else poseSetTag('未下载', 'miss');
   const dl = $('#btnPoseDownload');
@@ -960,6 +966,10 @@ function poseUpdateButtons() {
   const installed = !!(info && info.installed);
   const run = $('#btnPoseRun');
   if (run) run.disabled = POSE.busy || !installed || !state.frames.length;
+  const fit = $('#btnPoseFit');
+  if (fit) fit.disabled = POSE.busy || !installed || !state.frames.length;
+  const anim = $('#btnPoseAnim');
+  if (anim) anim.disabled = POSE.busy || !installed || !state.frames.length;
   const dl = $('#btnPoseDownload');
   if (dl) dl.disabled = POSE.busy;
 }
@@ -1040,6 +1050,106 @@ $('#btnPoseDownload').onclick = async () => {
   await refreshPoseInfo();
 };
 
+// 「按身体自动适配」：用识别到的人物范围裁剪当前帧，并把显示缩放调到建议值。
+// 这样半身照 / 全身照 / 偏心构图在桌面上看起来大小一致、不会偏到屏幕一角。
+$('#btnPoseFit').onclick = async () => {
+  if (POSE.busy || !state.frames.length) return;
+  const frame = state.frames[state.activeIdx] || state.frames[0];
+  const src = frame.original || frame.current;
+  if (!src) { setStatus('当前帧没有图片数据', 'err'); return; }
+  POSE.busy = true; poseUpdateButtons();
+  setStatus('正在计算身体范围…');
+  try {
+    const r = await window.api.poseAutoFit(imageDataToDataURL(src));
+    POSE.busy = false; poseUpdateButtons();
+    if (!r || !r.ok) {
+      if (r && r.needModel) { setStatus('请先下载识别模型', 'err'); await refreshPoseInfo(); return; }
+      setStatus('自动适配失败：' + ((r && r.errors) || []).join(';'), 'err');
+      return;
+    }
+    const W = frame.current.width, H = frame.current.height;
+    const box = {
+      x: Math.max(0, Math.round(r.crop.x * W) - 1),
+      y: Math.max(0, Math.round(r.crop.y * H) - 1),
+      w: Math.round(r.crop.w * W) + 2,
+      h: Math.round(r.crop.h * H) + 2,
+    };
+    box.w = Math.min(box.w, W - box.x);
+    box.h = Math.min(box.h, H - box.y);
+    if (!(box.w > 2) || !(box.h > 2)) { setStatus('身体范围太小，未做裁剪', 'err'); return; }
+    for (const f of state.frames) {
+      const fw = f.current.width, fh = f.current.height;
+      const bx = Math.min(box.x, Math.max(0, fw - 2));
+      const by = Math.min(box.y, Math.max(0, fh - 2));
+      const fb = { x: bx, y: by, w: Math.min(box.w, fw - bx), h: Math.min(box.h, fh - by) };
+      if (fb.w > 2 && fb.h > 2) f.current = toImageData(cropData(f.current.data, fw, fh, fb));
+    }
+    const pct = Math.round(r.scale * 100);
+    if ($('#scale')) $('#scale').value = String(Math.max(15, Math.min(200, pct)));
+    if ($('#qScale')) $('#qScale').value = String(Math.max(10, Math.min(200, pct)));
+    syncLabels();
+    if (needsFrameNormalize()) unifyAllFrames();
+    renderPreview();
+    setStatus('✅ 已按身体适配：' + r.reason + '（缩放 ' + pct + '%，按' + (r.anchor === 'feet' ? '脚' : '腰') + '对齐）', 'ok');
+    if (window.api.quickIsEnabled) {
+      try { const r0 = await window.api.quickIsEnabled(); if (r0 && r0.enabled) await window.api.quickEnable(quickPack(), quickFrames()); } catch {}
+    }
+  } catch (err) {
+    POSE.busy = false; poseUpdateButtons();
+    setStatus('自动适配异常：' + String(err.message || err), 'err');
+  }
+};
+// 生成骨架微动作：把当前帧当作标准立绘，按选中的微动作烘出多帧。
+// 闸门在 canAnimate（主进程）：素材不合格会直接拒绝并说明原因。
+$('#btnPoseAnim').onclick = async () => {
+  if (POSE.busy || !state.frames.length) return;
+  const frame = state.frames[state.activeIdx] || state.frames[0];
+  const src = frame.original || frame.current;
+  if (!src) { setStatus('当前帧没有图片数据', 'err'); return; }
+  const motionId = ($('#poseMotion') && $('#poseMotion').value) || 'idle';
+  POSE.busy = true; poseUpdateButtons();
+  setStatus('正在生成微动作…');
+  try {
+    const plan = await window.api.poseMotionPlan(imageDataToDataURL(src), motionId, 12);
+    if (!plan || !plan.ok) {
+      POSE.busy = false; poseUpdateButtons();
+      if (plan && plan.needModel) { setStatus('请先下载识别模型', 'err'); await refreshPoseInfo(); return; }
+      if (plan && plan.gated) {
+        setStatus('⛔ 这张图不能生成动作：' + plan.reason + '（请按上面的建议调整素材）', 'err');
+        return;
+      }
+      setStatus('生成失败：' + ((plan && plan.errors) || []).join(';'), 'err');
+      return;
+    }
+    // 源 canvas：把当前帧画出来交给渲染器
+    const scv = document.createElement('canvas');
+    scv.width = frame.current.width; scv.height = frame.current.height;
+    scv.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(frame.current.data), frame.current.width, frame.current.height), 0, 0);
+    const out = renderLimbFrames(scv, plan.keypoints, plan.pose, plan.jointsPerFrame, plan.bounds, { size: Math.max(160, Math.min(560, frame.current.width)) });
+    // 用生成的帧替换当前编辑内容
+    const newFrames = [];
+    for (let i = 0; i < out.frames.length; i++) {
+      const c2 = out.frames[i].canvas;
+      const id2 = c2.getContext('2d').getImageData(0, 0, c2.width, c2.height);
+      newFrames.push({ original: id2, current: id2, name: 'dance_' + i + '.png' });
+    }
+    const keepGen = { motionSource: src, generatedFrom: '微动作 ' + motionId };
+    Object.assign(newFrames[0], keepGen);
+    state.frames = newFrames;
+    state.activeIdx = 0;
+    if ($('#idleAnim')) $('#idleAnim').value = 'play';
+    await rebuildAll();
+    POSE.busy = false; poseUpdateButtons();
+    const mo = (POSE.info && POSE.info.motions || []).find((m) => m.id === motionId);
+    setStatus('✅ 已生成微动作「' + (mo ? mo.name : motionId) + '」共 ' + newFrames.length + ' 帧', 'ok');
+    if (window.api.quickIsEnabled) {
+      try { const r0 = await window.api.quickIsEnabled(); if (r0 && r0.enabled) await window.api.quickEnable(quickPack(), quickFrames()); } catch {}
+    }
+  } catch (err) {
+    POSE.busy = false; poseUpdateButtons();
+    setStatus('生成异常：' + String(err.message || err), 'err');
+  }
+};
 $('#btnPoseRun').onclick = async () => {
   if (POSE.busy || !state.frames.length) return;
   const frame = state.frames[state.activeIdx] || state.frames[0];

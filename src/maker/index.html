@@ -299,6 +299,13 @@
       <div class="pose-progress" id="poseProgress" hidden><div class="ai-bar" id="poseBar"></div><span id="posePct">0%</span></div>
       <button id="btnPoseDownload" class="ghost block">下载识别模型（约 9MB）</button>
       <button id="btnPoseRun" class="primary block" disabled>识别身体部位</button>
+      <button id="btnPoseFit" class="accent block" disabled>📐 按身体自动适配（裁剪 + 缩放）</button>
+      <div class="pose-motion">
+        <label class="row">微动作<select id="poseMotion"></select></label>
+        <button id="btnPoseAnim" class="primary block" disabled>🎬 生成微动作（只适用于标准立绘）</button>
+        <p class="note">微动作幅度控制在 7° 以内 —— 静态图没有背面与关节内侧的像素，
+        大幅动作必然露馅（实测三条路线都失败）。所以这里只做「自然的小动作」。</p>
+      </div>
       <div class="pose-result" id="poseResult" hidden>
         <div class="pose-canvas-wrap"><canvas id="poseCanvas"></canvas></div>
         <div class="pose-summary" id="poseSummary"></div>
