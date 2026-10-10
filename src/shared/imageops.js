@@ -347,3 +347,96 @@ export function looksLikeFlatBackground(data, w, h, { maxAdjacent = 14, maxSpan 
     : 'flat-or-gradient';
   return { ok, reason, stats: { n: pts.length, adjAvg: Math.round(adjAvg * 10) / 10, adjMax: Math.round(adjMax), span: Math.round(span) } };
 }
+
+/**
+ * 抠图质量评估（给「上传后一眼看出扣得干不干净」用）。
+ *
+ * 为什么需要：透明背景在制作器里显示为棋盘格，残留的浅色光晕/半透明边缘
+ * 在深色 UI 上并不明显 —— 用户很难判断扣干净了没有，往往到桌面上才发现。
+ *
+ * 这里不猜「好不好看」，只给出三个可测量的事实：
+ * - coverage   主体占比（太小说明主体被扣掉了 / 太大说明背景没扣）
+ * - edgeHalo   主体外圈「半透明」像素比例（抠图不干净最典型的信号）
+ * - empty      几乎全透明（主体被扣没了）
+ *
+ * @param data RGBA
+ * @param w,h  尺寸
+ * @returns {{coverage:number, edgeHalo:number, empty:boolean, verdict:string}}
+ *   verdict 取值：'ok' | 'no-cut' | 'halo' | 'empty' | 'unknown'
+ */
+export function assessCut(data, w, h, { alphaThreshold = 16 } = {}) {
+  if (!data || !w || !h) return { coverage: 0, halo: 0, empty: false, verdict: 'unknown' };
+  const total = w * h;
+
+  let opaque = 0;
+  for (let i = 3; i < data.length; i += 4) if (data[i] > alphaThreshold) opaque++;
+  const coverage = opaque / total;
+  const empty = coverage < 0.005;
+
+  // 边缘残留（halo）用「外层亮度 vs 内层亮度」衡量。
+  //
+  // 为什么不看透明度：实测默认 feather=14 的正常羽化带就有 ~10.6% 半透明像素
+  // （alpha 从 32 平滑升到 255），那是正确行为，用透明度会误报。
+  //
+  // 为什么用亮度差：把不透明像素按「距主体质心的距离」分成内外两层，
+  // 残留（背景色混在边缘，通常偏亮/偏灰）会显著抬高外层亮度。
+  // 实测：干净抠图 外层-内层 = 0.0；带 7px 光晕 = +35.0 —— 信号明确且稳定。
+  let sx = 0, sy = 0, n = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = (y * w + x) * 4;
+    if (data[i + 3] > alphaThreshold) { sx += x; sy += y; n++; }
+  }
+  let halo = 0;
+  if (n > 0) {
+    const cx = sx / n, cy = sy / n;
+    // 亮度比较只用「较实心」像素：羽化带（半透明）天然偏亮，
+    // 把它算进来会让正常抠图误报（实测 alphaMin=16 时正常图 diff=42.7，alphaMin=128 时为 0.0）。
+    const SOLID = 128;
+    // 以「不透明像素到质心的最大距离」为基准，外层取外侧 25% 的壳
+    let maxD = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (data[i + 3] <= SOLID) continue;
+      const d = Math.hypot(x - cx, y - cy);
+      if (d > maxD) maxD = d;
+    }
+    let outerSum = 0, outerN = 0, innerSum = 0, innerN = 0;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (data[i + 3] <= SOLID) continue;
+      const d = Math.hypot(x - cx, y - cy);
+      const lum = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+      if (d >= maxD * 0.75) { outerSum += lum; outerN++; }
+      else if (d <= maxD * 0.5) { innerSum += lum; innerN++; }
+    }
+    if (outerN > 0 && innerN > 0) {
+      const diff = (outerSum / outerN) - (innerSum / innerN);
+      halo = diff > 0 ? diff / 255 : 0;          // 归一化到 0..1
+    }
+  }
+
+  let verdict = 'ok';
+  if (empty) verdict = 'empty';
+  else if (coverage > 0.97) verdict = 'no-cut';
+  else if (halo > 0.09) verdict = 'halo';        // 外层明显更亮 = 有亮边残留
+  return {
+    coverage: Math.round(coverage * 1000) / 1000,
+    halo: Math.round(halo * 1000) / 1000,
+    empty,
+    verdict,
+  };
+}
+
+export function cutAdvice(a) {
+  if (!a || a.verdict === 'unknown') return { level: 'info', text: '' };
+  switch (a.verdict) {
+    case 'empty':
+      return { level: 'warn', text: '主体几乎被扣没了，把「抠图」强度调小试试' };
+    case 'no-cut':
+      return { level: 'warn', text: '背景好像还在，把「抠图」强度调大试试' };
+    case 'halo':
+      return { level: 'warn', text: '边缘还有残留（发灰/半透明），把「抠图」强度稍微调大' };
+    default:
+      return { level: 'ok', text: '背景已扣干净' };
+  }
+}

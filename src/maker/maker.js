@@ -1,7 +1,7 @@
 // 桌宠制作器 - 渲染进程
 import {
   floodCut, colorKeyCut, keepLargestComponent, trimBounds, cropData, flipHorizontal, alignFrames,
-  looksLikeFlatBackground,
+  looksLikeFlatBackground, assessCut, cutAdvice,
 } from '../shared/imageops.js';
 import { decodeGif, parseGifHeader } from '../shared/gif.js';
 import { composeQBody } from './qcompose.js';
@@ -154,6 +154,29 @@ function renderPreview() {
   const badge = $('#frameBadge');
   badge.hidden = state.frames.length < 2;
   badge.textContent = `帧 ${state.activeIdx + 1}/${state.frames.length}`;
+  renderCutHint();
+}
+
+/**
+ * 抠图质量反馈：透明背景在棋盘格上不容易看出扣得干不干净，
+ * 这里给出一句可操作的结论（该调大还是调小抠图强度）。
+ * 只在「已上传图片」时显示，没图时不占位置。
+ */
+function renderCutHint() {
+  const el = $('#cutHint');
+  if (!el) return;
+  const f = state.frames[state.activeIdx];
+  if (!f || !f.current) { el.hidden = true; return; }
+
+  const a = assessCut(f.current.data, f.current.width, f.current.height);
+  const adv = cutAdvice(a);
+  if (!adv.text) { el.hidden = true; return; }
+
+  el.hidden = false;
+  el.className = 'cut-hint ' + (adv.level === 'ok' ? 'ok' : 'warn');
+  const pct = Math.round(a.coverage * 100);
+  el.innerHTML = '<span class="ch-dot"></span><span>' + adv.text + '</span>'
+    + '<span class="ch-meta">主体占 ' + pct + '%</span>';
 }
 
 function updateButtons() {
@@ -459,7 +482,17 @@ $('#chkPlay').onchange = (e) => { state.playing = e.target.checked; if (!state.p
 $('#btnPrevFrame').onclick = () => { if (state.frames.length) { state.activeIdx = (state.activeIdx - 1 + state.frames.length) % state.frames.length; renderPreview(); } };
 $('#btnNextFrame').onclick = () => { if (state.frames.length) { state.activeIdx = (state.activeIdx + 1) % state.frames.length; renderPreview(); } };
 
-bindRange('cutTol'); bindRange('cutFeather'); bindRange('scale'); bindRange('idleSpeed');
+// 「抠图」页的容差/羽化：拖动时也实时预览（之前必须点"应用到所有帧"才看得到，
+// 与快速条的实时行为不一致，用户会以为滑块没生效）。带节流避免拖动时卡顿。
+let cutPreviewTimer = 0;
+const scheduleCutPreview = () => {
+  if (!state.frames.length) return;
+  clearTimeout(cutPreviewTimer);
+  cutPreviewTimer = setTimeout(() => { rebuildAll(); }, 160);
+};
+bindRange('cutTol', scheduleCutPreview);
+bindRange('cutFeather', scheduleCutPreview);
+bindRange('scale'); bindRange('idleSpeed');
 bindRange('fps'); bindRange('gifMaxFrames'); bindRange('roamSpeed'); bindRange('gravity'); bindRange('bounce');
 bindRange('friction'); bindRange('throwScale'); bindRange('interval'); bindRange('duration');
 
@@ -744,6 +777,21 @@ if ($('#libSeg')) {
 }
 if ($('#libSearch')) $('#libSearch').addEventListener('input', () => renderLibrary());
 if ($('#libSort')) $('#libSort').addEventListener('change', () => renderLibrary());
+
+// 测试用：直接以 ImageData 走真实的上传路径（合成拖放拿不到真实文件路径）
+if (typeof window !== 'undefined') {
+  window.__clearFramesForTest = () => { state.frames = []; state.activeIdx = 0; renderPreview(); return true; };
+  window.__rebuildForTest = async () => { await rebuildAll(); return true; };
+  window.__addFrameForTest = async (imageData, name) => {
+    const f = { original: imageData, current: imageData, name: name || 'test' };
+    const cut = autoCutIfNeeded(f, name);
+    if (cut && cut.__autoCut) { f.current = cut.current; f.__autoCut = true; }
+    state.frames.push(f);
+    state.activeIdx = state.frames.length - 1;
+    await rebuildAll();
+    return true;
+  };
+}
 
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
