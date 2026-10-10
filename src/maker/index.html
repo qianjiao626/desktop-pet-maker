@@ -147,6 +147,8 @@
       <div class="ai-box">
         <div class="ai-head"><span class="ai-title">AI 智能抠图（离线）</span><span class="ai-tag" id="aiTag">检测中…</span></div>
         <label class="row">模型<select id="aiModel"></select></label>
+        <label class="chk"><input type="checkbox" id="chkAiAuto" checked /> 🤖 自动挑最好的模型<span class="share-alt">（把已下载的模型都跑一遍比分数，更准但更慢）</span></label>
+        <div class="ai-auto-note" id="aiAutoNote" hidden></div>
         <div class="ai-note" id="aiDesc"></div>
         <div class="ai-progress" id="aiProgress" hidden><div class="ai-bar" id="aiBar"></div><span id="aiPct">0%</span></div>
         <div class="ai-actions">

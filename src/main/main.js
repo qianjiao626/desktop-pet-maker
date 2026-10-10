@@ -9,7 +9,7 @@ import { petPackFileName, safeFileName } from '../shared/safeid.js';
 import { computeLayout } from '../shared/layout.js';
 import { emptyState, normalizeState, toggleFavorite, touchRecent, forgetPet } from '../shared/library.js';
 import { MODELS, listModels, downloadModel, deleteModel, isInstalled } from './models.js';
-import { segmentImage } from './segment.js';
+import { segmentImage, segmentAuto } from './segment.js';
 import { setCurrentPack, getCurrentPack, setPetWindow, getPetWindow, setMakerWindow, getMakerWindow, isPetAlive, setCurrentScale, getCurrentScale } from './state.js';
 import { buildTrayMenuTemplate, trayTooltip } from './tray.js';
 import { startupSwitches, appMenuTemplate } from '../shared/platform.js';
@@ -746,6 +746,22 @@ ipcMain.handle('ai:segment', async (e, { modelId, dataUrl, threshold, feather })
     return await segmentImage(app.getPath('userData'), modelId, dataUrl, { threshold, feather });
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
+// 自动选模型：把所有已下载的模型都跑一遍，用客观质量分数挑最好的（用户要求"精确率优先"）。
+// 逐个模型回报进度，因为 1024 模型单张就要 800ms+，三模型串起来用户会觉得卡死。
+ipcMain.handle('ai:segmentAuto', async (e, { dataUrl, threshold, feather, hintId, ids }) => {
+  try {
+    const dir = app.getPath('userData');
+    const installed = listModels(dir).filter((m) => m.installed).map((m) => m.id);
+    if (!installed.length) return { ok: false, errors: ['没有已下载的模型，请先下载至少一个模型'] };
+    const r = await segmentAuto(dir, null, dataUrl, {
+      threshold, feather, hintId,
+      ids: Array.isArray(ids) && ids.length ? ids.filter((x) => installed.includes(x)) : installed,
+      onProgress: (p) => { if (e.sender && !e.sender.isDestroyed()) e.sender.send('ai:autoProgress', p); },
+    });
+    return r;
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
 ipcMain.handle('pet:getPack', () => {
   // 快速模式：宠物由制作器「启用」直接创建，包在主进程内存里
   const mem = getCurrentPack();

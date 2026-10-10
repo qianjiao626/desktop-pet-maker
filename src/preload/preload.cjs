@@ -59,6 +59,8 @@ contextBridge.exposeInMainWorld('api', {
   downloadModel: (id) => ipcRenderer.invoke('ai:downloadModel', id),
   deleteModel: (id) => ipcRenderer.invoke('ai:deleteModel', id),
   segment: (modelId, dataUrl, threshold, feather) => ipcRenderer.invoke('ai:segment', { modelId, dataUrl, threshold, feather }),
+  segmentAuto: (dataUrl, threshold, feather, hintId, ids) => ipcRenderer.invoke('ai:segmentAuto', { dataUrl, threshold, feather, hintId, ids }),
+  onAutoProgress: (cb) => ipcRenderer.on('ai:autoProgress', (e, p) => cb(p)),
   onDownloadProgress: (cb) => ipcRenderer.on('ai:downloadProgress', (e, p) => cb(p)),
 
 

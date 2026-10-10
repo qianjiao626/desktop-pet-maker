@@ -25,6 +25,7 @@ await import('./templates.test.mjs');
 await import('./platform.test.mjs');
 await import('./sharepack.test.mjs');
 await import('./mytemplates.test.mjs');
+await import('./autoselect.test.mjs');
 await import('./dnd.test.mjs');
 await import('./library.test.mjs');
 await import('./tray.test.mjs');

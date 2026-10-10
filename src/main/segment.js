@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { nativeImage } from 'electron';
 import { bgraToTensor, bgraToTensorLetterbox, cropMaskFromLetterbox, resizeMaskBilinear, applyMaskToBgraAlpha, maskCoverage, minMaxNormalize } from '../shared/segmentation.js';
 import { MODELS, modelPath, isInstalled } from './models.js';
+import { pickBest, decideChoice } from '../shared/autoselect.js';
 
 let ort = null;
 const sessions = new Map();   // id -> InferenceSession
@@ -46,7 +47,15 @@ function encodeBgraToDataUrl(bgra, w, h) {
  * 抠图：输入 dataURL，输出带 alpha 的 PNG dataURL
  * @returns { ok, dataUrl, width, height, coverage, ms }
  */
-export async function segmentImage(userDataDir, id, dataUrl, { threshold = 0.5, feather = 0.12 } = {}) {
+/**
+ * 单模型抠图：走 runModel，保持与自动模式完全一致的数值路径。
+ * 注意：以前这里有一份和 runModel 重复的实现，改一处忘另一处迟早漂移，已合并。
+ */
+/**
+ * 内部：跑单个模型，返回掩膜 + 最终结果（单模型与自动选优共用同一条数值路径）。
+ * @returns { ok, mask, mw, mh, dataUrl, width, height, coverage, ms }
+ */
+async function runModel(userDataDir, id, dataUrl, { threshold = 0.5, feather = 0.12 } = {}) {
   const t0 = Date.now();
   const sess = await getSession(userDataDir, id);
   const size = MODELS[id].size;
@@ -85,7 +94,67 @@ export async function segmentImage(userDataDir, id, dataUrl, { threshold = 0.5, 
 
   return {
     ok: true,
+    mask: resized, mw: width, mh: height,   // 已缩放到原图尺寸，供质量评估
     dataUrl: 'data:image/png;base64,' + encodeBgraToDataUrl(outBgra, width, height),
     width, height, coverage, ms: Date.now() - t0,
+  };
+}
+
+/**
+ * 自动模式：**把所有已下载的模型都跑一遍**，用客观质量分数选最好的一个。
+ * 用户明确要求「精确率优先」，所以不做「先跑快的、不够好再升级」的启发式 ——
+ * 那种做法里「够不够好」的判据会依赖先跑了哪个模型，容易出现偶然性。
+ *
+ * @param {object} opt { threshold, feather, ids?, hintId?, onProgress? }
+ * @returns { ok, dataUrl, width, height, coverage, ms, modelId, ranked, reason, runnerUp, tried, failures }
+ */
+export async function segmentAuto(userDataDir, _unused, dataUrl, opt = {}) {
+  const { threshold = 0.5, feather = 0.12, hintId = null, onProgress = null } = opt;
+  const ids = (Array.isArray(opt.ids) && opt.ids.length ? opt.ids : Object.keys(MODELS))
+    .filter((x) => MODELS[x] && isInstalled(userDataDir, x));
+  if (!ids.length) throw new Error('没有已下载的模型，请先下载至少一个模型');
+
+  const t0 = Date.now();
+  const results = [];
+  const failures = [];
+  for (let i = 0; i < ids.length; i++) {
+    const id = ids[i];
+    if (onProgress) { try { onProgress({ phase: 'run', id, index: i + 1, total: ids.length }); } catch {} }
+    try {
+      const r = await runModel(userDataDir, id, dataUrl, { threshold, feather });
+      results.push({ id, mask: r.mask, w: r.mw, h: r.mh, dataUrl: r.dataUrl, width: r.width, height: r.height, coverage: r.coverage, ms: r.ms });
+    } catch (err) {
+      failures.push({ id, error: String((err && err.message) || err) });
+    }
+  }
+  if (!results.length) {
+    throw new Error('所有模型都失败了：' + failures.map((f) => f.id + ' -> ' + f.error).join('；'));
+  }
+
+  const { ranked } = pickBest(results, threshold);
+  const choice = decideChoice(ranked, hintId);
+  const winner = results.find((r) => r.id === choice.id) || results[0];
+  const winnerRank = ranked.find((r) => r.id === winner.id) || ranked[0];
+
+  return {
+    ok: true,
+    dataUrl: winner.dataUrl,
+    width: winner.width, height: winner.height, coverage: winner.coverage,
+    ms: Date.now() - t0,
+    modelId: winner.id,
+    ranked,
+    reason: choice.reason,
+    score: winnerRank ? winnerRank.score : null,
+    runnerUp: ranked[1] || null,
+    tried: ids,
+    failures,
+  };
+}
+export async function segmentImage(userDataDir, id, dataUrl, { threshold = 0.5, feather = 0.12 } = {}) {
+  const r = await runModel(userDataDir, id, dataUrl, { threshold, feather });
+  return {
+    ok: true,
+    dataUrl: r.dataUrl,
+    width: r.width, height: r.height, coverage: r.coverage, ms: r.ms,
   };
 }
