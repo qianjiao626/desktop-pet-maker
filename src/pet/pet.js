@@ -1166,6 +1166,9 @@ window.addEventListener('mouseleave', () => {
 
 // ---------------- 菜单 ----------------
 function showMenu(x, y) {
+  // 只有包里真的带多段片段时才显示「换个动作」
+  const miClip = document.getElementById('miNextClip');
+  if (miClip) miClip.hidden = !(clipScheduler && clipScheduler.hasClips());
   menuEl.hidden = false;
   const r = menuEl.getBoundingClientRect();
   menuEl.style.left = Math.max(4, Math.min(x, window.innerWidth - r.width - 4)) + 'px';
@@ -1182,7 +1185,25 @@ menuEl.querySelectorAll('.mi').forEach((mi) => {
   mi.onclick = () => {
     const act = mi.dataset.act;
     hideMenu();
-    if (act === 'bottom') { refreshArea(true); S.body.y = area.y + area.height - H - 40; S.body.vy = 0; S.body.onGround = false; S.body.roamTimer = 1; }
+    if (act === 'nextclip') {
+    // 手动换动作：让用户不用等随机切换。没有多段片段时这个菜单项是隐藏的。
+    if (clipScheduler && clipScheduler.hasClips()) {
+      const c = clipScheduler.forceSwitch();
+      if (c) {
+        const entry = clipImages.get(c.id);
+        if (entry && entry.images.length) {
+          images = entry.images; frameDurs = entry.durs;
+          S.frameIdx = 0; S.frameT = 0;
+          setupGround();
+          api.setSize(W, H);
+          api.setPos(Math.round(S.body.x), Math.round(S.body.y));
+        }
+      }
+    }
+    hideMenu();
+    return;
+  }
+  if (act === 'bottom') { refreshArea(true); S.body.y = area.y + area.height - H - 40; S.body.vy = 0; S.body.onGround = false; S.body.roamTimer = 1; }
     else if (act === 'bubble') { showBubble(randomLine()); S.bubbleTimer = pack.bubble.intervalSec; }
     else if (act === 'top') { S.topmost = !S.topmost; api.setAlwaysOnTop(S.topmost); }
     else if (act === 'clickthrough') { S.ignoreMouse = !S.ignoreMouse; api.setIgnoreMouse(S.ignoreMouse); }

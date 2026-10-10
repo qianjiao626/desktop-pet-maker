@@ -159,7 +159,10 @@ app.whenReady().then(async () => {
 
   // ---- 10. 菜单项数量 ----
   const miCount = await js("document.querySelectorAll('#menu .mi').length");
-  check('菜单含 5 项', miCount === 5, 'n=' + miCount);
+  // 6 项：回到屏幕底部 / 说一句话 / 切换置顶 / 切换鼠标穿透 / 换个动作 / 退出桌宠
+  // （「换个动作」只有包里带多段片段时才可见，但 DOM 里始终存在 -> 这里是文档级计数）
+  check('菜单含 6 项', miCount === 6, 'n=' + miCount);
+  check('无片段时「换个动作」是隐藏的', await js(`document.querySelector('#miNextClip').hidden === true`));
 
   log('');
   log('==== PET E2E: ' + pass + '/' + (pass + fail) + ' ====');
