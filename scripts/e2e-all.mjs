@@ -22,6 +22,8 @@ const suites = [
   ['e2e-pet-budget.mjs', []],
   ['e2e-segment.mjs', ['--model=silueta', '--model=isnetGeneral', '--model=isnetAnime']],
   ['e2e-autoselect.mjs', []],
+  ['e2e-batch.mjs', []],
+  ['e2e-corrupt-model.mjs', []],
   ['e2e-tray.mjs', []],
   ['e2e-library-prefs.mjs', []],
   ['e2e-share.mjs', []],

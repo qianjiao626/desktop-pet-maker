@@ -36,6 +36,7 @@
       <div class="qb-mytpl" id="qbMyTpl">
         <button id="btnSaveTpl" class="qbtn" disabled title="把当前的动画/物理/气泡/行为配置存成我的模板">⭐ 存为我的模板</button>
         <button id="btnImportTpl" class="qbtn" title="导入别人发来的 .pettpl 模板文件">📥 导入模板</button>
+        <button id="btnBatch" class="qbtn" title="一次拖入多张图，每张各自变成一只独立宠物（不是同一只的多帧）">📚 批量做宠物</button>
       </div>
       <div class="qb-extra" id="qbExtra">
         <label class="qb-switch" title="让桌宠自己在桌面上走来走去">
@@ -147,7 +148,8 @@
       <div class="ai-box">
         <div class="ai-head"><span class="ai-title">AI 智能抠图（离线）</span><span class="ai-tag" id="aiTag">检测中…</span></div>
         <label class="row">模型<select id="aiModel"></select></label>
-        <label class="chk"><input type="checkbox" id="chkAiAuto" checked /> 🤖 自动挑最好的模型<span class="share-alt">（把已下载的模型都跑一遍比分数，更准但更慢）</span></label>
+        <label class="chk"><input type="checkbox" id="chkAiAuto" checked /> 🤖 自动挑最好的模型<span class="share-alt">（按质量分自动选，快且准）</span></label>
+        <label class="chk" id="rowAiAlwaysFull"><input type="checkbox" id="chkAiAlwaysFull" /> 总是跑遍所有模型<span class="share-alt">（最准但最慢：约 2.4 秒/帧）</span></label>
         <div class="ai-auto-note" id="aiAutoNote" hidden></div>
         <div class="ai-note" id="aiDesc"></div>
         <div class="ai-progress" id="aiProgress" hidden><div class="ai-bar" id="aiBar"></div><span id="aiPct">0%</span></div>
@@ -296,6 +298,13 @@
       <button id="btnExportShare" class="accent block" disabled>🌐 导出分享页（单个 HTML，发给别人双击就能看）</button>
     </div>
     <div class="status" id="status">就绪</div>
+    <div class="batch-panel" id="batchPanel" hidden>
+      <div class="batch-head"><b>📚 批量制作中</b><span id="batchCount"></span></div>
+      <div class="batch-bar"><div class="batch-fill" id="batchFill"></div></div>
+      <div class="batch-line" id="batchLine">准备中…</div>
+      <div class="batch-log" id="batchLog"></div>
+      <button id="btnBatchCancel" class="ghost block">停止（已完成的会保留）</button>
+    </div>
   </aside>
 </main>
 

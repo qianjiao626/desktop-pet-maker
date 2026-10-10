@@ -2,8 +2,8 @@
 import fs from 'node:fs';
 import { nativeImage } from 'electron';
 import { bgraToTensor, bgraToTensorLetterbox, cropMaskFromLetterbox, resizeMaskBilinear, applyMaskToBgraAlpha, maskCoverage, minMaxNormalize } from '../shared/segmentation.js';
-import { MODELS, modelPath, isInstalled } from './models.js';
-import { pickBest, decideChoice } from '../shared/autoselect.js';
+import { MODELS, modelPath, isInstalled, isCorrupt } from './models.js';
+import { pickBest, decideChoice, shouldStopEarly, orderBySpeed } from '../shared/autoselect.js';
 
 let ort = null;
 const sessions = new Map();   // id -> InferenceSession
@@ -15,7 +15,13 @@ async function loadOrt() {
 
 export async function getSession(userDataDir, id) {
   if (sessions.has(id)) return sessions.get(id);
-  if (!isInstalled(userDataDir, id)) throw new Error('模型未下载：' + (MODELS[id] ? MODELS[id].name : id));
+  if (!isInstalled(userDataDir, id)) {
+    // 区分「没下载」和「下了一半」——后者要引导用户重新下载，而不是让他去下载
+    if (isCorrupt(userDataDir, id)) {
+      throw new Error('模型文件不完整（下载可能中断过），请在「抠图」面板点「重新下载」：' + (MODELS[id] ? MODELS[id].name : id));
+    }
+    throw new Error('模型未下载：' + (MODELS[id] ? MODELS[id].name : id));
+  }
   const o = await loadOrt();
   const sess = await o.InferenceSession.create(modelPath(userDataDir, id), {
     executionProviders: ['cpu'],
@@ -109,14 +115,17 @@ async function runModel(userDataDir, id, dataUrl, { threshold = 0.5, feather = 0
  * @returns { ok, dataUrl, width, height, coverage, ms, modelId, ranked, reason, runnerUp, tried, failures }
  */
 export async function segmentAuto(userDataDir, _unused, dataUrl, opt = {}) {
-  const { threshold = 0.5, feather = 0.12, hintId = null, onProgress = null } = opt;
-  const ids = (Array.isArray(opt.ids) && opt.ids.length ? opt.ids : Object.keys(MODELS))
+  const { threshold = 0.5, feather = 0.12, hintId = null, onProgress = null, alwaysFull = false } = opt;
+  const all = (Array.isArray(opt.ids) && opt.ids.length ? opt.ids : Object.keys(MODELS))
     .filter((x) => MODELS[x] && isInstalled(userDataDir, x));
-  if (!ids.length) throw new Error('没有已下载的模型，请先下载至少一个模型');
+  if (!all.length) throw new Error('没有已下载的模型，请先下载至少一个模型');
+  // 提前收手模式必须「先快后慢」才有意义；总是全跑则保持用户给的原顺序
+  const ids = alwaysFull ? all : orderBySpeed(all, (id) => MODELS[id] && MODELS[id].size);
 
   const t0 = Date.now();
   const results = [];
   const failures = [];
+  let stopReason = '';
   for (let i = 0; i < ids.length; i++) {
     const id = ids[i];
     if (onProgress) { try { onProgress({ phase: 'run', id, index: i + 1, total: ids.length }); } catch {} }
@@ -125,6 +134,12 @@ export async function segmentAuto(userDataDir, _unused, dataUrl, opt = {}) {
       results.push({ id, mask: r.mask, w: r.mw, h: r.mh, dataUrl: r.dataUrl, width: r.width, height: r.height, coverage: r.coverage, ms: r.ms });
     } catch (err) {
       failures.push({ id, error: String((err && err.message) || err) });
+    }
+    // 够好了就收手：把已经跑过的结果算一次分，避免为小数点后第三位多花 1 秒
+    if (results.length) {
+      const partial = pickBest(results, threshold).ranked;
+      const d = shouldStopEarly(partial, results.length, ids.length, { alwaysFull });
+      if (d.stop && results.length < ids.length) { stopReason = d.reason; break; }
     }
   }
   if (!results.length) {
@@ -144,9 +159,13 @@ export async function segmentAuto(userDataDir, _unused, dataUrl, opt = {}) {
     modelId: winner.id,
     ranked,
     reason: choice.reason,
+    stopReason,
     score: winnerRank ? winnerRank.score : null,
     runnerUp: ranked[1] || null,
-    tried: ids,
+    // tried 必须是**实际跑过的**模型，不是候选列表：提前收手时两者不同，
+    // 界面要据此告诉用户「我试了哪几个、为什么停」。
+    tried: [...results.map((x) => x.id), ...failures.map((x) => x.id)],
+    planned: ids,
     failures,
   };
 }

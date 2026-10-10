@@ -223,3 +223,18 @@ button.block{width:100%}
   background: rgba(255, 255, 255, 0.04); border: 1px dashed rgba(255, 255, 255, 0.12);
   border-radius: 8px; padding: 6px 10px; margin-top: 6px;
 }
+/* ===== 批量处理面板 ===== */
+.batch-panel {
+  margin-top: 10px; padding: 12px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.10);
+}
+.batch-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; margin-bottom: 8px; }
+.batch-head span { color: var(--muted, #8b97ad); font-size: 12px; }
+.batch-bar { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.10); overflow: hidden; }
+.batch-fill { height: 100%; width: 0; background: linear-gradient(90deg, #4c8dff, #7bd88f); transition: width .18s ease; }
+.batch-line { font-size: 12px; color: var(--muted, #8b97ad); margin-top: 8px; min-height: 16px; word-break: break-all; }
+.batch-log { max-height: 150px; overflow-y: auto; margin-top: 6px; font-size: 12px; line-height: 1.7; }
+.batch-log:empty { display: none; }
+.batch-row { color: var(--muted, #8b97ad); }
+.batch-row.ok { color: #7bd88f; }
+.batch-row.err { color: #ff8f8f; }

@@ -909,6 +909,116 @@ document.querySelectorAll('.tab').forEach((tab) => {
   };
 });
 
+// ---------------- 批量处理：一批图 -> 一批独立宠物 ----------------
+// 关键区别：拖多张图到画布 = 同一只宠物的多帧；点「批量做宠物」= 每张各是一只。
+// 这两种意图完全不同，所以批量走独立入口，避免用户想做 20 只却得到一只闪烁怪。
+const BATCH = { running: false };
+
+function batchSetProgress(pct, line) {
+  const fill = $('#batchFill');
+  if (fill) fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  if (line !== undefined && $('#batchLine')) $('#batchLine').textContent = line;
+}
+
+function batchAppendLog(text, cls = '') {
+  const box = $('#batchLog');
+  if (!box) return;
+  const d = document.createElement('div');
+  d.className = 'batch-row ' + cls;
+  d.textContent = text;
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+}
+
+function batchOpen() {
+  if ($('#batchPanel')) $('#batchPanel').hidden = false;
+  if ($('#batchLog')) $('#batchLog').innerHTML = '';
+  batchSetProgress(0, '准备中…');
+  if ($('#batchCount')) $('#batchCount').textContent = '';
+}
+
+function batchClose() {
+  if ($('#batchPanel')) $('#batchPanel').hidden = true;
+  BATCH.running = false;
+  const btn = $('#btnBatch');
+  if (btn) btn.disabled = false;
+}
+
+// 主进程逐个模型回报时，让用户看到「卡住」其实是在跑第二个模型
+window.api.onBatchProgress((p) => {
+  if (!p) return;
+  if (p.phase === 'plan') {
+    batchSetProgress(0, '共 ' + p.total + ' 张图，开始处理…');
+    if ($('#batchCount')) $('#batchCount').textContent = '0 / ' + p.total;
+    return;
+  }
+  if (p.phase === 'model') {
+    batchSetProgress(((p.index - 1) / Math.max(1, p.total)) * 100, '「' + p.name + '」试跑模型 ' + p.modelIndex + '/' + p.modelTotal + '…');
+    return;
+  }
+  if (p.phase !== 'item') return;
+  const pct = (p.index / Math.max(1, p.total)) * 100;
+  if ($('#batchCount')) $('#batchCount').textContent = p.index + ' / ' + p.total;
+  if (p.status === 'cut') { batchSetProgress(pct - 40 / Math.max(1, p.total), '「' + p.name + '」抠图中…'); return; }
+  if (p.status === 'ok') { batchSetProgress(pct, '✅ 「' + p.name + '」→ ' + p.outName); batchAppendLog('✅ ' + p.name, 'ok'); return; }
+  if (p.status === 'canceled') { batchSetProgress(pct, '已取消'); return; }
+  batchSetProgress(pct, '❌ 「' + p.name + '」失败：' + p.error);
+  batchAppendLog('❌ ' + p.name + '：' + p.error, 'err');
+});
+
+async function runBatch() {
+  if (BATCH.running) return;
+  if (!window.api.batchRun) { setStatus('当前版本不支持批量处理', 'err'); return; }
+  // 1) 先选文件
+  const files = await window.api.batchPickFiles();
+  if (!files || !files.length) return;
+
+  // 2) 够不够跑？没有 AI 模型时批量只能用不上（纯色抠图对照片不可靠，宁可不做）
+  let installed = [];
+  try { installed = (await window.api.listModels()).filter((m) => m.installed); } catch {}
+  if (!installed.length) {
+    setStatus('批量处理需要先下载一个 AI 抠图模型（右侧「抠图」面板）', 'err');
+    return;
+  }
+
+  BATCH.running = true;
+  const btn = $('#btnBatch');
+  if (btn) btn.disabled = true;
+  batchOpen();
+
+  // 3) 用当前的界面配置作为每只宠物的默认外观/物理（用户可事后微调）
+  const tpl = readPack();
+  const autoModel = !!($('#chkAiAuto') && $('#chkAiAuto').checked);
+  const threshold = parseInt($('#aiThresh').value, 10) / 100;
+  const alwaysFull = !!($('#chkAiAlwaysFull') && $('#chkAiAlwaysFull').checked);
+  const r = await window.api.batchRun(files, tpl, autoModel, threshold, 0.12, alwaysFull);
+
+  if (!r || !r.ok) {
+    setStatus('批量处理失败：' + ((r && r.errors) || []).join(';'), 'err');
+    batchSetProgress(0, '失败');
+    BATCH.running = false;
+    if (btn) btn.disabled = false;
+    return;
+  }
+  const s = r.summary || {};
+  batchSetProgress(100, (r.canceled ? '已停止 · ' : '完成 · ') + (s.text || ''));
+  setStatus((r.canceled ? '⏹ 批量已停止：' : '✅ 批量完成：') + (s.text || ''), r.canceled ? '' : 'ok');
+  if (s.failures && s.failures.length) {
+    for (const f of s.failures) batchAppendLog('❌ ' + f.name + '：' + f.error, 'err');
+  }
+  BATCH.running = false;
+  if (btn) btn.disabled = false;
+  // 4) 刷新宠物库，让新做的宠物立刻出现
+  try { await refreshLibrary(); } catch {}
+}
+
+if ($('#btnBatch')) $('#btnBatch').onclick = runBatch;
+if ($('#btnBatchCancel')) $('#btnBatchCancel').onclick = async () => {
+  if (!BATCH.running) { batchClose(); return; }
+  await window.api.batchCancel();
+  batchSetProgress(0, '正在停止（已完成的会保留）…');
+  if ($('#btnBatchCancel')) $('#btnBatchCancel').disabled = true;
+};
 // ---------------- 宠物库 ----------------
 // 列表数据缓存一份，搜索/排序在前端做，避免每次输入都重新读盘、重解压缩略图。
 let libCache = [];
@@ -1227,22 +1337,34 @@ function updateAiUi() {
   const tag = $('#aiTag');
   if (!m) { tag.textContent = '不可用'; tag.className = 'ai-tag miss'; return; }
   $('#aiDesc').textContent = m.desc + '   ·   ' + (m.bytes / 1048576).toFixed(0) + 'MB   ·   ' + m.license;
+  // 三种状态要分清：已就绪 / 下载中断（残件）/ 未下载。
+  // 第二种最重要 —— 以前它会被当成「已就绪」，点抠图就永久卡死（真 bug，已修）。
   if (m.installed) { tag.textContent = '✓ 已就绪'; tag.className = 'ai-tag ok'; }
+  else if (m.corrupt) { tag.textContent = '⚠ 下载不完整'; tag.className = 'ai-tag miss'; }
   else { tag.textContent = '未下载'; tag.className = 'ai-tag miss'; }
-  $('#btnAiDownload').textContent = m.installed ? '重新下载' : ('下载模型 (' + (m.bytes / 1048576).toFixed(0) + 'MB)');
+  if (m.corrupt) {
+    $('#aiDesc').textContent += '   ·   ⚠ 上次下载没完成，请点「重新下载」';
+  }
+  $('#btnAiDownload').textContent = (m.installed || m.corrupt) ? '重新下载' : ('下载模型 (' + (m.bytes / 1048576).toFixed(0) + 'MB)');
   $('#btnAiDownload').disabled = AI.busy;
   // 自动模式：只要「任意一个」模型已下载就能用（会把它作为提示，但实际跑全部已下载的）
   const anyInstalled = AI.models.some((x) => x.installed);
   const auto = !!($('#chkAiAuto') && $('#chkAiAuto').checked);
   const ready = auto ? anyInstalled : m.installed;
   $('#btnAiSegment').disabled = AI.busy || !ready || !state.frames.length;
+  // 「总是跑遍所有模型」只在自动模式下有意义，手动选模型时置灰
+  const rowFull = $('#rowAiAlwaysFull');
+  if (rowFull) { rowFull.style.opacity = auto ? '' : '0.45'; rowFull.style.pointerEvents = auto ? '' : 'none'; }
   const note = $('#aiAutoNote');
   if (note) {
     const installedIds = AI.models.filter((x) => x.installed).map((x) => x.name);
     if (auto && anyInstalled) {
       note.hidden = false;
-      note.textContent = '将依次试跑：' + installedIds.join(' · ') + '，按抠图质量自动选最好的一个。'
-        + (installedIds.length > 1 ? '模型越多越慢。' : '（只装了一个模型，想更准可再下载其他模型）');
+      const full = !!($('#chkAiAlwaysFull') && $('#chkAiAlwaysFull').checked);
+      note.textContent = full
+        ? ('总是全跑：' + installedIds.join(' · ') + '，最准但最慢（约 2.4 秒/帧）。')
+        : ('按「先快后慢」试跑：' + installedIds.join(' · ') + '，够干净就提前收手。'
+           + (installedIds.length > 1 ? '' : '（只装了一个模型，想更准可再下载其他模型）'));
     } else if (auto) {
       note.hidden = false;
       note.textContent = '自动模式需要至少下载一个模型。';
@@ -1254,6 +1376,7 @@ function updateAiUi() {
 
 $('#aiModel').onchange = () => { AI.current = $('#aiModel').value; updateAiUi(); };
 if ($('#chkAiAuto')) $('#chkAiAuto').onchange = () => updateAiUi();
+if ($('#chkAiAlwaysFull')) $('#chkAiAlwaysFull').onchange = () => updateAiUi();
 bindRange('aiThresh');
 
 $('#btnAiDownload').onclick = async () => {
@@ -1290,6 +1413,7 @@ window.api.onDownloadProgress((p) => {
 $('#btnAiSegment').onclick = async () => {
   const m = currentModel();
   const auto = !!($('#chkAiAuto') && $('#chkAiAuto').checked);
+  const alwaysFull = !!(auto && $('#chkAiAlwaysFull') && $('#chkAiAlwaysFull').checked);
   const anyInstalled = AI.models.some((x) => x.installed);
   if (auto ? !anyInstalled : (!m || !m.installed)) { setStatus('请先下载模型', 'err'); return; }
   AI.busy = true; updateAiUi();
@@ -1297,6 +1421,7 @@ $('#btnAiSegment').onclick = async () => {
   let done = 0;
   const chosen = {};      // 每个模型被选中的次数，收尾时告诉用户"为什么选它"
   let lastReason = '';
+  let lastStopReason = '';
   for (let i = 0; i < state.frames.length; i++) {
     setStatus(`AI 抠图中… ${i + 1}/${state.frames.length}` + (auto ? '（自动比分数）' : ''));
     const srcFrame = state.frames[i].original || state.frames[i].current;
@@ -1304,14 +1429,14 @@ $('#btnAiSegment').onclick = async () => {
     const src = imageDataToDataURL(srcFrame);
     // 自动模式：把已下载的模型都跑一遍，按客观质量分数选最好的（精确率优先）
     const r = auto
-      ? await window.api.segmentAuto(src, threshold, 0.12, m ? m.id : null, null)
+      ? await window.api.segmentAuto(src, threshold, 0.12, m ? m.id : null, null, alwaysFull)
       : await window.api.segment(m.id, src, threshold, 0.12);
     if (!r.ok) { setStatus('AI 抠图失败：' + (r.errors || []).join(';'), 'err'); AI.busy = false; updateAiUi(); return; }
     const b64 = r.dataUrl.split(',')[1];
     const decoded = await base64ToImageData(b64);
     state.frames[i].current = decoded.data;
     done++;
-    if (r.modelId) { chosen[r.modelId] = (chosen[r.modelId] || 0) + 1; lastReason = r.reason || ''; }
+    if (r.modelId) { chosen[r.modelId] = (chosen[r.modelId] || 0) + 1; lastReason = r.reason || ''; lastStopReason = r.stopReason || ''; }
     renderPreview();
   }
   // AI 抠图会保留各帧原始尺寸，多帧时需重新统一并对齐

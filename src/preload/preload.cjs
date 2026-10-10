@@ -50,6 +50,12 @@ contextBridge.exposeInMainWorld('api', {
   templatesExport: (id) => ipcRenderer.invoke('tpl:export', id),
   templatesImport: (p) => ipcRenderer.invoke('tpl:import', p),
 
+  // 批量处理：一次把多张图各自变成一只宠物（与「多张图 = 多帧」区分开）
+  batchPickFiles: () => ipcRenderer.invoke('batch:pickFiles'),
+  batchRun: (files, tpl, autoModel, threshold, feather, alwaysFull) => ipcRenderer.invoke('batch:run', { files, tpl, autoModel, threshold, feather, alwaysFull }),
+  batchCancel: () => ipcRenderer.invoke('batch:cancel'),
+  onBatchProgress: (cb) => ipcRenderer.on('batch:progress', (e, p) => cb(p)),
+
   libraryGet: () => ipcRenderer.invoke('library:get'),
   libraryToggleFav: (id) => ipcRenderer.invoke('library:toggleFav', id),
   libraryTouch: (id) => ipcRenderer.invoke('library:touch', id),
@@ -59,7 +65,7 @@ contextBridge.exposeInMainWorld('api', {
   downloadModel: (id) => ipcRenderer.invoke('ai:downloadModel', id),
   deleteModel: (id) => ipcRenderer.invoke('ai:deleteModel', id),
   segment: (modelId, dataUrl, threshold, feather) => ipcRenderer.invoke('ai:segment', { modelId, dataUrl, threshold, feather }),
-  segmentAuto: (dataUrl, threshold, feather, hintId, ids) => ipcRenderer.invoke('ai:segmentAuto', { dataUrl, threshold, feather, hintId, ids }),
+  segmentAuto: (dataUrl, threshold, feather, hintId, ids, alwaysFull) => ipcRenderer.invoke('ai:segmentAuto', { dataUrl, threshold, feather, hintId, ids, alwaysFull }),
   onAutoProgress: (cb) => ipcRenderer.on('ai:autoProgress', (e, p) => cb(p)),
   onDownloadProgress: (cb) => ipcRenderer.on('ai:downloadProgress', (e, p) => cb(p)),
 

@@ -15,6 +15,7 @@ import { buildTrayMenuTemplate, trayTooltip } from './tray.js';
 import { startupSwitches, appMenuTemplate } from '../shared/platform.js';
 import { buildShareHtml, shareFileName } from '../shared/sharepack.js';
 import { normalizeTemplateList, addTemplate, removeTemplate, renameTemplate, templateFromPack, normalizeTemplate, templateFileName, TEMPLATE_SCHEMA } from '../shared/mytemplates.js';
+import { planBatch, batchPackFor, summarizeBatch } from '../shared/batch.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -592,6 +593,123 @@ ipcMain.handle('pet:launchPath', (e, p) => {
 });
 
 // 宠物库
+// ---------- 批量处理：一次把多张图各自变成一只宠物 ----------
+// 批量任务是长耗时操作（每张图要跑 AI 抠图），所以：
+//   1. 主进程串行执行，逐张回报进度，渲染进程不会被卡住；
+//   2. 支持取消 —— 拖了 50 张发现太久要能停下来，已完成的保留；
+//   3. 每只成功就立刻原子入库（临时文件 -> 校验 -> rename），中途失败不留半成品。
+const BATCH = { running: false, canceled: false };
+
+function readImageAsDataUrl(p) {
+  const buf = fs.readFileSync(p);
+  return `data:${mimeOf(p)};base64,${buf.toString('base64')}`;
+}
+
+/** 把一张已抠好的图片写成宠物包并入库（原子写入，失败不污染宠物库） */
+function writeBatchPet(dir, outName, name, pngBuffer, tpl) {
+  const dest = path.join(dir, outName);
+  const tmp = dest + '.tmp-batch';
+  try {
+    const pack = batchPackFor(name, tpl, 'pet.png');
+    const entries = [
+      { name: 'pet.json', data: JSON.stringify(pack, null, 2) },
+      { name: 'pet.png', data: pngBuffer },
+      { name: 'README.txt', data: `桌宠宠物包\n名称: ${pack.name}\n由「桌宠制作器」批量生成\n` },
+    ];
+    fs.writeFileSync(tmp, zipCreate(entries));
+    readPackFile(tmp);                 // 二次校验：半包绝不允许入库
+    fs.renameSync(tmp, dest);
+    return { ok: true, id: outName, name: pack.name, path: dest };
+  } catch (err) {
+    try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch {}
+    throw err;
+  }
+}
+
+ipcMain.handle('batch:cancel', () => { if (BATCH.running) BATCH.canceled = true; return { ok: true }; });
+
+ipcMain.handle('batch:run', async (e, { files, tpl, autoModel = true, alwaysFull = false, threshold = 0.5, feather = 0.12 }) => {
+  if (BATCH.running) return { ok: false, errors: ['已有一个批量任务在跑'] };
+  const send = (p) => { if (e.sender && !e.sender.isDestroyed()) e.sender.send('batch:progress', p); };
+  BATCH.running = true; BATCH.canceled = false;
+  try {
+    const dir = app.getPath('userData');
+    const pets = petsDir();
+    const images = (Array.isArray(files) ? files : []).map((p) => {
+      try { return { name: path.basename(p), dataUrl: readImageAsDataUrl(p), path: p }; }
+      catch (err) { return { name: path.basename(p), dataUrl: null, error: String(err.message || err) }; }
+    });
+    if (!images.length) throw new Error('没有可处理的图片');
+
+    const plan = planBatch(images);
+    const results = [];
+    send({ phase: 'plan', total: plan.length });
+
+    for (let i = 0; i < plan.length; i++) {
+      const item = plan[i];
+      const label = item.name;
+      if (BATCH.canceled) {
+        results.push({ ok: false, canceled: true, name: label });
+        send({ phase: 'item', index: i + 1, total: plan.length, name: label, status: 'canceled' });
+        continue;
+      }
+      const src = images[item.index];
+      if (!src || !src.dataUrl) {
+        results.push({ ok: false, name: label, error: (src && src.error) || '图片读取失败' });
+        send({ phase: 'item', index: i + 1, total: plan.length, name: label, status: 'fail', error: (src && src.error) || '图片读取失败' });
+        continue;
+      }
+      try {
+        send({ phase: 'item', index: i + 1, total: plan.length, name: label, status: 'cut' });
+        // 抠图：默认走「自动挑最好的模型」，和制作器里的 AI 抠图保持一致
+        const dir0 = app.getPath('userData');
+        const installed = listModels(dir0).filter((m) => m.installed).map((m) => m.id);
+        let seg;
+        if (autoModel && installed.length) {
+          seg = await segmentAuto(dir0, null, src.dataUrl, {
+            threshold, feather, alwaysFull: !!alwaysFull,
+            ids: installed,
+            onProgress: (pr) => send({ phase: 'model', index: i + 1, total: plan.length, name: label, model: pr.id, modelIndex: pr.index, modelTotal: pr.total }),
+          });
+        } else if (installed.length) {
+          seg = await segmentImage(dir0, installed[0], src.dataUrl, { threshold, feather });
+        } else {
+          throw new Error('没有已下载的 AI 模型（请在「抠图」面板下载一个）');
+        }
+        if (!seg || !seg.ok) throw new Error((seg && seg.errors && seg.errors.join(';')) || '抠图失败');
+        const b64 = String(seg.dataUrl).split(',')[1] || '';
+        const png = Buffer.from(b64, 'base64');
+        const r = writeBatchPet(pets, item.outName, item.name, png, tpl);
+        results.push({ ok: true, ...r, modelId: seg.modelId || null });
+        send({ phase: 'item', index: i + 1, total: plan.length, name: label, status: 'ok', outName: item.outName, modelId: seg.modelId || null });
+      } catch (err) {
+        const msg = String((err && err.message) || err);
+        results.push({ ok: false, name: label, error: msg });
+        send({ phase: 'item', index: i + 1, total: plan.length, name: label, status: 'fail', error: msg });
+      }
+    }
+
+    const summary = summarizeBatch(results);
+    const wasCanceled = BATCH.canceled;
+    send({ phase: 'done', summary, canceled: wasCanceled });
+    return { ok: true, summary, results, canceled: wasCanceled, petsDir: pets };
+  } catch (err) {
+    return { ok: false, errors: [String(err.message || err)] };
+  } finally {
+    BATCH.running = false; BATCH.canceled = false;
+  }
+});
+
+ipcMain.handle('batch:pickFiles', async () => {
+  const r = await dialog.showOpenDialog({
+    title: '选择多张图片（每张会各自变成一只宠物）',
+    properties: ['openFile', 'multiSelections'],
+    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
+  });
+  if (r.canceled) return [];
+  return r.filePaths.slice();
+});
+
 ipcMain.handle('pet:listInstalled', () => {
   const dir = petsDir();
   // 内置宠物清单：与 examples/ 下同名的包视为「内置」（随程序分发、可删除）
@@ -748,13 +866,13 @@ ipcMain.handle('ai:segment', async (e, { modelId, dataUrl, threshold, feather })
 });
 // 自动选模型：把所有已下载的模型都跑一遍，用客观质量分数挑最好的（用户要求"精确率优先"）。
 // 逐个模型回报进度，因为 1024 模型单张就要 800ms+，三模型串起来用户会觉得卡死。
-ipcMain.handle('ai:segmentAuto', async (e, { dataUrl, threshold, feather, hintId, ids }) => {
+ipcMain.handle('ai:segmentAuto', async (e, { dataUrl, threshold, feather, hintId, ids, alwaysFull }) => {
   try {
     const dir = app.getPath('userData');
     const installed = listModels(dir).filter((m) => m.installed).map((m) => m.id);
     if (!installed.length) return { ok: false, errors: ['没有已下载的模型，请先下载至少一个模型'] };
     const r = await segmentAuto(dir, null, dataUrl, {
-      threshold, feather, hintId,
+      threshold, feather, hintId, alwaysFull: !!alwaysFull,
       ids: Array.isArray(ids) && ids.length ? ids.filter((x) => installed.includes(x)) : installed,
       onProgress: (p) => { if (e.sender && !e.sender.isDestroyed()) e.sender.send('ai:autoProgress', p); },
     });

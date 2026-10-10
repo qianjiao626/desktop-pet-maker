@@ -160,6 +160,56 @@ export function pickBest(candidates, threshold = 0.5) {
 export const TIE_EPSILON = 0.02;
 
 /**
+ * 「够好了就提前收手」的阈值。
+ *
+ * 为什么需要（实测数据）：三个模型在 512×512 上分别要 ~0.8s / ~1.3s / ~1.2s，
+ * 全跑一遍 ≈ 2.4s/帧。用户拖 20 张图批量处理就是 ~50s，长到会以为死机。
+ * 而绝大多数常见素材（纯色/渐变背景的角色立绘）用最快的 silueta 就已经很干净。
+ *
+ * 所以：**按「从快到慢」的顺序试**，一旦某个模型的分数已经很高（默认 0.90）
+ * 就停手，不再浪费时间跑更慢的模型。这不违背「精确率优先」——
+ * 分数本身就是客观质量分，0.90 以上意味着没有肉眼可见的缺陷，
+ * 再跑更慢的模型只是在追求小数点后第三位的差异。
+ *
+ * 想要「无论如何都全跑一遍」的用户，可在界面切成「总是全跑」。
+ */
+export const GOOD_ENOUGH = 0.90;
+
+/**
+ * 决定还要不要继续跑下一个模型。
+ * @param {Array} ranked   当前已评分的候选（降序）
+ * @param {number} tried   已完成的模型数
+ * @param {number} total   候选模型总数
+ * @param {object} opt     { alwaysFull?: boolean, goodEnough?: number }
+ * @returns {{ stop: boolean, reason: string }}
+ */
+export function shouldStopEarly(ranked, tried, total, opt = {}) {
+  if (!Array.isArray(ranked) || !ranked.length) return { stop: false, reason: '' };
+  if (opt.alwaysFull) return { stop: false, reason: '选择了「总是全跑」' };
+  if (tried >= total) return { stop: true, reason: '已经跑完全部模型' };
+  const thr = typeof opt.goodEnough === 'number' ? opt.goodEnough : GOOD_ENOUGH;
+  const top = ranked[0];
+  if (top.score >= thr) {
+    return { stop: true, reason: '最快那个模型已经抠得很干净（' + top.score.toFixed(2) + ' ≥ ' + thr + '），不必再跑更慢的' };
+  }
+  return { stop: false, reason: '' };
+}
+
+/**
+ * 按「先快后慢」排序候选模型，用于提前收手模式。
+ * 依据注册表里的输入尺寸（320 快、1024 慢）；未知尺寸排最后。
+ */
+export function orderBySpeed(ids, sizeOf) {
+  const arr = (Array.isArray(ids) ? ids : []).slice();
+  arr.sort((a, b) => {
+    const sa = typeof sizeOf === 'function' ? (sizeOf(a) || 99999) : 99999;
+    const sb = typeof sizeOf === 'function' ? (sizeOf(b) || 99999) : 99999;
+    return sa - sb;
+  });
+  return arr;
+}
+
+/**
  * 自动选择的最终决定。
  * @param ranked  pickBest().ranked
  * @param hintId  用户在界面上手选的模型（可选）：平手时优先它，减少「结果在跳」的困惑

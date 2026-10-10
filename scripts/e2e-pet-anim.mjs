@@ -117,13 +117,40 @@ app.whenReady().then(async () => {
   check('单帧包正常绘制', s1.every((s) => s.a > 200));
 
   // ---- 场景 D：breathe 模式下多帧不应推进（变换与帧推进互斥）----
+  //
+  // 注意：这里**不能采样单个中心像素**。breathe 会缩放精灵，整套 e2e 并行/满载时
+  // 采样时机会落在缩放过渡上，中心点取到插值出的边缘色 → 偶发假失败
+  // （单独跑 3/3 通过，放进全量套件就挂，实测确认是负载相关的 flake）。
+  // 改为统计整幅画布里「占比最大的那个颜色」：帧色是纯色大圆，
+  // 缩放只影响边缘抗锯齿，主体色不受影响，判据因此与负载无关。
+  async function readDominant() {
+    return await win.webContents.executeJavaScript(`(function(){
+      const cv = document.querySelector('canvas');
+      if (!cv) return null;
+      const g = cv.getContext('2d');
+      const d = g.getImageData(0, 0, cv.width, cv.height).data;
+      const m = new Map();
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i+3] < 200) continue;                       // 只看不透明像素
+        const k = (d[i]>>4) + ',' + (d[i+1]>>4) + ',' + (d[i+2]>>4);  // 量化到 16 级，抗轻微抖动
+        m.set(k, (m.get(k) || 0) + 1);
+      }
+      let best = null, bn = -1;
+      for (const [k, n] of m) if (n > bn) { bn = n; best = k; }
+      return { key: best, n: bn, total: d.length / 4 };
+    })()`);
+  }
   const breathePack = normalizePack({ ...basePack, animation: { ...basePack.animation, idle: 'breathe' } });
   bootWithPack(breathePack, imgs);
   await win.loadFile(path.join(ROOT, 'src', 'pet', 'index.html'));
   await sleep(2200);
   const s2 = [];
-  for (let i = 0; i < 12; i++) { s2.push(await readCenter()); await sleep(70); }
-  check('breathe 模式停留在第 1 帧', new Set(s2.map((s) => `${s.r},${s.g},${s.b}`)).size === 1, '颜色数=' + new Set(s2.map((s) => `${s.r},${s.g},${s.b}`)).size);
+  for (let i = 0; i < 12; i++) { s2.push(await readDominant()); await sleep(70); }
+  const doms = s2.filter(Boolean).map((s) => s.key);
+  check('breathe 模式停留在第 1 帧', new Set(doms).size === 1, '主色数=' + new Set(doms).size + ' -> ' + [...new Set(doms)].join(' | '));
+  // 额外证据：不透明像素数会随 breathe 缩放变化，说明动画确实在跑（不是在放静止图）
+  const counts = s2.filter(Boolean).map((s) => s.n);
+  check('breathe 确实在做缩放动画（不透明像素数有变化）', new Set(counts).size > 1, '不同像素数=' + new Set(counts).size);
 
   log('');
   log('==== PET ANIM E2E: ' + pass + '/' + (pass + fail) + ' ====');

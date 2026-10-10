@@ -53,11 +53,14 @@ app.whenReady().then(async () => {
     onProgress: (p) => seen.push(p.id),
   });
   check('自动模式返回成功', r.ok === true, JSON.stringify(r.errors || ''));
-  check('自动模式跑遍了所有已下载模型', seen.length === installed.length, 'tried=' + seen.join(',') + ' 已下载=' + installed.length);
-  check('自动模式报告了所有尝试过的模型', (r.tried || []).length === installed.length, JSON.stringify(r.tried));
+  // 默认是「够干净就提前收手」（性能优化：全跑约 2.4s/帧，20 张图就是 ~50s），
+  // 所以这里**不再断言跑遍全部**；全跑语义由下面的 alwaysFull 用例单独覆盖。
+  check('自动模式至少跑了一个模型', seen.length >= 1 && seen.length <= installed.length, 'tried=' + seen.join(','));
+  check('自动模式报告了尝试过的模型', (r.tried || []).length === seen.length, JSON.stringify(r.tried));
+  check('默认不重复跑（tried 无重复项）', new Set(r.tried).size === r.tried.length, JSON.stringify(r.tried));
   check('给出了选中的模型', typeof r.modelId === 'string' && r.modelId.length > 0, r.modelId);
   check('选中的模型在已下载列表里', installed.some((m) => m.id === r.modelId), r.modelId);
-  check('返回了排名与分数', Array.isArray(r.ranked) && r.ranked.length === installed.length && typeof r.ranked[0].score === 'number',
+  check('返回了排名与分数', Array.isArray(r.ranked) && r.ranked.length === (r.tried || []).length && typeof r.ranked[0].score === 'number',
     JSON.stringify(r.ranked.map((x) => x.id + '=' + x.score.toFixed(3))));
   check('排名按分数降序', r.ranked.every((x, i) => i === 0 || r.ranked[i - 1].score >= x.score - 1e-9));
   check('选中的就是排名第一', r.ranked[0].id === r.modelId, 'top=' + r.ranked[0].id + ' chosen=' + r.modelId);
@@ -92,6 +95,20 @@ app.whenReady().then(async () => {
     check('单模型与自动选中的覆盖率一致（同一条数值路径）',
       Math.abs(single.coverage - r.coverage) < 1e-6,
       `single=${single.coverage.toFixed(6)} auto=${r.coverage.toFixed(6)}`);
+  }
+
+  // ---------- 5) 「总是全跑」语义 + 提前收手的质量不变量 ----------
+  {
+    const full = await segmentAuto(dir, null, dataUrl, { threshold: 0.5, feather: 0.12, alwaysFull: true });
+    check('总是全跑：确实跑遍了已下载模型', (full.tried || []).length === installed.length, JSON.stringify(full.tried));
+    check('总是全跑：planned 也等于全部', (full.planned || []).length === installed.length, JSON.stringify(full.planned));
+    check('总是全跑：排名覆盖全部模型', full.ranked.length === installed.length, 'n=' + full.ranked.length);
+    // 这是提前收手优化的正当性依据：省下的时间里不能丢掉可感知的质量
+    const chosenInFull = full.ranked.find((x) => x.id === r.modelId);
+    const gap = chosenInFull ? (full.ranked[0].score - chosenInFull.score) : 999;
+    check('提前收手选中的模型，质量与全跑最优的差距 <= 0.02（几乎一样好）', gap <= 0.02,
+      `快速=${r.modelId} 全跑最优=${full.ranked[0].id} 质量差=${gap.toFixed(4)}`);
+    check('提前收手不慢于全跑', r.ms <= full.ms, `fast=${r.ms}ms full=${full.ms}ms`);
   }
 
   log('==== AUTOSELECT E2E: ' + pass + '/' + (pass + fail) + ' ====');

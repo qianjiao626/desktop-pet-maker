@@ -64,15 +64,47 @@ export function modelPath(userDataDir, id) {
   if (!m) throw new Error('未知模型: ' + id);
   return path.join(modelsDir(userDataDir), m.file);
 }
+/**
+ * 模型是否真正可用。
+ *
+ * 为什么不能用「文件 > 1MB」这种粗判（曾经就是这么写的，是个真 bug）：
+ * 模型是从网上分块下载的，中途断网/被墙会留下**截断的文件**。截断文件大小往往
+ * 仍然远大于 1MB，于是被判为「已安装」→ 用户点 AI 抠图 →
+ * InferenceSession.create() 在损坏的 protobuf 上**永久挂起**
+ * （实测：2MB 垃圾文件冒充 silueta.onnx，进程卡死 90s+，连 setTimeout 都不触发，
+ *  因为它在同步解析里阻塞了事件循环）。用户看到的就是「点了没反应」。
+ *
+ * 现在改为按注册表里的字节数校验（允许 256KB 偏差，兼容不同来源的同名模型）。
+ * 没有登记字节数的模型退回原来的宽松判断。
+ */
 export function isInstalled(userDataDir, id) {
-  try { const p = modelPath(userDataDir, id); return fs.existsSync(p) && fs.statSync(p).size > 1024 * 1024; }
-  catch { return false; }
+  try {
+    const m = MODELS[id];
+    const p = modelPath(userDataDir, id);
+    if (!fs.existsSync(p)) return false;
+    const size = fs.statSync(p).size;
+    if (!m || !m.bytes) return size > 1024 * 1024;
+    // 关键：必须接近登记的完整大小，截断的文件一律不算已安装
+    return size >= m.bytes - 1024 * 256;
+  } catch { return false; }
+}
+
+/** 已安装但对不上大小（多半是下载中断留下的残件）—— 用于给出可读的提示 */
+export function isCorrupt(userDataDir, id) {
+  try {
+    const m = MODELS[id];
+    const p = modelPath(userDataDir, id);
+    if (!m || !m.bytes || !fs.existsSync(p)) return false;
+    const size = fs.statSync(p).size;
+    return size > 1024 * 1024 && size < m.bytes - 1024 * 256;
+  } catch { return false; }
 }
 export function listModels(userDataDir) {
   return Object.values(MODELS).map((m) => ({
     id: m.id, name: m.name, desc: m.desc, size: m.size,
     bytes: m.bytes, source: m.source, license: m.license, mean: m.mean, std: m.std, divide: m.divide, preprocess: m.preprocess, md5: m.md5,
     installed: isInstalled(userDataDir, m.id),
+    corrupt: isCorrupt(userDataDir, m.id),
   }));
 }
 
