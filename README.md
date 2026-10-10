@@ -10,7 +10,7 @@
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.8.5](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.8.5/desktop-pet-maker-win32-x64-v0.8.5.zip)**
+**[下载 Windows 免安装版 v0.8.6](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.8.6/desktop-pet-maker-win32-x64-v0.8.6.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
 > 想看全部版本与更新说明：[Releases 页面](https://github.com/qianjiao626/desktop-pet-maker/releases)
@@ -92,6 +92,8 @@ npm start
 - **像素级鼠标穿透**：空白区域自动穿透，只有点在宠物身上才响应
 - **显示大小可调**：快速条「大小」滑块 / 鼠标滚轮 / 「外观」页滑块三处联动，
   调大小**实时生效**且保持"脚不离地"；默认 **30%**（可在 10%~300% 之间调整）
+- **活泼跳跃**：桌宠会自己蹦一蹦（起跳 → 滞空 → 落地回弹，三段确定曲线），
+  可在快速条用「活泼跳跃」开关关掉（喜欢安静的桌面就关它）
 - 位置记忆、多开支持
 
 **宠物库**

@@ -56,6 +56,8 @@ contextBridge.exposeInMainWorld('api', {
   quickIsEnabled: () => ipcRenderer.invoke('quick:isEnabled'),
   quickSetWalk: (walking) => ipcRenderer.invoke('quick:setWalk', walking),
   quickSetBugChase: (on) => ipcRenderer.invoke('quick:setBugChase', !!on),
+  quickSetHop: (on) => ipcRenderer.invoke('quick:setHop', !!on),
+  onQuickHop: (cb) => ipcRenderer.on('quick:hop', (e, v) => cb(v)),
   quickPat: () => ipcRenderer.invoke('quick:pat'),
   onQuickState: (cb) => ipcRenderer.on('quick:state', (e, v) => cb(v)),
 
