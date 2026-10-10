@@ -195,3 +195,5 @@ button.block{width:100%}
    这里显式提高优先级，避免此类问题再次发生。
    ============================================================ */
 [hidden]{display:none !important}
+/* 分享弹窗：备选路径的次要说明 */
+.share-alt{color:var(--dim);font-size:11px}

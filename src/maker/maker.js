@@ -8,6 +8,7 @@ import { synthesizeMotion, MOTION_NAMES, motionCanvasSize } from '../shared/moti
 import { fitFrameLimit, fmtBytes } from '../shared/budget.js';
 import { sanitizeSpeech, isSpeakable, pushSpeech } from '../shared/speech.js';
 import { emptyState, normalizeState, isFavorite, toggleFavorite, filterLibrary } from '../shared/library.js';
+import { classifyDroppedFiles } from '../shared/dnd.js';
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $('#status');
@@ -500,6 +501,24 @@ function showShareHint(filePath, petName) {
 }
 // ---- 分享引导弹窗 ----
 if ($('#shareReveal')) $('#shareReveal').onclick = () => window.api.revealFile($('#sharePath').textContent);
+// 复制路径：很多人分享时是"先复制路径再粘贴到聊天框"，比让他们去文件夹里找快得多
+if ($('#shareCopy')) $('#shareCopy').onclick = async () => {
+  const btn = $('#shareCopy');
+  const text = $('#sharePath').textContent || '';
+  try {
+    await navigator.clipboard.writeText(text);
+    btn.textContent = '✅ 已复制';
+    setTimeout(() => { btn.textContent = '📋 复制文件路径'; }, 1800);
+  } catch {
+    // 剪贴板不可用时退化为选中文本，用户可手动 Ctrl+C
+    const r = document.createRange();
+    r.selectNodeContents($('#sharePath'));
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(r);
+    btn.textContent = '请按 Ctrl+C';
+    setTimeout(() => { btn.textContent = '📋 复制文件路径'; }, 2600);
+  }
+};
 if ($('#shareClose')) $('#shareClose').onclick = () => { $('#shareModal').hidden = true; };
 if ($('#shareModal')) $('#shareModal').onclick = (e) => { if (e.target.id === 'shareModal') $('#shareModal').hidden = true; };
 
@@ -543,16 +562,56 @@ $('#btnHelp').onclick = () => alert(
 const stage = $('#stage');
 stage.addEventListener('dragover', (e) => { e.preventDefault(); stage.classList.add('dragover'); });
 stage.addEventListener('dragleave', () => stage.classList.remove('dragover'));
-stage.addEventListener('drop', async (e) => {
-  e.preventDefault(); stage.classList.remove('dragover');
-  const files = [...(e.dataTransfer.files || [])].filter((f) => /^image\//.test(f.type));
-  if (!files.length) { setStatus('只支持图片文件', 'err'); return; }
-  files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+// 整窗兜底：用户可能把文件拖到标题栏/侧栏上，而不是正好落在图片区
+// —— 收到宠物包的人最自然的动作就是「把它拖进窗口」，这条路径必须能用。
+document.addEventListener('dragover', (e) => { if (e.dataTransfer && e.dataTransfer.types) e.preventDefault(); });
+document.addEventListener('drop', async (e) => {
+  // 图片区的 drop 已处理过就跳过（避免同一文件被处理两次）
+  if (e.defaultPrevented && e.target && e.target.closest && e.target.closest('#stage')) return;
+  e.preventDefault();
+  stage.classList.remove('dragover');
+  const files = [...((e.dataTransfer && e.dataTransfer.files) || [])];
+  if (!files.length) return;
+  const { packs, images } = classifyDroppedFiles(files);
+  if (packs.length) { await handleDroppedPacks(packs); return; }
+  if (images.length) { await addImageFiles(images); return; }
+  setStatus('只支持图片或 .petpack 宠物包', 'err');
+});
+
+/** 拖入 .petpack：安装并直接启动 —— 给「收到宠物包的人」一条最短路径 */
+async function handleDroppedPacks(files) {
+  for (const f of files) {
+    const p = (window.api.pathForFile && window.api.pathForFile(f)) || '';
+    if (!p) { setStatus('无法读取文件路径，请改用「宠物库 → 安装宠物包…」', 'err'); continue; }
+    setStatus('正在安装「' + f.name + '」…');
+    const r = await window.api.installAndRun(p);
+    if (r && r.ok) {
+      setStatus('✅ 已安装并启动「' + (r.name || f.name) + '」' + (r.replaced ? '（覆盖了同名宠物）' : '') + '，它已出现在桌面上', 'ok');
+      await refreshLibrary();
+    } else {
+      setStatus('安装失败：' + (((r && r.errors) || []).join('; ') || '未知错误'), 'err');
+    }
+  }
+}
+
+/** 拖入图片：按文件名自然顺序加入帧 */
+async function addImageFiles(files) {
+  files.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
   for (const f of files) {
     const dataUrl = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
     await addFrameFromDataUrl(dataUrl, f.name);
   }
   await rebuildAll();
+}
+
+stage.addEventListener('drop', async (e) => {
+  e.preventDefault(); e.stopPropagation(); stage.classList.remove('dragover');
+  const files = [...(e.dataTransfer.files || [])];
+  const { packs, images } = classifyDroppedFiles(files);
+  if (packs.length) { await handleDroppedPacks(packs); return; }   // 拖宠物包也允许落在图片区
+  if (!images.length) { setStatus('只支持图片或 .petpack 宠物包', 'err'); return; }
+  await addImageFiles(images);
 });
 
 document.querySelectorAll('.tab').forEach((tab) => {

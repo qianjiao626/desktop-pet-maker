@@ -1,5 +1,5 @@
 // preload: 必须用 CommonJS（Electron 沙箱 preload 不支持 ESM）
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('api', {
   getMode: () => ipcRenderer.invoke('mode:get'),
@@ -31,8 +31,13 @@ contextBridge.exposeInMainWorld('api', {
   appVersion: () => ipcRenderer.invoke('app:version'),
   listInstalled: () => ipcRenderer.invoke('pet:listInstalled'),
   installPack: (srcPath) => ipcRenderer.invoke('pet:install', srcPath),
+  installAndRun: (srcPath) => ipcRenderer.invoke('pet:installAndRun', srcPath),
   runInstalled: (id) => ipcRenderer.invoke('pet:runInstalled', id),
   uninstall: (id) => ipcRenderer.invoke('pet:uninstall', id),
+  // 拖拽文件时取它在磁盘上的真实路径（Electron 32+ 用 webUtils；File.path 已移除）
+  pathForFile: (file) => {
+    try { return webUtils.getPathForFile(file); } catch { return ''; }
+  },
   libraryGet: () => ipcRenderer.invoke('library:get'),
   libraryToggleFav: (id) => ipcRenderer.invoke('library:toggleFav', id),
   libraryTouch: (id) => ipcRenderer.invoke('library:touch', id),
