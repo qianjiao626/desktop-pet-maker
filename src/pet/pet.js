@@ -2,11 +2,17 @@
 import { createBody, stepBody, estimateThrowVelocity, clampIntoArea } from '../shared/physics.js';
 import { pickAreaForBounds, areaChanged } from '../shared/displays.js';
 import { planRuntimeFrames } from '../shared/budget.js';
-import { createBehavior, tickBehavior, pat as doPat, isWalking, targetVelocityX, stateLabel, hit as doHit, isReacting } from '../shared/behavior.js';
+import { createBehavior, tickBehavior, enterState, pat as doPat, isWalking, targetVelocityX, stateLabel, hit as doHit, isReacting, hopPose } from '../shared/behavior.js';
 import { sanitizeSpeech, speechDuration } from '../shared/speech.js';
 import { handState, fistState, pettingPose, HAND_DURATION, FIST_DURATION, PETTING_DURATION } from '../shared/effects.js';
 import { computeLayout, computeFramePlacement, OVER, MARGIN } from '../shared/layout.js';
 import { createBug, stepBug, catchBug, isBugActive, canPounce } from '../shared/bugchase.js';
+
+// 跳跃时最大抬高像素（渲染层视觉高度，不影响物理与窗口尺寸）
+const HOP_HEIGHT = 26;
+
+// 最近一帧的真实渲染姿态（调试钩子用）
+const lastPose = { dx: 0, dy: 0, scaleX: 1, scaleY: 1, rot: 0 };
 
 const api = window.api;
 const $ = (s) => document.querySelector(s);
@@ -35,6 +41,7 @@ let alphaW = 0, alphaH = 0;
 const B = createBehavior();
 let behaviorEnabled = true;   // 可由「让他爬动」开关控制
 let walkSpeed = 60;           // px/s
+let hopEnabled = true;        // 可由「活泼跳跃」开关控制
 
 let hitFx = 0;          // 受击特效强度 0..1（用于抖动/闪烁）
 let handStartAt = 0;    // 摸头的手：动画开始时间（0=不显示）
@@ -214,6 +221,14 @@ function computeTransform(now) {
     } else if (B.state === 'walk') {
       const t2 = now / 1000;
       o.rot += Math.sin(t2 * 12) * 2.2 * B.walkDir;
+    } else if (B.state === 'hop') {
+      // 自己蹦一下：由 hopPose 给出确定的三段曲线（起跳 / 滞空 / 落地回弹）
+      const hp = hopPose(B);
+      if (hp) {
+        o.dy -= Math.round(HOP_HEIGHT * hp.lift);   // 抬高
+        o.scaleY *= hp.stretch * hp.squash;         // 滞空拉长 / 落地压扁
+        o.scaleX *= 1 / Math.sqrt(hp.stretch * hp.squash);  // 体积感：压扁就变宽
+      }
     }
   }
 
@@ -228,6 +243,10 @@ function computeTransform(now) {
       o.scaleX = 1; // 需用 rotate 整体
     }
   }
+  // 记录本帧最终姿态（供调试钩子/自动化断言读取）
+  lastPose.dx = o.dx; lastPose.dy = o.dy;
+  lastPose.scaleX = o.scaleX; lastPose.scaleY = o.scaleY; lastPose.rot = o.rot;
+
   // 摸头的「舒服」姿态：轻缩 -> 下沉蹭 -> 左右摇摆 -> 回原样
   if (petStartAt) {
     const pp = (now - petStartAt) / PETTING_DURATION;
@@ -1068,6 +1087,13 @@ if (api.onQuickBugChase) api.onQuickBugChase((on) => {
   if (!bugChaseEnabled) { bug = null; }        // 关掉时清掉场上的虫子
 });
 
+if (api.onQuickHop) api.onQuickHop((on) => {
+  hopEnabled = !!on;
+  // 关闭跳跃时把权重清零：状态机不会选到 hop（而不是选到后不动）
+  B.weights.hop = hopEnabled ? 0.16 : 0;
+  if (!hopEnabled && B.state === 'hop') { B.state = 'idle'; B.remaining = 0; B.duration = 0; }
+});
+
 if (api.onQuickWalk) api.onQuickWalk((walking) => {
   behaviorEnabled = !!walking;
   if (!behaviorEnabled) {
@@ -1132,8 +1158,19 @@ if (api.onWorkArea) api.onWorkArea(async (wa) => {
 });
 
 // 调试钩子：暴露内部状态供自动化测试断言（无副作用）
+// 测试用：把行为切到跳跃，便于自动化断言渲染姿态（无副作用，仅状态机）
+window.__forceHop = () => { try { enterState(B, 'hop'); return true; } catch { return false; } };
+
 window.__petDebug = () => ({
-  behavior: { state: B.state, walkDir: B.walkDir, enabled: behaviorEnabled, remaining: Math.round(B.remaining), hitCount: B.hitCount, patCount: B.patCount },
+  behavior: {
+    state: B.state, walkDir: B.walkDir, enabled: behaviorEnabled,
+    remaining: Math.round(B.remaining), duration: Math.round(B.duration || 0), hopEnabled,
+    hitCount: B.hitCount, patCount: B.patCount,
+    hop: hopPose(B),          // 跳跃姿态（非 hop 状态时为 null）
+    hopWeight: B.weights.hop, // 跳跃权重（关掉后应为 0）
+  },
+  // 最近一帧真实用于绘制的姿态：验证「跳跃确实抬高了」靠这个，而不是靠状态名
+  pose: { ...lastPose },
   bug: bug ? { x: Math.round(bug.x), state: bug.state, alive: bug.alive } : null,
   bugCatchCount,
   bugChaseEnabled,

@@ -1032,6 +1032,8 @@ function quickUpdateButtons() {
   if (walk) walk.disabled = !QK.enabled;
   const bugSw = $('#chkBug');
   if (bugSw) bugSw.disabled = !QK.enabled;
+  const hopSw = $('#chkHop');
+  if (hopSw) hopSw.disabled = !QK.enabled;
   if (pat) pat.disabled = !QK.enabled;
   if (hitBtn) hitBtn.disabled = !QK.enabled;
   if (sayInput) sayInput.disabled = !QK.enabled;
@@ -1060,6 +1062,8 @@ function bindQuick() {
       await window.api.quickSetWalk(walk ? walk.checked : true);
       const bs = $('#chkBug');
       if (bs && window.api.quickSetBugChase) await window.api.quickSetBugChase(bs.checked);
+      const hs = $('#chkHop');
+      if (hs && window.api.quickSetHop) await window.api.quickSetHop(hs.checked);
       setStatus(r.reused ? '✅ 已更新并启用' : '✅ 桌宠已出现在屏幕上', 'ok');
     } else {
       setStatus('启用失败：' + ((r && r.errors) || []).join('; '), 'err');
@@ -1149,6 +1153,12 @@ function bindQuick() {
     sayInput.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); doSay(); } };
     sayInput.oninput = () => quickUpdateButtons();
   }
+
+  const hopSw2 = $('#chkHop');
+  if (hopSw2) hopSw2.onchange = async () => {
+    if (window.api.quickSetHop) await window.api.quickSetHop(hopSw2.checked);
+    setStatus(hopSw2.checked ? '桌宠会自己蹦一蹦啦' : '已关掉跳跃，它会安静一些', 'ok');
+  };
 
   const bugSw2 = $('#chkBug');
   if (bugSw2) bugSw2.onchange = async () => {

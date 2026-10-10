@@ -8,7 +8,8 @@ import {
 function seq(vals) { let i = 0; return () => vals[i++ % vals.length]; }
 
 // ---- 状态定义 ----
-ok('包含 6 种状态（含挨拳击）', BEHAVIOR_NAMES.length === 6, BEHAVIOR_NAMES.join(','));
+// 6 -> 7：新增 hop（跳跃），这是有意变更而非回归
+ok('包含 7 种状态（含跳跃与挨拳击）', BEHAVIOR_NAMES.length === 7, BEHAVIOR_NAMES.join(','));
 ok('含爬动状态', !!BEHAVIORS.walk && BEHAVIORS.walk.walk === true);
 ok('含摸头状态', !!BEHAVIORS.pat);
 ok('爬动时长下界 < 上界', BEHAVIORS.walk.minMs < BEHAVIORS.walk.maxMs);
@@ -42,7 +43,7 @@ ok('爬动时长下界 < 上界', BEHAVIORS.walk.minMs < BEHAVIORS.walk.maxMs);
 }
 {
   // 所有权重为 0 时兜底
-  const b = createBehavior({ rng: () => 0.5, idleBias: 0, walkBias: 0, dozeBias: 0 });
+  const b = createBehavior({ rng: () => 0.5, idleBias: 0, walkBias: 0, dozeBias: 0, hopBias: 0 });
   b.weights.lookAround = 0;
   ok('权重全 0 时兜底为 idle', pickNextState(b) === 'idle');
 }

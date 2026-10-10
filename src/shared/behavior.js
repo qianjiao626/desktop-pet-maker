@@ -12,6 +12,7 @@ export const BEHAVIORS = {
   walk:     { label: '爬动',  minMs: 2500, maxMs: 7000, walk: true },
   lookAround: { label: '张望', minMs: 900, maxMs: 1600, walk: false },
   doze:     { label: '打瞌睡', minMs: 3000, maxMs: 6000, walk: false },
+  hop:      { label: '跳跃',  minMs: 620,  maxMs: 760, walk: false },   // 自己蹦一下
   pat:      { label: '摸头',  minMs: 700,  maxMs: 950, walk: false },
   hit:      { label: '挨拳击', minMs: 520, maxMs: 620, walk: false },   // 被拳击后的受击反应
 };
@@ -24,16 +25,17 @@ function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
  * 创建行为状态
  * @param rng 可注入的随机源（默认 Math.random），便于测试
  */
-export function createBehavior({ rng = Math.random, idleBias = 0.22, walkBias = 0.52, dozeBias = 0.05 } = {}) {
+export function createBehavior({ rng = Math.random, idleBias = 0.22, walkBias = 0.52, dozeBias = 0.05, hopBias = 0.16 } = {}) {
   return {
     rng,
     state: 'idle',
     remaining: 0,
+    duration: 0,
     walkDir: 0,      // -1 左 / 0 停 / 1 右
     patCount: 0,
     hitCount: 0,
     // 权重（会被归一化），允许调用方定制性格
-    weights: { idle: idleBias, walk: walkBias, lookAround: 0.18, doze: dozeBias },
+    weights: { idle: idleBias, walk: walkBias, lookAround: 0.18, doze: dozeBias, hop: hopBias },
     lastState: 'idle',
   };
 }
@@ -77,6 +79,7 @@ export function enterState(b, state, hint) {
   b.lastState = b.state;
   b.state = state;
   b.remaining = durationFor(b, state);
+  b.duration = b.remaining;                 // 本次状态总时长（跳跃进度要用）
   b.walkDir = (BEHAVIORS[state] && BEHAVIORS[state].walk) ? chooseWalkDir(b, hint) : 0;
   return b;
 }
@@ -134,4 +137,39 @@ export function stateLabel(b) {
 export function targetVelocityX(b, speed = 60) {
   if (!isWalking(b)) return 0;
   return b.walkDir * speed;
+}
+/**
+ * 跳跃进度与姿态。
+ * 跳跃是「起跳 -> 滞空 -> 落地」三段的确定曲线，渲染层据此决定抬高多少、怎么挤压。
+ * 用剩余时间反推进度，避免再引入一个计时器（状态机切走时自然归零）。
+ *
+ * @returns {null|{t:number, lift:number, squash:number, stretch:number}}
+ *   t       0..1 本次跳跃的进度
+ *   lift    0..1 抬升比例（渲染层乘以最大跳跃高度）
+ *   squash  纵向挤压系数（落地时 < 1 表示压扁）
+ *   stretch 纵向拉伸系数（起跳/滞空时 > 1 表示拉长）
+ */
+export function hopPose(b) {
+  if (!b || b.state !== 'hop') return null;
+  const total = b.duration > 0 ? b.duration : 0;
+  if (!total) return null;
+  const t = Math.min(1, Math.max(0, 1 - b.remaining / total));
+
+  // 三段：起跳(0~0.18) 加速上抬；滞空(0.18~0.72) 抛物线；落地(0.72~1) 压缩回弹
+  let lift, squash = 1, stretch = 1;
+  if (t < 0.18) {
+    const k = t / 0.18;
+    lift = 0.55 * k * k;              // 起跳加速
+    stretch = 1 + 0.10 * k;           // 拉长
+  } else if (t < 0.72) {
+    const k = (t - 0.18) / 0.54;
+    lift = 0.55 + 0.45 * Math.sin(k * Math.PI);   // 滞空抛物线，最高点约 1.0
+    stretch = 1 + 0.06 * (1 - Math.abs(k - 0.5) * 2);
+  } else {
+    const k = (t - 0.72) / 0.28;
+    lift = 0.55 * (1 - k);            // 下落
+    squash = 1 - 0.14 * Math.sin(k * Math.PI);     // 落地压扁再回弹
+    stretch = 1;
+  }
+  return { t, lift: Math.max(0, Math.min(1, lift)), squash, stretch };
 }

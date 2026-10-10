@@ -664,6 +664,12 @@ ipcMain.handle('quick:setWalk', (e, walking) => {
   return { ok: isPetAlive(), walking: !!walking };
 });
 
+ipcMain.handle('quick:setHop', (e, on) => {
+  const w = getPetWindow();
+  if (w && !w.isDestroyed()) w.webContents.send('quick:hop', !!on);
+  return { ok: isPetAlive(), hop: !!on };
+});
+
 ipcMain.handle('quick:hit', (e, fromDir) => {
   const w = getPetWindow();
   if (w && !w.isDestroyed()) w.webContents.send('quick:hit', typeof fromDir === 'number' ? fromDir : 0);
