@@ -50,6 +50,11 @@ contextBridge.exposeInMainWorld('api', {
   templatesExport: (id) => ipcRenderer.invoke('tpl:export', id),
   templatesImport: (p) => ipcRenderer.invoke('tpl:import', p),
 
+  // 身体识别（姿态估计）：上传一张人物图 -> 识别头/肩/肘/腕/髋/膝/踝
+  poseModelInfo: () => ipcRenderer.invoke('pose:modelInfo'),
+  poseDownloadModel: (id) => ipcRenderer.invoke('pose:downloadModel', id),
+  poseEstimate: (dataUrl) => ipcRenderer.invoke('pose:estimate', { dataUrl }),
+
   // 批量处理：一次把多张图各自变成一只宠物（与「多张图 = 多帧」区分开）
   batchPickFiles: () => ipcRenderer.invoke('batch:pickFiles'),
   batchRun: (files, tpl, autoModel, threshold, feather, alwaysFull) => ipcRenderer.invoke('batch:run', { files, tpl, autoModel, threshold, feather, alwaysFull }),

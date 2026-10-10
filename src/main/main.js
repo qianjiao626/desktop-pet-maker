@@ -16,6 +16,9 @@ import { startupSwitches, appMenuTemplate } from '../shared/platform.js';
 import { buildShareHtml, shareFileName } from '../shared/sharepack.js';
 import { normalizeTemplateList, addTemplate, removeTemplate, renameTemplate, templateFromPack, normalizeTemplate, templateFileName, TEMPLATE_SCHEMA } from '../shared/mytemplates.js';
 import { planBatch, batchPackFor, summarizeBatch } from '../shared/batch.js';
+import { estimatePose, isPoseModelInstalled } from './pose.js';
+import { checkMaterial, MATERIAL_GUIDE } from '../shared/material.js';
+import { MICRO_MOTIONS } from '../shared/micro.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -625,6 +628,40 @@ function writeBatchPet(dir, outName, name, pngBuffer, tpl) {
     throw err;
   }
 }
+
+// ---------- 身体识别（姿态估计） ----------
+// 用于「上传一张人物图 -> 识别出各个身体部位」。
+// 模型是 MoveNet（本地 CPU，实测推理约 11ms）。
+ipcMain.handle('pose:estimate', async (e, { dataUrl }) => {
+  try {
+    const dir = app.getPath('userData');
+    if (!isPoseModelInstalled(dir)) {
+      return { ok: false, needModel: true, errors: ['姿态模型未下载（约 9MB）'] };
+    }
+    const r = await estimatePose(dir, dataUrl);
+    const mat = checkMaterial(r.keypoints);
+    return { ok: true, ...r, material: mat };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
+ipcMain.handle('pose:modelInfo', () => {
+  const dir = app.getPath('userData');
+  return {
+    installed: isPoseModelInstalled(dir),
+    model: listModels(dir, { kind: 'pose' })[0] || null,
+    guide: MATERIAL_GUIDE,
+    motions: MICRO_MOTIONS.map((m) => ({ id: m.id, name: m.name, emoji: m.emoji, desc: m.desc })),
+  };
+});
+
+ipcMain.handle('pose:downloadModel', async (e, id) => {
+  try {
+    const r = await downloadModel(app.getPath('userData'), id || 'poseMovenet', (p) => {
+      if (e.sender && !e.sender.isDestroyed()) e.sender.send('ai:downloadProgress', { id: id || 'poseMovenet', ...p });
+    });
+    return r;
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
 
 ipcMain.handle('batch:cancel', () => { if (BATCH.running) BATCH.canceled = true; return { ok: true }; });
 

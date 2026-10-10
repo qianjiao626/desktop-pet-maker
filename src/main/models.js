@@ -36,6 +36,22 @@ export const MODELS = {
     source: 'xuebinqin/DIS',
     license: 'Apache-2.0',
   },
+  // 姿态估计（不是抠图模型）：用于「画个小人 → 识别身体 → 跳舞」。
+  // 单独一类，listModels 里用 kind 区分，避免混进抠图的下拉框。
+  poseMovenet: {
+    id: 'poseMovenet',
+    kind: 'pose',
+    name: '姿态识别（MoveNet）',
+    desc: '识别头/肩/肘/腕/髋/膝/踝共 17 个关键点，用于驱动小人跳舞',
+    file: 'movenet-singlepose-lightning.onnx',
+    size: 192,                 // 固定输入 192x192
+    inputDtype: 'int32',       // 关键：是 int32 不是 float（实测，用错会直接报错）
+    bytes: 9466715,
+    url: 'https://cdn.jsdelivr.net/gh/Kazuhito00/MoveNet-Python-Example@main/onnx/movenet_singlepose_lightning_4.onnx',
+    md5: '9423b6b1c38e2ffe3b5d830aa498d43e',
+    source: 'tensorflow/tfjs-models (MoveNet SinglePose Lightning)',
+    license: 'Apache-2.0',
+  },
   isnetAnime: {
     id: 'isnetAnime',
     name: '动漫角色',
@@ -99,13 +115,23 @@ export function isCorrupt(userDataDir, id) {
     return size > 1024 * 1024 && size < m.bytes - 1024 * 256;
   } catch { return false; }
 }
-export function listModels(userDataDir) {
-  return Object.values(MODELS).map((m) => ({
-    id: m.id, name: m.name, desc: m.desc, size: m.size,
-    bytes: m.bytes, source: m.source, license: m.license, mean: m.mean, std: m.std, divide: m.divide, preprocess: m.preprocess, md5: m.md5,
-    installed: isInstalled(userDataDir, m.id),
-    corrupt: isCorrupt(userDataDir, m.id),
-  }));
+/**
+ * 列出模型。**默认只列抠图模型**（kind !== 'pose'）。
+ *
+ * 为什么：姿态模型和抠图模型放在同一个注册表里便于统一下载/校验，
+ * 但它们是两个完全不同的下拉框 —— 姿态模型出现在「AI 抠图」的模型选择里
+ * 会让用户选了之后抠图直接失败。需要姿态模型时显式传 { kind: 'pose' }。
+ */
+export function listModels(userDataDir, opt = {}) {
+  const kind = opt.kind || 'cutout';
+  return Object.values(MODELS)
+    .filter((m) => (m.kind || 'cutout') === kind)
+    .map((m) => ({
+      id: m.id, name: m.name, desc: m.desc, size: m.size, kind: m.kind || 'cutout',
+      bytes: m.bytes, source: m.source, license: m.license, mean: m.mean, std: m.std, divide: m.divide, preprocess: m.preprocess, md5: m.md5,
+      installed: isInstalled(userDataDir, m.id),
+      corrupt: isCorrupt(userDataDir, m.id),
+    }));
 }
 
 /**

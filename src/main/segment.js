@@ -116,8 +116,12 @@ async function runModel(userDataDir, id, dataUrl, { threshold = 0.5, feather = 0
  */
 export async function segmentAuto(userDataDir, _unused, dataUrl, opt = {}) {
   const { threshold = 0.5, feather = 0.12, hintId = null, onProgress = null, alwaysFull = false } = opt;
-  const all = (Array.isArray(opt.ids) && opt.ids.length ? opt.ids : Object.keys(MODELS))
-    .filter((x) => MODELS[x] && isInstalled(userDataDir, x));
+  // 候选只取**抠图**模型：注册表里还有姿态模型（kind: 'pose'），
+  // 它不是抠图模型，混进来会在推理时因输入 dtype 不同而失败。
+  // 这是实测踩到的：加了姿态模型后，不加这道过滤会让"总是全跑"把 poseMovenet 也跑一遍。
+  const cutoutIds = Object.values(MODELS).filter((m) => (m.kind || 'cutout') === 'cutout').map((m) => m.id);
+  const all = (Array.isArray(opt.ids) && opt.ids.length ? opt.ids : cutoutIds)
+    .filter((x) => MODELS[x] && (MODELS[x].kind || 'cutout') === 'cutout' && isInstalled(userDataDir, x));
   if (!all.length) throw new Error('没有已下载的模型，请先下载至少一个模型');
   // 提前收手模式必须「先快后慢」才有意义；总是全跑则保持用户给的原顺序
   const ids = alwaysFull ? all : orderBySpeed(all, (id) => MODELS[id] && MODELS[id].size);

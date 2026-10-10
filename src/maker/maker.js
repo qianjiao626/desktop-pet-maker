@@ -192,6 +192,7 @@ function updateButtons() {
   $('#btnClearFrames').disabled = !has;
   if ($('#btnSaveTpl')) $('#btnSaveTpl').disabled = !has;
   if ($('#btnExportShare')) $('#btnExportShare').disabled = !has;
+  if (typeof poseUpdateButtons === 'function') poseUpdateButtons();
   const multi = state.frames.length > 1;
   $('#btnPrevFrame').disabled = !multi;
   $('#btnNextFrame').disabled = !multi;
@@ -909,6 +910,161 @@ document.querySelectorAll('.tab').forEach((tab) => {
   };
 });
 
+// ---------------- 身体识别（姿态估计） ----------------
+// 上传一张人物图 -> 识别头/肩/肘/腕/髋/膝/踝 -> 画出骨架 + 逐部位结果 +
+// 「素材是否合格」的可执行建议（这是「标准立绘」方案的核心：
+//  与其让用户猜为什么效果不好，不如直接告诉他哪里不合格、怎么改）。
+const POSE = { info: null, last: null, busy: false };
+
+const POSE_LABEL = {
+  nose: '鼻', leftEye: '左眼', rightEye: '右眼', leftEar: '左耳', rightEar: '右耳',
+  leftShoulder: '左肩', rightShoulder: '右肩', leftElbow: '左肘', rightElbow: '右肘',
+  leftWrist: '左腕', rightWrist: '右腕', leftHip: '左髋', rightHip: '右髋',
+  leftKnee: '左膝', rightKnee: '右膝', leftAnkle: '左踝', rightAnkle: '右踝',
+};
+
+/** 骨架连线（画图用） */
+const POSE_BONES = [
+  ['leftShoulder', 'rightShoulder'], ['leftShoulder', 'leftElbow'], ['leftElbow', 'leftWrist'],
+  ['rightShoulder', 'rightElbow'], ['rightElbow', 'rightWrist'],
+  ['leftShoulder', 'leftHip'], ['rightShoulder', 'rightHip'], ['leftHip', 'rightHip'],
+  ['leftHip', 'leftKnee'], ['leftKnee', 'leftAnkle'],
+  ['rightHip', 'rightKnee'], ['rightKnee', 'rightAnkle'],
+  ['nose', 'leftEye'], ['nose', 'rightEye'], ['leftEye', 'leftEar'], ['rightEye', 'rightEar'],
+];
+
+function poseSetTag(text, cls) {
+  const t = $('#poseTag');
+  if (t) { t.textContent = text; t.className = 'ai-tag ' + (cls || 'miss'); }
+}
+
+async function refreshPoseInfo() {
+  try { POSE.info = await window.api.poseModelInfo(); } catch { POSE.info = null; }
+  const info = POSE.info;
+  if (!info) { poseSetTag('不可用', 'miss'); return; }
+  // 引导文案
+  const g = $('#poseGuide');
+  if (g) g.innerHTML = (info.guide || []).map((x) => '<div>' + escapeHtml(x) + '</div>').join('');
+  if (info.installed) poseSetTag('✓ 已就绪', 'ok');
+  else poseSetTag('未下载', 'miss');
+  const dl = $('#btnPoseDownload');
+  if (dl) {
+    dl.hidden = !!info.installed;
+    dl.textContent = '下载识别模型（约 ' + Math.round(((info.model && info.model.bytes) || 9466715) / 1048576) + 'MB）';
+  }
+  poseUpdateButtons();
+}
+
+function poseUpdateButtons() {
+  const info = POSE.info;
+  const installed = !!(info && info.installed);
+  const run = $('#btnPoseRun');
+  if (run) run.disabled = POSE.busy || !installed || !state.frames.length;
+  const dl = $('#btnPoseDownload');
+  if (dl) dl.disabled = POSE.busy;
+}
+
+/** 在 canvas 上画出人物 + 骨架 + 关键点 */
+function drawPoseOverlay(res) {
+  const cv = $('#poseCanvas');
+  if (!cv) return;
+  const img = $('#previewImg');
+  const W = res.srcWidth || (img && img.naturalWidth) || 400;
+  const H = res.srcHeight || (img && img.naturalHeight) || 400;
+  cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  c.clearRect(0, 0, W, H);
+  if (img && img.src) { try { c.drawImage(img, 0, 0, W, H); } catch {} }
+  const kpOf = (n) => (res.keypoints || []).find((k) => k.name === n);
+  // 骨架：只画两端都可信的
+  c.lineWidth = Math.max(2, W / 220);
+  for (const [a, b] of POSE_BONES) {
+    const A = kpOf(a), B = kpOf(b);
+    if (!A || !B || A.score < 0.3 || B.score < 0.3) continue;
+    c.strokeStyle = '#00e07a';
+    c.beginPath(); c.moveTo(A.x * W, A.y * H); c.lineTo(B.x * W, B.y * H); c.stroke();
+  }
+  // 关键点：可信的实心亮色，不可信的灰点（让用户看到"这里没认出来"）
+  for (const k of res.keypoints || []) {
+    const ok = k.score >= 0.3;
+    c.fillStyle = ok ? '#ff2d55' : 'rgba(255,255,255,0.35)';
+    c.beginPath();
+    c.arc(k.x * W, k.y * H, Math.max(3, W / 110), 0, Math.PI * 2);
+    c.fill();
+  }
+}
+
+function renderPoseResult(res) {
+  const box = $('#poseResult');
+  if (box) box.hidden = false;
+  drawPoseOverlay(res);
+  const mat = res.material || {};
+  const sum = $('#poseSummary');
+  if (sum) {
+    const cls = mat.ok ? 'ok' : 'err';
+    sum.innerHTML = '<span class="' + (mat.ok ? 'pose-chip' : 'pose-chip off') + '">'
+      + escapeHtml(mat.summary || res.reason || '') + '</span>'
+      + '<div style="margin-top:6px;font-size:12px;color:#8b97ad">识别到 '
+      + (res.describe ? res.describe.reliable : 0) + '/17 个关键点'
+      + (res.ms ? ' · 耗时 ' + res.ms + 'ms' : '') + '</div>';
+  }
+  const parts = $('#poseParts');
+  if (parts) {
+    const p = (mat && mat.parts) || {};
+    const names = [['core', '躯干'], ['head', '头'], ['leftArm', '左臂'], ['rightArm', '右臂'], ['leftLeg', '左腿'], ['rightLeg', '右腿']];
+    parts.innerHTML = names.map(([k, label]) =>
+      '<span class="pose-chip' + (p[k] ? '' : ' off') + '">' + (p[k] ? '✓ ' : '✕ ') + label + '</span>'
+    ).join('');
+  }
+  const issues = $('#poseIssues');
+  if (issues) {
+    const list = (mat && mat.issues) || [];
+    issues.innerHTML = list.map((i) =>
+      '<div class="pose-issue' + (i.level === 'block' ? ' block' : '') + '">'
+      + '<b>' + escapeHtml(i.msg) + '</b><br />→ ' + escapeHtml(i.fix) + '</div>'
+    ).join('');
+  }
+  POSE.last = res;
+}
+
+$('#btnPoseDownload').onclick = async () => {
+  if (POSE.busy) return;
+  POSE.busy = true; poseUpdateButtons();
+  const info = POSE.info;
+  const id = (info && info.model && info.model.id) || 'poseMovenet';
+  setStatus('正在下载识别模型…');
+  const r = await window.api.poseDownloadModel(id);
+  POSE.busy = false;
+  if (!r || !r.ok) { setStatus('下载失败：' + ((r && r.errors) || []).join(';'), 'err'); await refreshPoseInfo(); return; }
+  setStatus('识别模型已就绪', 'ok');
+  await refreshPoseInfo();
+};
+
+$('#btnPoseRun').onclick = async () => {
+  if (POSE.busy || !state.frames.length) return;
+  const frame = state.frames[state.activeIdx] || state.frames[0];
+  const src = frame.original || frame.current;
+  if (!src) { setStatus('当前帧没有图片数据', 'err'); return; }
+  POSE.busy = true; poseUpdateButtons();
+  setStatus('正在识别身体部位…');
+  try {
+    const r = await window.api.poseEstimate(imageDataToDataURL(src));
+    POSE.busy = false; poseUpdateButtons();
+    if (!r || !r.ok) {
+      if (r && r.needModel) { setStatus('请先下载识别模型', 'err'); await refreshPoseInfo(); return; }
+      setStatus('识别失败：' + ((r && r.errors) || []).join(';'), 'err');
+      return;
+    }
+    renderPoseResult(r);
+    const mat = r.material || {};
+    setStatus((mat.ok ? '✅ ' : '⚠ ') + (mat.summary || '识别完成'), mat.ok ? 'ok' : 'err');
+  } catch (err) {
+    POSE.busy = false; poseUpdateButtons();
+    setStatus('识别异常：' + String(err.message || err), 'err');
+  }
+};
+
+refreshPoseInfo();
 // ---------------- 批量处理：一批图 -> 一批独立宠物 ----------------
 // 关键区别：拖多张图到画布 = 同一只宠物的多帧；点「批量做宠物」= 每张各是一只。
 // 这两种意图完全不同，所以批量走独立入口，避免用户想做 20 只却得到一只闪烁怪。
