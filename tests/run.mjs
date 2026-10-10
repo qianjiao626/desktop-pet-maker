@@ -36,6 +36,7 @@ await import('./groundcontact.test.mjs');
 await import('./clips.test.mjs');
 await import('./history.test.mjs');
 await import('./frames.test.mjs');
+await import('./filmstrip.test.mjs');
 await import('./autofit.test.mjs');
 await import('./dnd.test.mjs');
 await import('./library.test.mjs');
