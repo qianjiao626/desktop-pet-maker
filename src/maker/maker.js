@@ -13,6 +13,7 @@ import { classifyDroppedFiles, isShareFile } from '../shared/dnd.js';
 import { PERSONALITY_TEMPLATES, applyTemplate, templateFlags, matchTemplate } from '../shared/templates.js';
 import { applyCustomTemplate, matchCustomTemplate } from '../shared/mytemplates.js';
 import { renderLimbFrames } from './limbrender.js';
+import { createHistory, estimateSnapshotBytes } from '../shared/history.js';
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $('#status');
@@ -139,6 +140,9 @@ async function rebuildAll() {
 
     state.activeIdx = Math.min(state.activeIdx, state.frames.length - 1);
     renderPreview();
+    // 处理完成即记录「操作后」状态，重做才有目标可去。
+    // 放在 rebuildAll 内部：所有破坏性操作最终都会汇集到这里，不必在每个调用点补。
+    recordUndoAfter();
     const f0 = state.frames[0] && state.frames[0].current;
     setStatus(`已处理 ${state.frames.length} 帧` + (f0 ? ` · ${f0.width}×${f0.height}px` : ''), 'ok');
   } catch (e) {
@@ -476,13 +480,15 @@ $('#btnAddFrames').onclick = async () => {
   else await rebuildAll();
 };
 $('#btnClearFrames').onclick = () => {
+  recordUndo();
   state.frames = []; state.activeIdx = 0;
   $('#stageEmpty').hidden = false; $('#stageView').hidden = true; $('#frameBadge').hidden = true;
   updateButtons(); setStatus('已清空');
 };
-$('#btnCut').onclick = () => rebuildAll();
+$('#btnCut').onclick = () => { recordUndo(); rebuildAll(); };
 $('#btnTrim').onclick = async () => {
   if (!state.frames.length) return;
+  recordUndo();
   for (const f of state.frames) {
     const b = trimBounds(f.current.data, f.current.width, f.current.height, { pad: 2 });
     if (b.w !== f.current.width || b.h !== f.current.height) f.current = toImageData(cropData(f.current.data, f.current.width, f.current.height, b));
@@ -490,6 +496,7 @@ $('#btnTrim').onclick = async () => {
   renderPreview(); setStatus('已裁边', 'ok');
 };
 $('#btnReset').onclick = async () => {
+  recordUndo();
   // 若当前是「生成动画」产出的帧，回退到生成前的源帧
   const gen = state.frames.find((f) => f.generatedFrom);
   if (gen && gen.motionSource) {
@@ -503,7 +510,7 @@ $('#btnReset').onclick = async () => {
   for (const f of state.frames) if (f.original) f.current = f.original;
   await rebuildAll();
 };
-$('#chkFlip').onchange = () => rebuildAll();
+$('#chkFlip').onchange = () => { recordUndo(); rebuildAll(); };
 $('#chkUniform').onchange = () => rebuildAll();
 $('#alignMode').onchange = () => rebuildAll();
 $('#chkLargest').onchange = () => rebuildAll();
@@ -910,11 +917,14 @@ async function handleDroppedPacks(files) {
 /** 拖入图片：按文件名自然顺序加入帧 */
 async function addImageFiles(files) {
   files.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
+  const wasEmpty = state.frames.length === 0;
   for (const f of files) {
     const dataUrl = await new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f); });
     await addFrameFromDataUrl(dataUrl, f.name);
   }
   await rebuildAll();
+  // 从"空"变成"有图"时建立撤销基线，否则第一次操作后无法撤销（详见 establishUndoBaseline 的说明）
+  if (wasEmpty && state.frames.length) establishUndoBaseline();
 }
 
 stage.addEventListener('drop', async (e) => {
@@ -936,6 +946,132 @@ document.querySelectorAll('.tab').forEach((tab) => {
   };
 });
 
+// ---------------- 撤销 / 重做 ----------------
+// 制作器里每个操作都是破坏性的（抠图/裁边/翻转/生成动画/自动适配），
+// 点错一次就得重新拖图 —— 这是最卡"制作性"的一处。用快照栈解决。
+// 上限 20 层、32MB：一张 1600x1600 帧约 10MB，不限制的话内存会涨得很凶。
+const history = createHistory({
+  limit: 20,
+  maxBytes: 32 * 1024 * 1024,
+  estimate: estimateSnapshotBytes,
+});
+
+/** 把当前编辑状态做成快照（只存帧数据，别的字段都很小） */
+function snapshotState() {
+  return {
+    frames: state.frames.map((f) => ({
+      original: f.original ? new ImageData(new Uint8ClampedArray(f.original.data), f.original.width, f.original.height) : null,
+      current: new ImageData(new Uint8ClampedArray(f.current.data), f.current.width, f.current.height),
+      name: f.name,
+      generatedFrom: f.generatedFrom,
+    })),
+    clips: state.clips.map((c) => ({
+      ...c,
+      frames: c.frames.map((cf) => ({ data: new ImageData(new Uint8ClampedArray(cf.data.data), cf.data.width, cf.data.height), durationMs: cf.durationMs })),
+    })),
+    activeIdx: state.activeIdx,
+  };
+}
+
+/**
+ * 记录一次"操作前的状态"。
+ * 用法：**在改动 state.frames 之前**调一次 recordUndo()。
+ * 这样撤销就是"回到操作前"。
+ */
+function recordUndo() {
+  if (suppressHistory) return;
+  if (!state.frames.length) return;
+  history.push(snapshotState());
+  updateUndoButtons();
+}
+
+/**
+ * 建立撤销基线：**首次**导入图片后调用一次。
+ *
+ * 为什么必须单独做这件事：撤销栈需要至少两个状态才能撤销。
+ * 如果只在"操作前"记录，第一次操作时栈里只有 1 层 -> canUndo() 为 false，
+ * 用户点翻转后会发现"撤销按钮是灰的"（实测踩到）。
+ * 正确做法：导入完成就把**初始状态**压进栈，之后的每次操作压新状态，
+ * 这样第一次操作后就能撤回到导入时的样子。
+ */
+function establishUndoBaseline() {
+  history.clear();
+  if (state.frames.length) history.push(snapshotState());
+  updateUndoButtons();
+}
+
+let suppressHistory = false;   // 撤销/重做期间不记录，否则会把「恢复」本身也记成一步
+
+/**
+ * 记录「操作后」的状态，供重做使用。
+ *
+ * 为什么前后各记一次：撤销栈要能双向走，必须同时有「操作前」和「操作后」两个状态。
+ * 只记操作前 -> 撤销能回到前面，但重做无处可去（实测：撤销正常、重做没反应）。
+ * 完整的破坏性操作 = recordUndo() -> 改数据 -> rebuildAll()（内部 recordUndoAfter）
+ */
+function recordUndoAfter() {
+  if (suppressHistory) return;
+  if (!state.frames.length) return;
+  history.push(snapshotState());
+  updateUndoButtons();
+}
+
+/** 把快照写回 state */
+function restoreSnapshot(snap) {
+  if (!snap) return;
+  state.frames = snap.frames.map((f) => ({
+    original: f.original, current: f.current, name: f.name, generatedFrom: f.generatedFrom,
+  }));
+  state.clips = snap.clips || [];
+  state.activeIdx = Math.min(snap.activeIdx || 0, Math.max(0, state.frames.length - 1));
+  renderClipList();
+  renderPreview();
+  updateButtons();
+  updateUndoButtons();
+}
+
+function updateUndoButtons() {
+  const u = $('#btnUndo'), r = $('#btnRedo');
+  if (u) u.disabled = !history.canUndo();
+  if (r) r.disabled = !history.canRedo();
+}
+
+/**
+ * 撤销 / 重做。
+ *
+ * 关键：**不要**在恢复快照后再调 rebuildAll()。
+ * 快照里存的已经是"处理完的像素"（current），而 rebuildAll 会按当前的界面参数
+ * （勾选状态等）重新处理一遍 —— 于是刚撤销掉的翻转又被应用回去，
+ * 表现为"撤销按钮生效了、但画面没变"（实测踩到）。
+ * 恢复快照 + 重绘预览即可。
+ */
+async function doUndo() {
+  const snap = history.undo();
+  suppressHistory = true;
+  if (!snap) return;
+  restoreSnapshot(snap);
+  suppressHistory = false;
+  setStatus('已撤销（还可撤销 ' + Math.max(0, history.position()) + ' 步）', 'ok');
+}
+
+async function doRedo() {
+  const snap = history.redo();
+  suppressHistory = true;
+  if (!snap) return;
+  restoreSnapshot(snap);
+  suppressHistory = false;
+  setStatus('已重做', 'ok');
+}
+
+if ($('#btnUndo')) $('#btnUndo').onclick = () => { doUndo().catch(() => {}); };
+if ($('#btnRedo')) $('#btnRedo').onclick = () => { doRedo().catch(() => {}); };
+// 快捷键：Ctrl+Z 撤销 / Ctrl+Shift+Z 或 Ctrl+Y 重做
+window.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const k = e.key.toLowerCase();
+  if (k === 'z' && !e.shiftKey) { e.preventDefault(); doUndo().catch(() => {}); }
+  else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); doRedo().catch(() => {}); }
+});
 // ---------------- 身体识别（姿态估计） ----------------
 // 上传一张人物图 -> 识别头/肩/肘/腕/髋/膝/踝 -> 画出骨架 + 逐部位结果 +
 // 「素材是否合格」的可执行建议（这是「标准立绘」方案的核心：
@@ -1078,6 +1214,7 @@ $('#btnPoseDownload').onclick = async () => {
 // 「按身体自动适配」：用识别到的人物范围裁剪当前帧，并把显示缩放调到建议值。
 // 这样半身照 / 全身照 / 偏心构图在桌面上看起来大小一致、不会偏到屏幕一角。
 $('#btnPoseFit').onclick = async () => {
+  recordUndo();
   if (POSE.busy || !state.frames.length) return;
   const frame = state.frames[state.activeIdx] || state.frames[0];
   const src = frame.original || frame.current;
@@ -1515,6 +1652,7 @@ $('#qFrames') && $('#qFrames').addEventListener('input', () => { const el = $('#
 $('#motionAmp') && $('#motionAmp').addEventListener('input', () => syncLabels());
 
 $('#btnGenQBody') && ($('#btnGenQBody').onclick = () => {
+  recordUndo();
   if (!state.frames.length) { setStatus('请先导入一张大头照', 'err'); return; }
   const cur = state.frames[state.activeIdx];
   if (!cur) { setStatus('没有可用的帧', 'err'); return; }
@@ -1578,6 +1716,7 @@ $('#btnGenQBody') && ($('#btnGenQBody').onclick = () => {
 });
 
 $('#btnGenMotion') && ($('#btnGenMotion').onclick = () => {
+  recordUndo();
   if (!state.frames.length) { setStatus('请先导入一张图片', 'err'); return; }
   const src = state.frames[state.activeIdx];
   if (!src) return;
@@ -1738,6 +1877,7 @@ window.api.onDownloadProgress((p) => {
 });
 
 $('#btnAiSegment').onclick = async () => {
+  recordUndo();
   const m = currentModel();
   const auto = !!($('#chkAiAuto') && $('#chkAiAuto').checked);
   const alwaysFull = !!(auto && $('#chkAiAlwaysFull') && $('#chkAiAlwaysFull').checked);
