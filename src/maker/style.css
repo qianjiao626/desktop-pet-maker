@@ -262,3 +262,17 @@ button.block{width:100%}
 .pose-issue { margin-bottom: 6px; padding-left: 8px; border-left: 2px solid #ffb27a; color: #ffd0a8; }
 .pose-issue.block { border-left-color: #ff8f8f; color: #ffb3b3; }
 .pose-issue b { color: #fff; }
+/* 动作片段列表：一行一个小胶囊，右边带删除 */
+.clip-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+.clip-list:empty { display: none; }
+.clip-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; padding: 3px 4px 3px 10px; border-radius: 999px;
+  background: rgba(76, 141, 255, 0.16); color: #a9c8ff;
+  border: 1px solid rgba(76, 141, 255, 0.32);
+}
+.clip-del {
+  border: 0; background: transparent; color: inherit; cursor: pointer;
+  font-size: 11px; line-height: 1; padding: 2px 5px; border-radius: 999px;
+}
+.clip-del:hover { background: rgba(255, 255, 255, 0.14); color: #ffb3b3; }

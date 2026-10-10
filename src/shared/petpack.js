@@ -12,6 +12,9 @@ export const DEFAULT_PACK = {
   frames: [{ file: 'pet.png', durationMs: 120 }],
   // 统一画布尺寸（所有帧按此归一化，避免抖动）
   canvas: { width: 0, height: 0 },
+  // 多动作片段（可选）。为空时行为与老包完全一致 —— 只播 frames。
+  // 有值时运行时按权重随机切换，让桌宠"有多个小动作"而不是永远循环一段。
+  clips: [],
   render: {
     scale: 0.3,
     flip: false,
@@ -108,6 +111,29 @@ export function normalizePack(input = {}) {
   const cw = num(canvas.width, num(legacy.width, 0, 0, 8192), 0, 8192);
   const ch = num(canvas.height, num(legacy.height, 0, 0, 8192), 0, 8192);
 
+  // clips：只保留「帧文件确实存在于包内」的片段由 main 侧校验，
+  // 这里只做结构归一化（纯函数，规则与 shared/clips.js 一致）。
+  const clips = (() => {
+    const raw = Array.isArray(i.clips) ? i.clips : [];
+    const out = [];
+    for (const c of raw) {
+      if (!c || typeof c !== 'object') continue;
+      const cf = Array.isArray(c.frames) ? c.frames.filter((f) => f && typeof f.file === 'string' && f.file) : [];
+      if (!cf.length) continue;
+      const w = Number(c.weight);
+      out.push({
+        id: String(c.id || ('clip' + out.length)),
+        name: String(c.name || c.id || ('片段' + (out.length + 1))),
+        frames: cf.slice(0, 240).map((f) => ({
+          file: String(f.file).slice(0, 160),
+          durationMs: Math.round(num(f.durationMs, 120, 16, 5000)),
+        })),
+        weight: Number.isFinite(w) && w > 0 ? w : 1,
+      });
+    }
+    return out;
+  })();
+
   return {
     schema: SCHEMA_VERSION,
     id: str(i.id, ''),
@@ -115,6 +141,7 @@ export function normalizePack(input = {}) {
     author: str(i.author, '', 40),
     createdAt: str(i.createdAt, new Date().toISOString(), 40),
     frames,
+    clips,
     canvas: { width: Math.round(cw), height: Math.round(ch) },
     render: {
       scale: num(ren.scale, d.render.scale, 0.05, 4),
@@ -124,6 +151,8 @@ export function normalizePack(input = {}) {
       clip: str(ani.clip, d.animation.clip, 40),
       idle: pick(ani.idle, IDLE_ANIMS, d.animation.idle),
       idleSpeed: num(ani.idleSpeed, d.animation.idleSpeed, 0.2, 3),
+      // 多动作片段的切换间隔（秒）。0/缺省 = 用默认 4~12 秒随机。
+      clipIntervalSec: num(ani.clipIntervalSec, 0, 0, 600),
       fps: Math.round(num(ani.fps, d.animation.fps, 1, 60)),
       click: pick(ani.click, CLICK_ANIMS, d.animation.click),
       hover: pick(ani.hover, HOVER_ANIMS, d.animation.hover),
