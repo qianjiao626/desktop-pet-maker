@@ -474,9 +474,37 @@ ipcMain.handle('pet:install', (e, srcPath) => {
     fs.renameSync(tmp, dest);                // 同目录 rename 为原子操作
     tmp = null;
 
-    return { ok: true, path: dest, replaced: existed };
+    return { ok: true, path: dest, replaced: existed, id: path.basename(dest), name: pack.name || path.basename(dest) };
   } catch (err) {
     if (tmp) { try { fs.unlinkSync(tmp); } catch {} }
+    return { ok: false, errors: [String(err.message || err)] };
+  }
+});
+
+// 拖入宠物包 -> 安装并直接启动（给「收到 .petpack 的人」一条最短路径）
+ipcMain.handle('pet:installAndRun', (e, srcPath) => {
+  try {
+    if (!srcPath || !fs.existsSync(srcPath)) throw new Error('文件不存在');
+    const { pack } = readPackFile(srcPath);
+    const dir = petsDir();
+    const dest = path.join(dir, petPackFileName(pack.name || path.basename(srcPath)));
+    const existed = fs.existsSync(dest);
+    const tmp = dest + '.tmp-install';
+    fs.copyFileSync(srcPath, tmp);
+    readPackFile(tmp);                 // 二次校验，避免半包
+    fs.renameSync(tmp, dest);
+
+    const id = path.basename(dest);
+    const w = createPetWindow(pack);
+    petWindow = w;
+    setPetWindow(w);
+    currentPet = { pack };
+    refreshTray();
+    // 与库内启动保持一致：记一次「最近使用」
+    saveLibraryPrefs(touchRecent(loadLibraryPrefs(), id));
+
+    return { ok: true, id, name: pack.name || id, path: dest, replaced: existed };
+  } catch (err) {
     return { ok: false, errors: [String(err.message || err)] };
   }
 });

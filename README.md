@@ -10,7 +10,7 @@
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.8.4](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.8.4/desktop-pet-maker-win32-x64-v0.8.4.zip)**
+**[下载 Windows 免安装版 v0.8.5](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.8.5/desktop-pet-maker-win32-x64-v0.8.5.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
 > 想看全部版本与更新说明：[Releases 页面](https://github.com/qianjiao626/desktop-pet-maker/releases)
@@ -109,6 +109,10 @@ npm start
   - 生成脚本在 `scripts/make-*.mjs`，全部程序化绘制、不依赖外部素材，可随时重跑
   - 原创形象不复制任何第三方 IP 的具体造型；历史 CC0 素材来源与许可见 `THIRD-PARTY.md`
 - **宠物库支持搜索与排序**：按名字过滤、按名字/体积/帧数排序、显示"n / N 只"计数
+- **拖入即用**：把 `.petpack` 直接拖进制作器窗口，自动安装并立刻出现在桌面上
+  （收到别人分享的宠物包时，这是最短的一条路径）
+- **一键分享闭环**：导出成功后弹窗给出「复制文件路径」与「打开所在文件夹」，
+  并明确告诉对方怎么用（拖进窗口即可）
 - **收藏与最近使用**：卡片左上角星标即可收藏（★），收藏的自动排在列表最前；
   顶部可切「★ 收藏 / 最近」快速找到常用的那几只。偏好存在 `userData/library.json`，
   不写进 `.petpack`（不污染可分享的宠物包）；删除宠物时会自动清掉它的收藏与历史记录
