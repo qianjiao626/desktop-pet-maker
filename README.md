@@ -10,7 +10,7 @@
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.8.9](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.8.9/desktop-pet-maker-win32-x64-v0.8.9.zip)**
+**[下载 Windows 免安装版 v0.8.10](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.8.10/desktop-pet-maker-win32-x64-v0.8.10.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
 > 想看全部版本与更新说明：[Releases 页面](https://github.com/qianjiao626/desktop-pet-maker/releases)
@@ -118,6 +118,9 @@ npm start
 - **宠物库支持搜索与排序**：按名字过滤、按名字/体积/帧数排序、显示"n / N 只"计数
 - **上传即用（含渐变背景）**：拖入照片会自动检测并抠掉纯色**或渐变**背景
   （墙面 / 天空 / 桌面这类常见背景都能识别；杂乱背景会自动跳过，避免误伤主体）
+- **抠图质量反馈**：预览下方直接给出结论 —— 「背景已扣干净」或
+  「边缘还有残留，把强度调大」/「主体被扣没了，把强度调小」，并显示主体占比。
+  透明背景在棋盘格上很难看清扣得干不干净，这条提示把这个判断直接告诉你
 - **拖入即用**：把 `.petpack` 直接拖进制作器窗口，自动安装并立刻出现在桌面上
   （收到别人分享的宠物包时，这是最短的一条路径）
 - **一键分享闭环**：导出成功后弹窗给出「复制文件路径」与「打开所在文件夹」，

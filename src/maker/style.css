@@ -197,3 +197,13 @@ button.block{width:100%}
 [hidden]{display:none !important}
 /* 分享弹窗：备选路径的次要说明 */
 .share-alt{color:var(--dim);font-size:11px}
+
+/* 抠图质量反馈：透明背景在棋盘格上很难看清扣得干不干净，这里给一句可操作的结论 */
+.cut-hint{margin:8px 0 2px;padding:8px 12px;border-radius:10px;font-size:12px;line-height:1.5;
+  display:flex;align-items:center;gap:8px;border:1px solid transparent}
+.cut-hint .ch-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto}
+.cut-hint.ok{background:rgba(80,190,130,.10);border-color:rgba(80,190,130,.32);color:#9fe4bc}
+.cut-hint.ok .ch-dot{background:#5fc08c}
+.cut-hint.warn{background:rgba(255,180,80,.10);border-color:rgba(255,180,80,.34);color:#ffd39a}
+.cut-hint.warn .ch-dot{background:#ffb450}
+.cut-hint .ch-meta{color:var(--dim);font-size:11px;margin-left:auto;white-space:nowrap}
