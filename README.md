@@ -10,7 +10,7 @@
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.8.6](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.8.6/desktop-pet-maker-win32-x64-v0.8.6.zip)**
+**[下载 Windows 免安装版 v0.8.7](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.8.7/desktop-pet-maker-win32-x64-v0.8.7.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
 > 想看全部版本与更新说明：[Releases 页面](https://github.com/qianjiao626/desktop-pet-maker/releases)
@@ -94,6 +94,9 @@ npm start
   调大小**实时生效**且保持"脚不离地"；默认 **30%**（可在 10%~300% 之间调整）
 - **活泼跳跃**：桌宠会自己蹦一蹦（起跳 → 滞空 → 落地回弹，三段确定曲线），
   可在快速条用「活泼跳跃」开关关掉（喜欢安静的桌面就关它）
+- **会打瞌睡**：闲下来会睡着 —— 呼吸变得又慢又沉、身体渐渐塌下去，睡熟后冒「Zzz…」
+- **看向鼠标**：会朝你的鼠标方向瞄一眼（轻微倾斜 + 位移，幅度很小，**不追着鼠标跑**）；
+  睡着时不看，可用快速条「看向鼠标」开关关掉
 - 位置记忆、多开支持
 
 **宠物库**

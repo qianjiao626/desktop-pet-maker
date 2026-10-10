@@ -2,7 +2,7 @@
 import { createBody, stepBody, estimateThrowVelocity, clampIntoArea } from '../shared/physics.js';
 import { pickAreaForBounds, areaChanged } from '../shared/displays.js';
 import { planRuntimeFrames } from '../shared/budget.js';
-import { createBehavior, tickBehavior, enterState, pat as doPat, isWalking, targetVelocityX, stateLabel, hit as doHit, isReacting, hopPose } from '../shared/behavior.js';
+import { createBehavior, tickBehavior, enterState, pat as doPat, isWalking, targetVelocityX, stateLabel, hit as doHit, isReacting, hopPose, dozePose, shouldSnore, lookAtPose } from '../shared/behavior.js';
 import { sanitizeSpeech, speechDuration } from '../shared/speech.js';
 import { handState, fistState, pettingPose, HAND_DURATION, FIST_DURATION, PETTING_DURATION } from '../shared/effects.js';
 import { computeLayout, computeFramePlacement, OVER, MARGIN } from '../shared/layout.js';
@@ -10,6 +10,9 @@ import { createBug, stepBug, catchBug, isBugActive, canPounce } from '../shared/
 
 // 跳跃时最大抬高像素（渲染层视觉高度，不影响物理与窗口尺寸）
 const HOP_HEIGHT = 26;
+
+// 看向鼠标时，把自带的摇摆倾斜压到这个比例，避免两种倾斜叠加后乱晃
+const LOOK_SWAY_DAMP = 0.25;
 
 // 最近一帧的真实渲染姿态（调试钩子用）
 const lastPose = { dx: 0, dy: 0, scaleX: 1, scaleY: 1, rot: 0 };
@@ -42,6 +45,9 @@ const B = createBehavior();
 let behaviorEnabled = true;   // 可由「让他爬动」开关控制
 let walkSpeed = 60;           // px/s
 let hopEnabled = true;        // 可由「活泼跳跃」开关控制
+let snorePending = false;     // 本次睡眠是否该冒一次「Zzz…」
+let cursorScreen = null;      // 屏幕光标坐标（由主进程推送）
+let lookEnabled = true;       // 「看向鼠标」开关
 
 let hitFx = 0;          // 受击特效强度 0..1（用于抖动/闪烁）
 let handStartAt = 0;    // 摸头的手：动画开始时间（0=不显示）
@@ -192,6 +198,7 @@ function computeTransform(now) {
       o.scaleY = 1 + s * 0.028;
     } else if (a.idle === 'sway') {
       o.rot = Math.sin(t * 1.6 * speed) * 3.5;
+      // 稍后若要叠加「看向鼠标」，这里会按比例减弱摇摆（见 LOOK_SWAY_DAMP）
     }
   }
 
@@ -211,8 +218,14 @@ function computeTransform(now) {
   // 行为姿态：打瞌睡时轻微下沉缩小，爬动时随步伐轻摆
   if (behaviorEnabled) {
     if (B.state === 'doze') {
-      o.scaleY *= 0.96;
-      o.scaleX *= 1.03;
+      // 睡眠：比发呆更塌，呼吸更慢更沉；越睡越沉（progress = 本次睡眠进度）
+      const prog = B.duration > 0 ? Math.min(1, Math.max(0, 1 - B.remaining / B.duration)) : 0;
+      const dz = dozePose(now / 1000, prog);
+      o.scaleY *= dz.scaleY;
+      o.scaleX *= dz.scaleX;
+      o.dy += 2;                       // 微微下沉，像坐下来打盹
+      // 睡着后偶尔冒呼噜（由 sleepTick 节流，这里只读标志）
+      if (snorePending && pack.bubble.enabled) { showBubble('Zzz…'); S.bubbleTimer = pack.bubble.intervalSec; snorePending = false; }
     } else if (B.state === 'pat') {
       // 兜底姿态：真正的"舒服"表现由下面的 pettingPose 叠加
       o.dy -= 3;
@@ -243,6 +256,18 @@ function computeTransform(now) {
       o.scaleX = 1; // 需用 rotate 整体
     }
   }
+  // 「看向鼠标」：整体朝光标方向轻微倾斜+位移（幅度很小，像"瞄"着鼠标）
+  // 只在非跳跃/非受击时叠加，避免动作打架；睡眠时不看（睡着了就不理你）
+  if (lookEnabled && cursorScreen && behaviorEnabled && B.state !== 'hop' && B.state !== 'hit' && B.state !== 'doze') {
+    const cx = S.body.x + W / 2, cy = S.body.y + H / 2;
+    const lp = lookAtPose(cursorScreen.x - cx, cursorScreen.y - cy);
+    // 先减弱「摇摆」这种自带倾斜，避免与注视方向叠加成乱晃（实测叠加后可达 3.1°）
+    if (lp.lean > 0.05) o.rot *= LOOK_SWAY_DAMP;
+    o.rot += lp.rot;
+    o.dx += lp.dx;
+    o.dy += lp.dy;
+  }
+
   // 记录本帧最终姿态（供调试钩子/自动化断言读取）
   lastPose.dx = o.dx; lastPose.dy = o.dy;
   lastPose.scaleX = o.scaleX; lastPose.scaleY = o.scaleY; lastPose.rot = o.rot;
@@ -859,6 +884,13 @@ function loop(ts) {
         petOffset += (0 - petOffset) * Math.min(1, dt * 1.5);
         // 行为状态机：决定当前想做什么（爬动会给出目标速度）
         tickBehavior(B, dtMs, { edgeHint: edgeInfo() });
+        // 睡着后打呼：只触发一次（shouldSnore 按睡眠进度判定，避免一直冒气泡）
+        if (B.state === 'doze') {
+          const prog = B.duration > 0 ? 1 - B.remaining / B.duration : 0;
+          if (shouldSnore(prog)) snorePending = true;
+        } else {
+          snorePending = false;
+        }
       }
       refreshArea();   // 先按当前位置确定所在显示器，再按该显示器边界积分
       // 爬动：给一个目标水平速度（平滑逼近，避免瞬间变向）
@@ -1087,6 +1119,13 @@ if (api.onQuickBugChase) api.onQuickBugChase((on) => {
   if (!bugChaseEnabled) { bug = null; }        // 关掉时清掉场上的虫子
 });
 
+if (api.onCursor) api.onCursor((p) => {
+  if (cursorFrozen) return;   // 测试注入期间忽略真实推送，保证断言稳定
+  if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) cursorScreen = p;
+});
+
+if (api.onQuickLook) api.onQuickLook((on) => { lookEnabled = !!on; });
+
 if (api.onQuickHop) api.onQuickHop((on) => {
   hopEnabled = !!on;
   // 关闭跳跃时把权重清零：状态机不会选到 hop（而不是选到后不动）
@@ -1161,6 +1200,19 @@ if (api.onWorkArea) api.onWorkArea(async (wa) => {
 // 测试用：把行为切到跳跃，便于自动化断言渲染姿态（无副作用，仅状态机）
 window.__forceHop = () => { try { enterState(B, 'hop'); return true; } catch { return false; } };
 
+// 测试用：强制进入打瞌睡 / 注入光标坐标（便于自动化断言姿态，不依赖真实鼠标移动）
+window.__forceDoze = () => { try { enterState(B, 'doze'); return true; } catch { return false; } };
+let cursorFrozen = false;   // 测试用：冻结光标，忽略主进程推送
+window.__setCursorForTest = (p, freeze = true) => {
+  if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+    cursorScreen = { x: p.x, y: p.y };
+    cursorFrozen = !!freeze;
+    return true;
+  }
+  return false;
+};
+window.__unfreezeCursor = () => { cursorFrozen = false; return true; };
+
 window.__petDebug = () => ({
   behavior: {
     state: B.state, walkDir: B.walkDir, enabled: behaviorEnabled,
@@ -1168,6 +1220,8 @@ window.__petDebug = () => ({
     hitCount: B.hitCount, patCount: B.patCount,
     hop: hopPose(B),          // 跳跃姿态（非 hop 状态时为 null）
     hopWeight: B.weights.hop, // 跳跃权重（关掉后应为 0）
+    lookEnabled,
+    cursor: cursorScreen ? { x: cursorScreen.x, y: cursorScreen.y } : null,
   },
   // 最近一帧真实用于绘制的姿态：验证「跳跃确实抬高了」靠这个，而不是靠状态名
   pose: { ...lastPose },

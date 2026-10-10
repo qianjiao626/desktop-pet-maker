@@ -8,6 +8,7 @@ await import('./segmentation.test.mjs');
 await import('./models.test.mjs');
 await import('./effects.test.mjs');
 await import('./speech.test.mjs');
+await import('./sleep-look.test.mjs');
 await import('./hop.test.mjs');
 await import('./behavior.test.mjs');
 await import('./bugchase.test.mjs');

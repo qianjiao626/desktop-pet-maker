@@ -200,6 +200,7 @@ function quitPetNow() {
   if (w && !w.isDestroyed()) w.close();
   setPetWindow(null);
   petWindow = null;
+  stopCursorFeed();
   setCurrentScale(null);   // 退出后回到默认大小，避免下次启用继承上次的小尺寸
 }
 
@@ -217,6 +218,28 @@ function registerQuitShortcut() {
     console.warn('[pet] 全局快捷键注册异常: ' + err.message);
     return false;
   }
+}
+
+// ---------- 光标位置推送（供桌宠「看向鼠标」） ----------
+// 为什么用轮询而不是 mousemove：桌宠是像素级鼠标穿透窗口（setIgnoreMouseEvents(true, {forward:true})），
+// 实测在穿透状态下窗口收不到 mousemove，且鼠标在窗口外时更拿不到。
+// 所以由主进程读屏幕光标坐标，再推给渲染进程。
+let cursorTimer = null;
+
+function startCursorFeed() {
+  if (cursorTimer) return;
+  cursorTimer = setInterval(() => {
+    const w = getPetWindow();
+    if (!w || w.isDestroyed()) { stopCursorFeed(); return; }
+    try {
+      const p = screen.getCursorScreenPoint();
+      w.webContents.send('pet:cursor', { x: p.x, y: p.y });
+    } catch { /* 屏幕切换瞬间可能抛，忽略这一帧 */ }
+  }, 120);
+}
+
+function stopCursorFeed() {
+  if (cursorTimer) { clearInterval(cursorTimer); cursorTimer = null; }
 }
 
 // ---------- 系统托盘 ----------
@@ -499,6 +522,7 @@ ipcMain.handle('pet:installAndRun', (e, srcPath) => {
     petWindow = w;
     setPetWindow(w);
     currentPet = { pack };
+    startCursorFeed();
     refreshTray();
     // 与库内启动保持一致：记一次「最近使用」
     saveLibraryPrefs(touchRecent(loadLibraryPrefs(), id));
@@ -620,13 +644,16 @@ ipcMain.handle('quick:enable', (e, payload) => {
       // 已在运行：把新包推给渲染进程热更新，避免闪烁重建窗口
       existing.webContents.send('quick:reload');
       ensurePetWindowVisibility();
+      startCursorFeed();
       return { ok: true, reused: true };
     }
 
     const win = createPetWindow(pack);
     petWindow = win;
     setPetWindow(win);
+    startCursorFeed();          // 「看向鼠标」需要屏幕光标坐标
     win.on('closed', () => {
+      stopCursorFeed();
       if (getPetWindow() === win) setPetWindow(null);
       if (petWindow === win) petWindow = null;
       const mw = getMakerWindow();
@@ -646,6 +673,7 @@ ipcMain.handle('quick:disable', () => {
   if (w && !w.isDestroyed()) w.close();
   setPetWindow(null);
   petWindow = null;
+  stopCursorFeed();
   refreshTray();
   return { ok: true };
 });
@@ -662,6 +690,12 @@ ipcMain.handle('quick:setWalk', (e, walking) => {
   const w = getPetWindow();
   if (w && !w.isDestroyed()) w.webContents.send('quick:walk', !!walking);
   return { ok: isPetAlive(), walking: !!walking };
+});
+
+ipcMain.handle('quick:setLook', (e, on) => {
+  const w = getPetWindow();
+  if (w && !w.isDestroyed()) w.webContents.send('quick:look', !!on);
+  return { ok: isPetAlive(), look: !!on };
 });
 
 ipcMain.handle('quick:setHop', (e, on) => {
@@ -821,7 +855,7 @@ app.on('window-all-closed', () => {
   if (tray && !tray.isDestroyed()) return;
   app.quit();
 });
-app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch {} destroyTray(); });
+app.on('will-quit', () => { try { globalShortcut.unregisterAll(); } catch {} stopCursorFeed(); destroyTray(); });
 }
 
 // PETMAKER_NO_AUTOSTART=1 时不自启（供 e2e 测试自行驱动）
