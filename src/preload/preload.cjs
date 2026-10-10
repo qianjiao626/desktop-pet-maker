@@ -38,6 +38,18 @@ contextBridge.exposeInMainWorld('api', {
   pathForFile: (file) => {
     try { return webUtils.getPathForFile(file); } catch { return ''; }
   },
+  // 零依赖分享页：导出一个自包含 HTML；收到 .html 时能从里面还原出宠物包
+  exportShareHtml: (pack, images) => ipcRenderer.invoke('share:exportHtml', { pack, images }),
+  readShareHtml: (p) => ipcRenderer.invoke('share:readHtml', p),
+
+  // 我的模板（自定义性格模板）
+  templatesList: () => ipcRenderer.invoke('tpl:list'),
+  templatesSave: (pack, name, flags) => ipcRenderer.invoke('tpl:save', { pack, name, flags }),
+  templatesRemove: (id) => ipcRenderer.invoke('tpl:remove', id),
+  templatesRename: (id, name) => ipcRenderer.invoke('tpl:rename', { id, name }),
+  templatesExport: (id) => ipcRenderer.invoke('tpl:export', id),
+  templatesImport: (p) => ipcRenderer.invoke('tpl:import', p),
+
   libraryGet: () => ipcRenderer.invoke('library:get'),
   libraryToggleFav: (id) => ipcRenderer.invoke('library:toggleFav', id),
   libraryTouch: (id) => ipcRenderer.invoke('library:touch', id),

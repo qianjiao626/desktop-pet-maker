@@ -33,6 +33,10 @@
         <span class="qb-tpl-label">性格</span>
         <!-- 模板按钮由 maker.js 从 shared/templates.js 生成，避免两处硬编码 -->
       </div>
+      <div class="qb-mytpl" id="qbMyTpl">
+        <button id="btnSaveTpl" class="qbtn" disabled title="把当前的动画/物理/气泡/行为配置存成我的模板">⭐ 存为我的模板</button>
+        <button id="btnImportTpl" class="qbtn" title="导入别人发来的 .pettpl 模板文件">📥 导入模板</button>
+      </div>
       <div class="qb-extra" id="qbExtra">
         <label class="qb-switch" title="让桌宠自己在桌面上走来走去">
           <input type="checkbox" id="chkWalk" checked disabled /> <span>到处爬动</span>
@@ -287,6 +291,7 @@
     <div class="panel-foot">
       <button id="btnExportFolder" class="ghost">导出文件夹…</button>
       <button id="btnExport" class="primary" disabled>导出桌宠包</button>
+      <button id="btnExportShare" class="accent block" disabled>🌐 导出分享页（单个 HTML，发给别人双击就能看）</button>
     </div>
     <div class="status" id="status">就绪</div>
   </aside>
@@ -305,6 +310,7 @@
       <div class="share-steps">
         <div class="share-step"><b>怎么分享</b>：把这个 <code>.petpack</code> 文件直接发给朋友（微信 / QQ / 邮件都行）。</div>
         <div class="share-step"><b>对方怎么用</b>：打开「桌宠制作器」，<b>把这个文件直接拖进窗口</b>，它会自动安装并出现在桌面上。<br /><span class="share-alt">（也可以：宠物库 →「安装宠物包…」→ 选这个文件）</span></div>
+        <div class="share-step"><b>更省事的分享页（.html）</b>：点「导出分享页」，得到一个<b>单个 HTML 文件</b>。<br />对方<b>双击用浏览器打开</b>就能看到桌宠动起来，<b>不需要装任何东西</b>；<br />想真正养它，再把这个 .html 拖进「桌宠制作器」即可还原成完整宠物。</div>
       </div>
     </div>
     <div class="modal-foot">

@@ -13,6 +13,8 @@ import { segmentImage } from './segment.js';
 import { setCurrentPack, getCurrentPack, setPetWindow, getPetWindow, setMakerWindow, getMakerWindow, isPetAlive, setCurrentScale, getCurrentScale } from './state.js';
 import { buildTrayMenuTemplate, trayTooltip } from './tray.js';
 import { startupSwitches, appMenuTemplate } from '../shared/platform.js';
+import { buildShareHtml, shareFileName } from '../shared/sharepack.js';
+import { normalizeTemplateList, addTemplate, removeTemplate, renameTemplate, templateFromPack, normalizeTemplate, templateFileName, TEMPLATE_SCHEMA } from '../shared/mytemplates.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -118,6 +120,24 @@ function loadLibraryPrefs() {
 function saveLibraryPrefs(state) {
   try { fs.writeFileSync(libraryFile(), JSON.stringify(normalizeState(state), null, 2)); }
   catch (err) { console.warn('[library] 保存偏好失败: ' + (err && err.message)); }
+}
+
+// ---------- 我的模板（自定义性格模板） ----------
+// 存在 userData/templates.json；可导出成独立 .pettpl 文件分享给朋友。
+function templatesFile() { return path.join(app.getPath('userData'), 'templates.json'); }
+function loadTemplates() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(templatesFile(), 'utf8'));
+    return normalizeTemplateList(Array.isArray(raw) ? raw : raw && raw.templates);
+  } catch { return []; }
+}
+function saveTemplates(list) {
+  try {
+    fs.writeFileSync(templatesFile(), JSON.stringify({ schema: TEMPLATE_SCHEMA, templates: normalizeTemplateList(list) }, null, 2));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, errors: [String(err.message || err)] };
+  }
 }
 
 // ---------- 宠物包读写（多帧） ----------
@@ -425,6 +445,116 @@ ipcMain.handle('pack:open', async () => {
   if (r.canceled || !r.filePaths.length) return null;
   try { return readPackFile(r.filePaths[0]); }
   catch (err) { return { error: String(err.message || err) }; }
+});
+
+// 导出「零依赖分享页」：一个自包含 HTML，双击就能在浏览器里看桌宠动起来。
+// 同时把 .petpack 的 base64 塞进去，所以把这个 HTML 拖回桌宠制作器也能还原成完整宠物。
+ipcMain.handle('share:exportHtml', async (e, { pack, images }) => {
+  try {
+    const { pack: p, files } = buildPackAndEntries(pack, images);
+    const v = validatePack(p);
+    if (!v.ok) return { ok: false, errors: v.errors };
+    const petpackBuf = zipCreate([
+      { name: 'pet.json', data: JSON.stringify(p, null, 2) },
+      ...files,
+    ]);
+    const html = buildShareHtml(p, images, {
+      title: p.name,
+      petpackBase64: petpackBuf.toString('base64'),
+      petpackName: petPackFileName(p.name),
+    });
+    const r = await dialog.showSaveDialog({
+      title: '导出分享页（单个 HTML 文件）',
+      defaultPath: shareFileName(p.name || 'mypet'),
+      filters: [{ name: '网页分享包', extensions: ['html'] }],
+    });
+    if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+    fs.writeFileSync(r.filePath, html, 'utf8');
+    return { ok: true, path: r.filePath, bytes: Buffer.byteLength(html, 'utf8'), petpackBytes: petpackBuf.length };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
+// ---------- 我的模板：增删改 / 导入导出 ----------
+ipcMain.handle('tpl:list', () => ({ ok: true, templates: loadTemplates() }));
+
+ipcMain.handle('tpl:save', (e, { pack, name, flags }) => {
+  try {
+    if (!pack || typeof pack !== 'object') throw new Error('没有可保存的配置');
+    const tpl = templateFromPack(pack, name, { flags });
+    const list = addTemplate(loadTemplates(), tpl);
+    const w = saveTemplates(list);
+    if (!w.ok) return w;
+    return { ok: true, id: tpl.id, name: tpl.name, templates: list };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
+ipcMain.handle('tpl:remove', (e, id) => {
+  const list = removeTemplate(loadTemplates(), id);
+  const w = saveTemplates(list);
+  return w.ok ? { ok: true, templates: list } : w;
+});
+
+ipcMain.handle('tpl:rename', (e, { id, name }) => {
+  const list = renameTemplate(loadTemplates(), id, name);
+  const w = saveTemplates(list);
+  return w.ok ? { ok: true, templates: list } : w;
+});
+
+// 导出单个模板为独立文件，方便发给朋友
+ipcMain.handle('tpl:export', async (e, id) => {
+  try {
+    const tpl = loadTemplates().find((x) => x.id === id);
+    if (!tpl) throw new Error('模板不存在');
+    const r = await dialog.showSaveDialog({
+      title: '导出模板',
+      defaultPath: templateFileName(tpl.name),
+      filters: [{ name: '桌宠模板', extensions: ['pettpl', 'json'] }],
+    });
+    if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+    fs.writeFileSync(r.filePath, JSON.stringify({ schema: TEMPLATE_SCHEMA, templates: [tpl] }, null, 2));
+    return { ok: true, path: r.filePath };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
+// 导入模板文件（可以含多个模板）
+ipcMain.handle('tpl:import', async (e, srcPath) => {
+  try {
+    let p = srcPath;
+    if (!p) {
+      const r = await dialog.showOpenDialog({
+        title: '导入模板', properties: ['openFile'],
+        filters: [{ name: '桌宠模板', extensions: ['pettpl', 'json'] }],
+      });
+      if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true };
+      p = r.filePaths[0];
+    }
+    if (!fs.existsSync(p)) throw new Error('文件不存在');
+    const raw = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const incoming = normalizeTemplateList(Array.isArray(raw) ? raw : (raw && (raw.templates || [raw])));
+    if (!incoming.length) throw new Error('文件里没有可用的模板');
+    let list = loadTemplates();
+    for (const t of incoming) list = addTemplate(list, { ...t, id: 'u-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36) });
+    const w = saveTemplates(list);
+    if (!w.ok) return w;
+    return { ok: true, count: incoming.length, templates: list };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
+
+// 解析分享页：把内嵌的 .petpack 抽出来（接收方把 .html 拖进制作器时走这条路）
+ipcMain.handle('share:readHtml', (e, htmlPath) => {
+  try {
+    if (!htmlPath || !fs.existsSync(htmlPath)) throw new Error('文件不存在');
+    const html = fs.readFileSync(htmlPath, 'utf8');
+    const m = /"petpack"\s*:\s*"([A-Za-z0-9+/=]+)"/.exec(html);
+    if (!m) throw new Error('这个 HTML 里没有内嵌宠物包（可能不是本工具导出的分享页）');
+    const buf = Buffer.from(m[1], 'base64');
+    const tmp = path.join(app.getPath('userData'), 'preview', 'from-share-' + Date.now() + '.petpack');
+    fs.mkdirSync(path.dirname(tmp), { recursive: true });
+    fs.writeFileSync(tmp, buf);
+    const { pack, frames } = readPackFile(tmp);   // 校验可解析
+    return { ok: true, pack, frames, path: tmp };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
 
 ipcMain.handle('pack:exportFolder', async (e, { pack, images }) => {

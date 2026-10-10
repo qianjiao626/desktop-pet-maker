@@ -23,6 +23,8 @@ await import('./motion.test.mjs');
 await import('./align.test.mjs');
 await import('./templates.test.mjs');
 await import('./platform.test.mjs');
+await import('./sharepack.test.mjs');
+await import('./mytemplates.test.mjs');
 await import('./dnd.test.mjs');
 await import('./library.test.mjs');
 await import('./tray.test.mjs');

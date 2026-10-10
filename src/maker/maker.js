@@ -9,8 +9,9 @@ import { synthesizeMotion, MOTION_NAMES, motionCanvasSize } from '../shared/moti
 import { fitFrameLimit, fmtBytes } from '../shared/budget.js';
 import { sanitizeSpeech, isSpeakable, pushSpeech } from '../shared/speech.js';
 import { emptyState, normalizeState, isFavorite, toggleFavorite, filterLibrary } from '../shared/library.js';
-import { classifyDroppedFiles } from '../shared/dnd.js';
+import { classifyDroppedFiles, isShareFile } from '../shared/dnd.js';
 import { PERSONALITY_TEMPLATES, applyTemplate, templateFlags, matchTemplate } from '../shared/templates.js';
+import { applyCustomTemplate, matchCustomTemplate } from '../shared/mytemplates.js';
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $('#status');
@@ -189,6 +190,8 @@ function updateButtons() {
   $('#btnPreviewPet').disabled = !has;
   $('#btnAddFrames').disabled = !has;
   $('#btnClearFrames').disabled = !has;
+  if ($('#btnSaveTpl')) $('#btnSaveTpl').disabled = !has;
+  if ($('#btnExportShare')) $('#btnExportShare').disabled = !has;
   const multi = state.frames.length > 1;
   $('#btnPrevFrame').disabled = !multi;
   $('#btnNextFrame').disabled = !multi;
@@ -496,6 +499,7 @@ const scheduleCutPreview = () => {
 // 模板把这些打包成几个一拍即合的预设；只覆盖「性格」相关的字段，
 // 不碰用户已上传的图片、画布与外观（见 shared/templates.js 的说明）。
 let currentTemplate = null;
+let currentMyTemplate = null;   // 高亮的「我的模板」id（与内置模板互斥）
 
 /** 把模板的数值写回界面控件（必须覆盖模板涉及的每一项，否则界面与实际不一致） */
 function writeTemplateToUi(t) {
@@ -540,18 +544,14 @@ function writeTemplateToUi(t) {
 }
 
 /** 套用一个模板：改界面控件 + 立即重建预览（如果正在跑桌宠，也会同步过去） */
-async function useTemplate(id) {
-  const t = PERSONALITY_TEMPLATES.find((x) => x.id === id);
-  if (!t) return;
-  currentTemplate = id;
-  writeTemplateToUi(t);
-
-  // 预览立即反映（画布/动画参数变了）
+/**
+ * 套用模板后的共同副作用：重建预览 + 把配置推给正在运行的桌宠。
+ * 抽出来是因为内置模板与「我的模板」都要走同一条路 ——
+ * 早期只在 quickEnable 里推 pack，忘了「走路/跳跃/看向鼠标/抓虫子」是独立 IPC 通道，
+ * 结果界面变了、桌上的宠物却没变（实测踩过）。
+ */
+async function applyToPet(t) {
   if (state.frames.length) await rebuildAll();
-
-  // 桌宠正在桌面上跑的话，把新配置推过去。
-  // 注意：pack 走 quickEnable，但「走路/跳跃/看向鼠标/抓虫子」是**独立通道**，
-  // 必须一起下发 —— 否则界面变了、桌面上的宠物行为没变（实测踩过这个坑）。
   try {
     if (window.api.quickIsEnabled) {
       const r0 = await window.api.quickIsEnabled();
@@ -565,7 +565,16 @@ async function useTemplate(id) {
       }
     }
   } catch {}
+  void t;
+}
 
+async function useTemplate(id) {
+  const t = PERSONALITY_TEMPLATES.find((x) => x.id === id);
+  if (!t) return;
+  currentTemplate = id;
+  currentMyTemplate = null;
+  writeTemplateToUi(t);
+  await applyToPet(t);
   markTemplateButtons();
   setStatus('已套用「' + t.name + '」：' + t.desc, 'ok');
 }
@@ -574,9 +583,11 @@ async function useTemplate(id) {
 function markTemplateButtons() {
   const box = $('#qbTemplates');
   if (!box) return;
-  const matched = currentTemplate;
   for (const b of box.querySelectorAll('button[data-tpl]')) {
-    b.classList.toggle('on', b.dataset.tpl === matched);
+    b.classList.toggle('on', b.dataset.tpl === currentTemplate);
+  }
+  for (const b of box.querySelectorAll('button[data-mytpl]')) {
+    b.classList.toggle('on', b.dataset.mytpl === currentMyTemplate);
   }
 }
 
@@ -593,21 +604,124 @@ function initTemplates() {
     btn.onclick = () => useTemplate(t.id);
     box.appendChild(btn);
   }
+  renderMyTemplates();
   markTemplateButtons();
 }
 
+// ---------------- 我的模板（自定义，可导出分享） ----------------
+let myTemplates = [];
+
+async function loadMyTemplates() {
+  try {
+    const r = await window.api.templatesList();
+    myTemplates = (r && r.templates) || [];
+  } catch { myTemplates = []; }
+  renderMyTemplates();
+  markTemplateButtons();
+}
+
+function renderMyTemplates() {
+  const box = $('#qbTemplates');
+  if (!box) return;
+  for (const b of [...box.querySelectorAll('button[data-mytpl]')]) b.remove();
+  const anchor = box.querySelector('.qb-tpl-label');
+  for (const t of myTemplates) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'qb-tpl qb-tpl-mine';
+    btn.dataset.mytpl = t.id;
+    btn.title = t.name + '（我的模板 · 右键可删除/导出）';
+    btn.innerHTML = '<span class="tpl-emoji">' + (t.emoji || '⭐') + '</span>' + escapeHtml(t.name);
+    btn.onclick = () => useMyTemplate(t.id);
+    btn.oncontextmenu = (e) => { e.preventDefault(); myTemplateMenu(t); };
+    if (anchor) anchor.after(btn); else box.appendChild(btn);
+  }
+}
+
+function useMyTemplate(id) {
+  const t = myTemplates.find((x) => x.id === id);
+  if (!t) return;
+  currentTemplate = null;
+  currentMyTemplate = id;
+
+  // 套用到界面：与内置模板同样的字段映射
+  const synth = { patch: t.patch || {}, flags: t.flags || {} };
+  writeTemplateToUi(synth);
+
+  applyToPet(synth);
+  markTemplateButtons();
+  setStatus('已套用我的模板「' + t.name + '」', 'ok');
+}
+
+function myTemplateMenu(t) {
+  const act = prompt('模板「' + t.name + '」\n\n输入 1 = 重命名\n输入 2 = 导出为文件（发给朋友）\n输入 3 = 删除\n留空取消', '1');
+  if (act === '1') {
+    const name = prompt('新的模板名：', t.name);
+    if (name === null) return;
+    window.api.templatesRename(t.id, name).then((r) => {
+      if (r && r.templates) { myTemplates = r.templates; renderMyTemplates(); markTemplateButtons(); setStatus('已重命名', 'ok'); }
+    });
+  } else if (act === '2') {
+    window.api.templatesExport(t.id).then((r) => {
+      if (r && r.canceled) return;
+      setStatus(r && r.ok ? '✅ 模板已导出：' + r.path : '导出失败：' + ((r && r.errors) || []).join(';'), r && r.ok ? 'ok' : 'err');
+    });
+  } else if (act === '3') {
+    if (!confirm('确定删除我的模板「' + t.name + '」？')) return;
+    window.api.templatesRemove(t.id).then((r) => {
+      if (r && r.templates) { myTemplates = r.templates; renderMyTemplates(); markTemplateButtons(); setStatus('已删除模板', 'ok'); }
+    });
+  }
+}
+
+function currentFlags() {
+  return {
+    walk: !!($('#chkWalk') && $('#chkWalk').checked),
+    hop: !!($('#chkHop') && $('#chkHop').checked),
+    look: !!($('#chkLook') && $('#chkLook').checked),
+    bug: !!($('#chkBug') && $('#chkBug').checked),
+  };
+}
+
+async function saveMyTemplate() {
+  if (!state.frames.length) { setStatus('请先导入图片再保存模板', 'err'); return; }
+  const name = prompt('给这个模板起个名字：', '我的模板');
+  if (name === null) return;
+  const r = await window.api.templatesSave(readPack(), name, currentFlags());
+  if (!r || !r.ok) { setStatus('保存失败：' + ((r && r.errors) || []).join(';'), 'err'); return; }
+  myTemplates = r.templates || myTemplates;
+  renderMyTemplates();
+  currentTemplate = null;
+  currentMyTemplate = r.id;
+  markTemplateButtons();
+  setStatus('✅ 已存为我的模板「' + (r.name || name) + '」', 'ok');
+}
+
+async function importMyTemplate() {
+  const r = await window.api.templatesImport();
+  if (!r || r.canceled) return;
+  if (!r.ok) { setStatus('导入失败：' + ((r.errors) || []).join(';'), 'err'); return; }
+  myTemplates = r.templates || myTemplates;
+  renderMyTemplates();
+  markTemplateButtons();
+  setStatus('✅ 已导入 ' + (r.count || 1) + ' 个模板', 'ok');
+}
+
 initTemplates();
+if ($('#btnSaveTpl')) $('#btnSaveTpl').onclick = saveMyTemplate;
+if ($('#btnImportTpl')) $('#btnImportTpl').onclick = importMyTemplate;
+loadMyTemplates();
 bindRange('cutTol', scheduleCutPreview);
 bindRange('cutFeather', scheduleCutPreview);
 bindRange('scale'); bindRange('idleSpeed');
-bindRange('fps', () => { currentTemplate = null; markTemplateButtons(); });
-bindRange('gifMaxFrames'); bindRange('roamSpeed', () => { currentTemplate = null; markTemplateButtons(); });
-bindRange('gravity', () => { currentTemplate = null; markTemplateButtons(); });
-bindRange('bounce', () => { currentTemplate = null; markTemplateButtons(); });
-bindRange('friction', () => { currentTemplate = null; markTemplateButtons(); });
-bindRange('throwScale', () => { currentTemplate = null; markTemplateButtons(); });
-bindRange('interval', () => { currentTemplate = null; markTemplateButtons(); });
-bindRange('duration', () => { currentTemplate = null; markTemplateButtons(); });
+bindRange('fps', () => { currentTemplate = null; currentMyTemplate = null; markTemplateButtons(); });
+bindRange('gifMaxFrames'); bindRange('roamSpeed', () => { currentTemplate = null; currentMyTemplate = null; markTemplateButtons(); });
+bindRange('gravity', () => { currentTemplate = null; currentMyTemplate = null; markTemplateButtons(); });
+bindRange('bounce', () => { currentTemplate = null; currentMyTemplate = null; markTemplateButtons(); });
+bindRange('friction', () => { currentTemplate = null; currentMyTemplate = null; markTemplateButtons(); });
+bindRange('throwScale', () => { currentTemplate = null; currentMyTemplate = null; markTemplateButtons(); });
+bindRange('interval', () => { currentTemplate = null; currentMyTemplate = null; markTemplateButtons(); });
+bindRange('duration', () => { currentTemplate = null; currentMyTemplate = null; markTemplateButtons(); });
 
 $('#previewImg').onclick = () => { state.clickP = 1; };
 
@@ -662,6 +776,18 @@ if ($('#shareCopy')) $('#shareCopy').onclick = async () => {
 if ($('#shareClose')) $('#shareClose').onclick = () => { $('#shareModal').hidden = true; };
 if ($('#shareModal')) $('#shareModal').onclick = (e) => { if (e.target.id === 'shareModal') $('#shareModal').hidden = true; };
 
+// 导出「零依赖分享页」：一个自包含 HTML。对方双击用浏览器打开就能看到桌宠动起来，
+// 不需要装任何东西、不需要服务器、不需要网络（图片与宠物包全部内嵌在文件里）。
+$('#btnExportShare').onclick = async () => {
+  if (!state.frames.length) { setStatus('请先导入图片', 'err'); return; }
+  setStatus('正在生成分享页…');
+  const r = await window.api.exportShareHtml(readPack(), currentImages());
+  if (r.canceled) { setStatus('已取消'); return; }
+  if (!r.ok) { setStatus('导出失败：' + (r.errors || []).join(';'), 'err'); return; }
+  setStatus('✅ 分享页已导出（' + Math.round(r.bytes / 1024) + ' KB）：' + r.path, 'ok');
+  showShareHint(r.path, $('#petName').value || '我的桌宠');
+};
+
 $('#btnExportFolder').onclick = async () => {
   if (!state.frames.length) { setStatus('请先导入图片', 'err'); return; }
   const r = await window.api.exportFolder(readPack(), currentImages());
@@ -713,11 +839,30 @@ document.addEventListener('drop', async (e) => {
   stage.classList.remove('dragover');
   const files = [...((e.dataTransfer && e.dataTransfer.files) || [])];
   if (!files.length) return;
-  const { packs, images } = classifyDroppedFiles(files);
+  const { packs, images, shares } = classifyDroppedFiles(files);
   if (packs.length) { await handleDroppedPacks(packs); return; }
+  if (shares.length) { await handleDroppedShares(shares); return; }
   if (images.length) { await addImageFiles(images); return; }
-  setStatus('只支持图片或 .petpack 宠物包', 'err');
+  setStatus('只支持图片、.petpack 宠物包、或分享页 .html', 'err');
 });
+
+/** 拖入分享页 .html：把里面内嵌的宠物包抽出来并载入编辑 */
+async function handleDroppedShares(files) {
+  for (const f of files) {
+    const p = (window.api.pathForFile && window.api.pathForFile(f)) || '';
+    if (!p) { setStatus('拿不到文件路径，试试用「打开宠物包」', 'err'); continue; }
+    setStatus('正在读取分享页…');
+    const r = await window.api.readShareHtml(p);
+    if (!r || !r.ok) { setStatus('读取失败：' + ((r && r.errors) || []).join(';'), 'err'); continue; }
+    state.frames = [];
+    for (const fr of r.frames) await addFrameFromDataUrl(fr.dataUrl, fr.file);
+    state.activeIdx = 0;
+    applyPack(r.pack);
+    await rebuildAll();
+    setStatus('已从这个分享页载入「' + r.pack.name + '」', 'ok');
+    return;
+  }
+}
 
 /** 拖入 .petpack：安装并直接启动 —— 给「收到宠物包的人」一条最短路径 */
 async function handleDroppedPacks(files) {
@@ -748,9 +893,10 @@ async function addImageFiles(files) {
 stage.addEventListener('drop', async (e) => {
   e.preventDefault(); e.stopPropagation(); stage.classList.remove('dragover');
   const files = [...(e.dataTransfer.files || [])];
-  const { packs, images } = classifyDroppedFiles(files);
+  const { packs, images, shares } = classifyDroppedFiles(files);
   if (packs.length) { await handleDroppedPacks(packs); return; }   // 拖宠物包也允许落在图片区
-  if (!images.length) { setStatus('只支持图片或 .petpack 宠物包', 'err'); return; }
+  if (shares.length) { await handleDroppedShares(shares); return; } // 分享页同样允许
+  if (!images.length) { setStatus('只支持图片、.petpack 宠物包、或分享页 .html', 'err'); return; }
   await addImageFiles(images);
 });
 

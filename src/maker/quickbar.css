@@ -98,3 +98,10 @@
 .saybar input[type=text]::placeholder{color:#5a6379}
 .qbtn-say{background:linear-gradient(135deg,#5b8cff,#8b6cff);border:none;color:#fff;padding:9px 20px}
 .qbtn-say:hover:not(:disabled){filter:brightness(1.12)}
+
+/* 「我的模板」工具行：与性格模板同一行风格，但单独一行避免挤爆快速条 */
+.qb-mytpl { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.qb-mytpl .qbtn { font-size: 12px; padding: 4px 10px; }
+/* 用户自定义模板：用虚线与内置模板区分，一眼看出「这是我自己存的」 */
+.qb-tpl.qb-tpl-mine { border-style: dashed; }
+.qb-tpl.qb-tpl-mine.on { border-style: solid; }

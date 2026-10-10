@@ -25,6 +25,7 @@ const suites = [
   ['e2e-library-prefs.mjs', []],
   ['e2e-share.mjs', []],
   ['e2e-share-drop.mjs', []],
+  ['e2e-share-page.mjs', []],
   ['e2e-library.mjs', []],
   ['e2e-pipeline.mjs', []],
   ['e2e-download.mjs', []],

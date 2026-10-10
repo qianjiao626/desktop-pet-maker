@@ -21,15 +21,28 @@ export function isImageFile(f) {
 }
 
 /**
- * 把一次拖入的文件分成「宠物包」和「图片」两类
- * 返回值恒定包含两个数组，避免调用方对 undefined 做判断
+ * 是否「分享页」：本工具导出的自包含 .html。
+ * 收到分享页的人最自然的动作也是把它拖进窗口 —— 里面内嵌了 .petpack，
+ * 必须能被识别，否则会被当成「不认识的文件」拒绝。
+ */
+export function isShareFile(f) {
+  if (!f) return false;
+  const name = String(f.name || '');
+  const type = String(f.type || '');
+  return /\.html?$/i.test(name) || /text\/html/i.test(type);
+}
+
+/**
+ * 把一次拖入的文件分成「宠物包」「分享页」「图片」三类
+ * 返回值恒定包含数组，避免调用方对 undefined 做判断
  */
 export function classifyDroppedFiles(files) {
-  const packs = [], images = [], others = [];
+  const packs = [], images = [], shares = [], others = [];
   for (const f of Array.isArray(files) ? files : []) {
     if (isPetpackFile(f)) packs.push(f);
+    else if (isShareFile(f)) shares.push(f);
     else if (isImageFile(f)) images.push(f);
     else others.push(f);
   }
-  return { packs, images, others };
+  return { packs, images, shares, others };
 }
