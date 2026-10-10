@@ -216,3 +216,10 @@ button.block{width:100%}
 .qb-tpl:hover{border-color:#4a5570;color:#e8ecf5;transform:translateY(-1px)}
 .qb-tpl.on{background:rgba(91,140,255,.18);border-color:#5b8cff;color:#cfe0ff}
 .qb-tpl .tpl-emoji{margin-right:3px}
+
+/* 自动挑模型：说明条（透明背景、字号小，避免抢走"模型选择"的视觉重心） */
+.ai-auto-note {
+  font-size: 12px; line-height: 1.6; color: var(--muted, #8b97ad);
+  background: rgba(255, 255, 255, 0.04); border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 8px; padding: 6px 10px; margin-top: 6px;
+}

@@ -1231,10 +1231,29 @@ function updateAiUi() {
   else { tag.textContent = '未下载'; tag.className = 'ai-tag miss'; }
   $('#btnAiDownload').textContent = m.installed ? '重新下载' : ('下载模型 (' + (m.bytes / 1048576).toFixed(0) + 'MB)');
   $('#btnAiDownload').disabled = AI.busy;
-  $('#btnAiSegment').disabled = AI.busy || !m.installed || !state.frames.length;
+  // 自动模式：只要「任意一个」模型已下载就能用（会把它作为提示，但实际跑全部已下载的）
+  const anyInstalled = AI.models.some((x) => x.installed);
+  const auto = !!($('#chkAiAuto') && $('#chkAiAuto').checked);
+  const ready = auto ? anyInstalled : m.installed;
+  $('#btnAiSegment').disabled = AI.busy || !ready || !state.frames.length;
+  const note = $('#aiAutoNote');
+  if (note) {
+    const installedIds = AI.models.filter((x) => x.installed).map((x) => x.name);
+    if (auto && anyInstalled) {
+      note.hidden = false;
+      note.textContent = '将依次试跑：' + installedIds.join(' · ') + '，按抠图质量自动选最好的一个。'
+        + (installedIds.length > 1 ? '模型越多越慢。' : '（只装了一个模型，想更准可再下载其他模型）');
+    } else if (auto) {
+      note.hidden = false;
+      note.textContent = '自动模式需要至少下载一个模型。';
+    } else {
+      note.hidden = true;
+    }
+  }
 }
 
 $('#aiModel').onchange = () => { AI.current = $('#aiModel').value; updateAiUi(); };
+if ($('#chkAiAuto')) $('#chkAiAuto').onchange = () => updateAiUi();
 bindRange('aiThresh');
 
 $('#btnAiDownload').onclick = async () => {
@@ -1252,6 +1271,15 @@ $('#btnAiDownload').onclick = async () => {
   else { setStatus('下载失败：' + (r.errors || []).join(';'), 'err'); updateAiUi(); }
 };
 
+// 自动模式逐个模型的进度：让用户知道"卡住"其实是在跑第二个模型
+window.api.onAutoProgress((p) => {
+  if (!p || p.phase !== 'run') return;
+  $('#aiProgress').hidden = false;
+  $('#aiBar').style.setProperty('--p', Math.round((p.index - 1) / Math.max(1, p.total) * 100) + '%');
+  $('#aiPct').textContent = '试跑 ' + p.index + '/' + p.total;
+  setStatus('AI 抠图中… 正在试跑模型 ' + p.index + '/' + p.total);
+});
+
 window.api.onDownloadProgress((p) => {
   const pct = Math.round((p.percent || 0) * 100);
   $('#aiProgress').hidden = false;
@@ -1261,22 +1289,29 @@ window.api.onDownloadProgress((p) => {
 
 $('#btnAiSegment').onclick = async () => {
   const m = currentModel();
-  if (!m) return;
-  if (!m.installed) { setStatus('请先下载模型', 'err'); return; }
+  const auto = !!($('#chkAiAuto') && $('#chkAiAuto').checked);
+  const anyInstalled = AI.models.some((x) => x.installed);
+  if (auto ? !anyInstalled : (!m || !m.installed)) { setStatus('请先下载模型', 'err'); return; }
   AI.busy = true; updateAiUi();
   const threshold = parseInt($('#aiThresh').value, 10) / 100;
   let done = 0;
+  const chosen = {};      // 每个模型被选中的次数，收尾时告诉用户"为什么选它"
+  let lastReason = '';
   for (let i = 0; i < state.frames.length; i++) {
-    setStatus(`AI 抠图中… ${i + 1}/${state.frames.length}`);
+    setStatus(`AI 抠图中… ${i + 1}/${state.frames.length}` + (auto ? '（自动比分数）' : ''));
     const srcFrame = state.frames[i].original || state.frames[i].current;
     if (!srcFrame) throw new Error('第 ' + (i + 1) + ' 帧数据缺失');
     const src = imageDataToDataURL(srcFrame);
-    const r = await window.api.segment(m.id, src, threshold, 0.12);
+    // 自动模式：把已下载的模型都跑一遍，按客观质量分数选最好的（精确率优先）
+    const r = auto
+      ? await window.api.segmentAuto(src, threshold, 0.12, m ? m.id : null, null)
+      : await window.api.segment(m.id, src, threshold, 0.12);
     if (!r.ok) { setStatus('AI 抠图失败：' + (r.errors || []).join(';'), 'err'); AI.busy = false; updateAiUi(); return; }
     const b64 = r.dataUrl.split(',')[1];
     const decoded = await base64ToImageData(b64);
     state.frames[i].current = decoded.data;
     done++;
+    if (r.modelId) { chosen[r.modelId] = (chosen[r.modelId] || 0) + 1; lastReason = r.reason || ''; }
     renderPreview();
   }
   // AI 抠图会保留各帧原始尺寸，多帧时需重新统一并对齐
@@ -1284,7 +1319,16 @@ $('#btnAiSegment').onclick = async () => {
   renderPreview();
   AI.busy = false;
   updateAiUi();
-  setStatus(`✅ AI 抠图完成：${done} 帧` + (needsFrameNormalize() ? '（已归一画布/对齐）' : ''), 'ok');
+  const norm = needsFrameNormalize() ? '（已归一画布/对齐）' : '';
+  if (auto) {
+    const used = Object.entries(chosen).map(([id, n]) => {
+      const mm = AI.models.find((x) => x.id === id);
+      return (mm ? mm.name : id) + '×' + n;
+    }).join('、');
+    setStatus(`✅ AI 抠图完成：${done} 帧，自动选用 ${used}${lastReason ? '（' + lastReason + '）' : ''}${norm}`, 'ok');
+  } else {
+    setStatus(`✅ AI 抠图完成：${done} 帧${norm}`, 'ok');
+  }
 };
 
 
