@@ -3,7 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { zipCreate, zipRead } from '../shared/zip.js';
+import { zipCreate, zipRead, zipWriteToFile } from '../shared/zip.js';
 import { normalizePack, validatePack } from '../shared/petpack.js';
 import { petPackFileName, safeFileName } from '../shared/safeid.js';
 import { computeLayout } from '../shared/layout.js';
@@ -20,6 +20,7 @@ import { estimatePose, isPoseModelInstalled } from './pose.js';
 import { checkMaterial, MATERIAL_GUIDE } from '../shared/material.js';
 import { autoFit, bodyBounds as bodyBoundsOf } from '../shared/autofit.js';
 import { MOTIONS, canAnimate, motionSequence, solveJoints, motionBounds, LIMB_LABELS } from '../shared/limb.js';
+import { planExport, exportReadme } from '../shared/bulkexport.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -926,6 +927,76 @@ ipcMain.handle('pet:runInstalled', (e, id) => {
     if (!fs.existsSync(full)) throw new Error('宠物不存在');
     launchPet(full);
     return { ok: true };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
+// ---------- 宠物库批量导出（备份 / 换机 / 分享合集）----------
+// 逐个宠物包写进一个 zip，用流式写入避免大库 OOM。
+ipcMain.handle('pet:exportAll', async (e, opt) => {
+  const o = opt || {};
+  try {
+    const dir = petsDir();
+    // 复用 listInstalled 的数据（含 name / size / builtin / broken）
+    const builtinNames = new Set();
+    try { for (const f of fs.readdirSync(builtinPetsDir())) if (/\.petpack$/i.test(f)) builtinNames.add(f); } catch {}
+    const items = [];
+    for (const f of fs.readdirSync(dir)) {
+      if (!/\.(petpack|zip)$/i.test(f)) continue;
+      const full = path.join(dir, f);
+      let name = f, broken = false;
+      try { const { pack } = readPackFile(full); name = pack.name || f; } catch { broken = true; }
+      let size = 0;
+      try { size = fs.statSync(full).size; } catch {}
+      items.push({ id: f, name, size, builtin: builtinNames.has(f), broken });
+    }
+
+    const plan = planExport(items, { includeBuiltin: !!o.includeBuiltin });
+    if (!plan.ok) return { ok: false, errors: [plan.reason], skipped: plan.skipped };
+
+    const r = await dialog.showSaveDialog({
+      title: '导出宠物库',
+      defaultPath: '桌宠合集-' + new Date().toISOString().slice(0, 10) + '.zip',
+      filters: [{ name: '压缩包', extensions: ['zip'] }],
+    });
+    if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+
+    const entries = plan.entries.map((en) => ({
+      name: en.outName,
+      getData: () => fs.readFileSync(path.join(dir, en.sourceId)),
+    }));
+    entries.unshift({ name: 'README.txt', data: exportReadme(plan.entries) });
+
+    const w = await zipWriteToFile(entries, r.filePath);
+    return {
+      ok: true, path: r.filePath, count: plan.entries.length,
+      bytes: w.bytes, skipped: plan.skipped,
+    };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
+// 预览一次导出（不落盘）：让界面先告诉用户"会导出几只、多大、跳过什么"
+ipcMain.handle('pet:previewExport', () => {
+  try {
+    const dir = petsDir();
+    const builtinNames = new Set();
+    try { for (const f of fs.readdirSync(builtinPetsDir())) if (/\.petpack$/i.test(f)) builtinNames.add(f); } catch {}
+    const items = [];
+    for (const f of fs.readdirSync(dir)) {
+      if (!/\.(petpack|zip)$/i.test(f)) continue;
+      const full = path.join(dir, f);
+      let name = f, broken = false;
+      try { const { pack } = readPackFile(full); name = pack.name || f; } catch { broken = true; }
+      let size = 0;
+      try { size = fs.statSync(full).size; } catch {}
+      items.push({ id: f, name, size, builtin: builtinNames.has(f), broken });
+    }
+    const def = planExport(items, {});
+    const all = planExport(items, { includeBuiltin: true });
+    return {
+      ok: true,
+      mine: { count: def.entries.length, bytes: def.totalBytes, skipped: def.skipped },
+      all: { count: all.entries.length, bytes: all.totalBytes },
+    };
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
 

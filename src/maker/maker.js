@@ -1768,6 +1768,42 @@ $('#btnLibrary').onclick = () => { $('#libModal').hidden = false; refreshLibrary
 $('#btnLibClose').onclick = () => { $('#libModal').hidden = true; };
 $('#libModal').onclick = (e) => { if (e.target.id === 'libModal') $('#libModal').hidden = true; };
 $('#btnLibOpenDir').onclick = () => window.api.openDataDir();
+
+// 导出整个宠物库为一个 zip（备份 / 换机 / 分享合集）。
+// 先问用户「要不要包含内置宠物」，并给出体积预估 —— 避免导出一个几百 MB 的包才发现不对。
+if ($('#btnLibExport')) $('#btnLibExport').onclick = async () => {
+  const btn = $('#btnLibExport');
+  let pv = null;
+  try { pv = await window.api.previewExport(); } catch {}
+  if (!pv || !pv.ok) { setStatus('读取宠物库失败', 'err'); return; }
+  const mine = pv.mine, all = pv.all;
+  const fmt = (b) => b < 1048576 ? (b / 1024).toFixed(0) + ' KB' : (b / 1048576).toFixed(1) + ' MB';
+  const ask = '你的宠物有 ' + mine.count + ' 只（' + fmt(mine.bytes) + '）。\n\n'
+    + '要不要连内置宠物一起导出？\n'
+    + '  一起导出：共 ' + all.count + ' 只，约 ' + fmt(all.bytes) + '\n'
+    + '  只导出我的：' + mine.count + ' 只，约 ' + fmt(mine.bytes) + '\n\n'
+    + '点确定 = 连内置一起导出；点取消 = 只导出我的宠物。';
+  const includeBuiltin = window.confirm(ask);
+  // 用户点取消又恰好没有自制宠物时，要明确告知（否则会以为点了没反应）
+  if (!includeBuiltin && mine.count === 0) {
+    setStatus('宠物库里还没有你自己的宠物（只有内置的）。想导出内置宠物请在上一步点确定', 'err');
+    return;
+  }
+  btn.disabled = true;
+  setStatus('正在打包宠物库…');
+  try {
+    const r = await window.api.exportAll({ includeBuiltin });
+    btn.disabled = false;
+    if (r.canceled) { setStatus('已取消'); return; }
+    if (!r.ok) { setStatus('导出失败：' + (r.errors || []).join(';'), 'err'); return; }
+    const skipped = (r.skipped || []).length;
+    setStatus('✅ 已导出 ' + r.count + ' 只宠物到合集包（' + fmt(r.bytes) + '）'
+      + (skipped ? '，跳过 ' + skipped + ' 只' : '') + '：' + r.path, 'ok');
+  } catch (err) {
+    btn.disabled = false;
+    setStatus('导出异常：' + String(err.message || err), 'err');
+  }
+};
 $('#btnLibInstall').onclick = async () => {
   const r = await window.api.openPack();
   if (!r || r.error) return;
