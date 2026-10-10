@@ -136,6 +136,28 @@ const GPU_ONLY = ['DirectML.dll', 'dxcompiler.dll', 'dxil.dll'];
   }
 }
 
+// 1c) Electron 自带的 dxcompiler.dll / dxil.dll（DirectX 着色器编译器，共约 26MB）
+//    这两把文件原先一直被打进产物 —— 之前的 GPU 裁剪只扫了 onnxruntime-node 目录，
+//    而它们其实躺在**应用根目录**（Electron 发行包自带），所以一直漏网。
+//    依据：src/main/segment.js 显式使用 executionProviders: ['cpu']，
+//    应用任何地方都不引用 dxcompiler/dxil/DirectML，纯 CPU 推理用不到它们。
+//    实测：删掉后 --selftest-ai 仍然 PASS（onnxruntime OK + segment ok）。
+{
+  const GPU_AT_ROOT = ['dxcompiler.dll', 'dxil.dll', 'DirectML.dll'];
+  for (const n of GPU_AT_ROOT) {
+    const full = path.join(dir, n);
+    if (!fs.existsSync(full)) continue;
+    try {
+      const sz = fs.statSync(full).size;
+      fs.rmSync(full, { force: true });
+      saved += sz;
+      console.log('  裁剪根目录 GPU 组件: ' + n + '  ' + (sz / 1048576).toFixed(1) + 'MB');
+    } catch (err) {
+      console.warn('  裁剪根目录 GPU 组件失败: ' + n + ' -> ' + (err && err.message));
+    }
+  }
+}
+
 // 2) Electron 语言包只留常用
 const loc = path.join(dir, 'locales');
 if (fs.existsSync(loc)) {
