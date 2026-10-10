@@ -65,15 +65,29 @@ app.whenReady().then(async () => {
   const R = 400;   // 足够远以进入饱和区
 
   const inj = (x, y) => pw.webContents.executeJavaScript('window.__setCursorForTest(' + JSON.stringify({ x, y }) + ')');
+  // 关键：doze 状态下注视被主动跳过（睡着了不理你）——这是设计，不是缺陷。
+  // 但采样若撞上 doze，断言就会得到 rot=0（偶发假失败）。
+  // 所以断言前先确保宠物处于「醒着且非跳跃」的状态。
+  const ensureAwake = async () => {
+    for (let i = 0; i < 25; i++) {
+      await pw.webContents.executeJavaScript('window.__forceWake && window.__forceWake()');
+      const d = await dbg();
+      if (d.behavior.state !== 'doze' && d.behavior.state !== 'hop') return d.behavior.state;
+      await sleep(80);
+    }
+    return null;
+  };
+
   const okR = await inj(centerX + R, centerY);
-  await sleep(220);
+  const stR = await ensureAwake(); await sleep(200);
   const pr = await dbg();
   const okL = await inj(centerX - R, centerY);
-  await sleep(220);
+  const stL = await ensureAwake(); await sleep(200);
   const pl = await dbg();
   const okU = await inj(centerX, centerY - R);
-  await sleep(220);
+  const stU = await ensureAwake(); await sleep(200);
   const pu = await dbg();
+  check('断言前宠物处于可注视状态（非睡眠）', !!stR && !!stL && !!stU, `${stR}/${stL}/${stU}`);
 
   check('测试钩子可用（能注入并冻结光标）', okR && okL && okU);
   check('光标在右 -> 向右倾（rot > 0）', pr.pose.rot > 0, 'rot=' + pr.pose.rot.toFixed(3));

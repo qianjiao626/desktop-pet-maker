@@ -192,3 +192,51 @@ export const PETTING_DURATION = 1500;
 export const HAND_DURATION = 1100;
 /** 拳击动画的建议时长（毫秒） */
 export const FIST_DURATION = 900;
+/**
+ * 「被拎起来」的挣扎姿态。
+ *
+ * 为什么需要：拖拽是桌宠最直接的交互，但之前拎起来只是一张静止贴图 ——
+ * 用户感觉像在拖一个图片，而不是拎起一个活物。
+ *
+ * 表现（幅度都刻意克制，桌宠窗口只有约 160px）：
+ * - 左右晃：像被提着晃来晃去（sin）
+ * - 上下轻摆：配合晃动做二次相位，避免像钟摆一样死板
+ * - 轻微拉伸：被拎起来显得"拉长"一点
+ * - 速度越快晃得越厉害（甩得猛会更挣扎），但有上限
+ *
+ * @param t 秒（performance.now()/1000）
+ * @param speed 当前拖拽速度（像素/秒，用于让"甩得快"更明显）
+ * @returns {{rot:number, dx:number, dy:number, scaleX:number, scaleY:number}}
+ */
+export function strugglePose(t, speed = 0) {
+  const tt = Number.isFinite(t) ? t : 0;
+  const sp = Number.isFinite(speed) && speed > 0 ? speed : 0;
+
+  // 速度权重：0..1 软饱和（甩得越快越挣扎，但不会无限放大）
+  const k = Math.min(1, sp / 900);
+
+  // 晃动频率随速度略增（被甩时晃得更急）
+  const freq = 5.2 + k * 2.4;
+  const a = tt * freq;
+
+  const swing = Math.sin(a);            // 主摆动
+  const bounce = Math.sin(a * 2 + 0.8); // 二次相位，让动作不规整
+
+  // 幅度：基础幅度 + 速度加成
+  const rotAmp = 6.5 + k * 4.0;         // 最多约 10.5°
+  const dxAmp = 3.0 + k * 2.0;          // 最多 5px
+  const dyAmp = 1.6 + k * 1.2;          // 最多约 2.8px
+
+  const stretch = 1 + 0.025 + k * 0.02; // 被拎起来略微拉长
+
+  return {
+    rot: swing * rotAmp,
+    dx: swing * dxAmp,
+    dy: bounce * dyAmp,
+    scaleX: 1 / Math.sqrt(stretch),     // 保持体积感
+    scaleY: stretch,
+  };
+}
+
+/** 挣扎姿态的最大影响范围（供测试与文档标注用，避免幅度失控） */
+export const STRUGGLE_LIMITS = { maxRot: 11, maxDx: 6, maxDy: 3.5, maxScaleY: 1.06 };
