@@ -173,3 +173,65 @@ export function hopPose(b) {
   }
   return { t, lift: Math.max(0, Math.min(1, lift)), squash, stretch };
 }
+
+/**
+ * 打瞌睡/睡着的姿态。
+ * 与 doze 状态配套：比普通发呆更"塌下去"，并且呼吸节奏更慢更沉。
+ * 纯函数，便于单测（渲染层只负责把它乘到 scaleX/scaleY 上）。
+ *
+ * @param t 秒（performance.now()/1000）
+ * @param progress 0..1 本次睡眠已进行的比例（用于"越睡越沉"）
+ */
+export function dozePose(t, progress = 0) {
+  const p = Math.min(1, Math.max(0, Number.isFinite(progress) ? progress : 0));
+  // 呼吸：比醒着慢（约 0.35Hz），幅度略大，像深呼吸
+  const breathe = Math.sin((Number.isFinite(t) ? t : 0) * 2.2);
+  // 越睡越沉：下沉量随进度增加（最多再多 2%）
+  const sink = 0.96 - 0.02 * p;
+  return {
+    scaleY: sink + breathe * 0.022,
+    scaleX: (1 / Math.sqrt(sink)) - breathe * 0.010,
+    // 呼吸越深，纵向越"摊开"，配合 1/sqrt 的体积感
+    breathe,
+  };
+}
+
+/** 睡着时是否该打呼（按睡眠进度节流，避免一直冒） */
+export function shouldSnore(progress) {
+  const p = Math.min(1, Math.max(0, Number.isFinite(progress) ? progress : 0));
+  // 前 35% 不打呼（刚躺下还在酝酿），之后才出呼噜
+  return p >= 0.35;
+}
+
+/**
+ * 「看向鼠标」的姿态偏置。
+ *
+ * 设计取舍：桌宠窗口本身只有约 160px，做「追着鼠标跑」既不自然也容易烦人
+ * （宠物会满屏乱窜）。这里只做**视线跟随的观感** —— 整体朝鼠标方向轻微倾斜 + 位移，
+ * 幅度刻意很小（默认约 1.5° / 3px），像在"瞄"着你的鼠标，而不是追过去。
+ *
+ * @param dx 鼠标相对宠物中心的水平像素差（正 = 在右侧）
+ * @param dy 鼠标相对宠物中心的垂直像素差（正 = 在下方）
+ * @param reach 触发跟随的距离阈值（超出后按比例放大，直到饱和）
+ * @returns {{rot:number, dx:number, dy:number, lean:number}} lean 为 -1..1 的归一化方向
+ */
+export function lookAtPose(dx, dy, reach = 260) {
+  const rx = Number.isFinite(dx) ? dx : 0;
+  const ry = Number.isFinite(dy) ? dy : 0;
+  const R = Number.isFinite(reach) && reach > 0 ? reach : 260;
+
+  const dist = Math.hypot(rx, ry);
+  if (dist < 1) return { rot: 0, dx: 0, dy: 0, lean: 0 };
+
+  // 归一化并做软饱和：近处线性、远处趋于 1（避免鼠标一远就夸张变形）
+  const nx = rx / Math.max(dist, R);
+  const ny = ry / Math.max(dist, R);
+  const lean = Math.min(1, dist / R);
+
+  return {
+    rot: nx * 1.6 * lean,    // 最多约 1.6° 倾斜，只求"看了你一眼"的感觉
+    dx: nx * 3 * lean,       // 水平最多 3px
+    dy: ny * 2 * lean,       // 垂直最多 2px（上下跟随比左右更轻）
+    lean,
+  };
+}
