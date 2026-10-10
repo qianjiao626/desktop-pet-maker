@@ -107,6 +107,16 @@ check('体积已裁剪(<600MB)', mb > 100 && mb < 600, mb.toFixed(1) + 'MB');
   check('CPU 推理所需的动态库仍在', files2.some((f) => cpuKeyRe.test(f)), files2.join(','));
 }
 
+// 根目录的 GPU 组件必须被裁掉（Electron 自带，约 26MB）
+// 之前只扫了 onnxruntime-node 目录，漏掉了躺在本体根目录的这两个文件。
+{
+  const rootGpu = ['dxcompiler.dll', 'dxil.dll'].filter((n) => fs.existsSync(path.join(dir, n)));
+  check('已裁掉根目录的 GPU 组件（dxcompiler/dxil，约 26MB）', rootGpu.length === 0,
+    rootGpu.length ? '残留: ' + rootGpu.join(',') : '已裁掉');
+  // Chromium 的许可声明是法律文件，必须保留（不能为了瘦身删掉）
+  check('保留 LICENSES.chromium.html（法律文件，不可删）', fs.existsSync(path.join(dir, 'LICENSES.chromium.html')));
+}
+
 log('');
 log('==== PACKAGE E2E: ' + pass + '/' + (pass + fail) + ' ====');
 process.exit(fail ? 1 : 0);
