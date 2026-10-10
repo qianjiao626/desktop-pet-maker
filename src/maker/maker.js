@@ -14,6 +14,7 @@ import { PERSONALITY_TEMPLATES, applyTemplate, templateFlags, matchTemplate } fr
 import { applyCustomTemplate, matchCustomTemplate } from '../shared/mytemplates.js';
 import { renderLimbFrames } from './limbrender.js';
 import { createHistory, estimateSnapshotBytes } from '../shared/history.js';
+import { removeFrame, duplicateFrame, shiftFrame, uniqueFrameName } from '../shared/frames.js';
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $('#status');
@@ -202,6 +203,11 @@ function updateButtons() {
   const multi = state.frames.length > 1;
   $('#btnPrevFrame').disabled = !multi;
   $('#btnNextFrame').disabled = !multi;
+  // 帧序列编辑按钮：有帧就能复制/删除；排序需要至少两帧
+  if ($('#btnFrameClone')) $('#btnFrameClone').disabled = !has;
+  if ($('#btnFrameDel')) $('#btnFrameDel').disabled = !has;
+  if ($('#btnFrameUp')) $('#btnFrameUp').disabled = !multi;
+  if ($('#btnFrameDown')) $('#btnFrameDown').disabled = !multi;
   if (typeof quickUpdateButtons === 'function') quickUpdateButtons();
 }
 
@@ -518,6 +524,39 @@ $('#chkPlay').onchange = (e) => { state.playing = e.target.checked; if (!state.p
 
 $('#btnPrevFrame').onclick = () => { if (state.frames.length) { state.activeIdx = (state.activeIdx - 1 + state.frames.length) % state.frames.length; renderPreview(); } };
 $('#btnNextFrame').onclick = () => { if (state.frames.length) { state.activeIdx = (state.activeIdx + 1) % state.frames.length; renderPreview(); } };
+
+// ---- 帧序列编辑：删除 / 复制 / 排序 ----
+// 这三件事以前只能靠"全部重来"，做多帧动画时非常卡人。
+// 逻辑都走 shared/frames.js（纯函数、有单测），这里只管接线与状态同步。
+function applyFrameOp(op) {
+  if (!state.frames.length) return;
+  recordUndo();
+  const r = op();
+  state.frames = r.frames;
+  state.activeIdx = r.activeIdx;
+  syncFrameMeta();
+  renderPreview();
+  updateButtons();
+}
+
+/** 帧名要保证唯一：包内是按文件名寻址的，重名会静默丢帧 */
+function syncFrameMeta() {
+  const used = [];
+  for (const f of state.frames) {
+    f.name = uniqueFrameName(used, String(f.name || 'frame').replace(/\.[a-z0-9]+$/i, ''), '.png');
+    used.push(f.name);
+  }
+}
+
+$('#btnFrameDel').onclick = () => applyFrameOp(() => removeFrame(state.frames, state.activeIdx, state.activeIdx));
+$('#btnFrameClone').onclick = () => applyFrameOp(() => duplicateFrame(state.frames, state.activeIdx, state.activeIdx, (f) => ({
+  original: f.original ? toImageData({ data: new Uint8ClampedArray(f.original.data), width: f.original.width, height: f.original.height }) : null,
+  current: toImageData({ data: new Uint8ClampedArray(f.current.data), width: f.current.width, height: f.current.height }),
+  name: f.name,
+  generatedFrom: f.generatedFrom,
+})));
+$('#btnFrameUp').onclick = () => applyFrameOp(() => shiftFrame(state.frames, state.activeIdx, state.activeIdx, -1));
+$('#btnFrameDown').onclick = () => applyFrameOp(() => shiftFrame(state.frames, state.activeIdx, state.activeIdx, 1));
 
 // 「抠图」页的容差/羽化：拖动时也实时预览（之前必须点"应用到所有帧"才看得到，
 // 与快速条的实时行为不一致，用户会以为滑块没生效）。带节流避免拖动时卡顿。
