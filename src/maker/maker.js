@@ -14,7 +14,8 @@ import { PERSONALITY_TEMPLATES, applyTemplate, templateFlags, matchTemplate } fr
 import { applyCustomTemplate, matchCustomTemplate } from '../shared/mytemplates.js';
 import { renderLimbFrames } from './limbrender.js';
 import { createHistory, estimateSnapshotBytes } from '../shared/history.js';
-import { removeFrame, duplicateFrame, shiftFrame, uniqueFrameName } from '../shared/frames.js';
+import { removeFrame, duplicateFrame, shiftFrame, moveFrame, uniqueFrameName } from '../shared/frames.js';
+import { visibleWindow, thumbSize, dropTarget, insertIndexAt, stripLabel } from '../shared/filmstrip.js';
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $('#status');
@@ -164,6 +165,8 @@ function renderPreview() {
   badge.hidden = state.frames.length < 2;
   badge.textContent = `帧 ${state.activeIdx + 1}/${state.frames.length}`;
   renderCutHint();
+  // 缩略图条与预览共用同一个入口：只要预览刷新，条上的高亮/窗口就跟着对
+  if (typeof renderFilmstrip === 'function') renderFilmstrip();
 }
 
 /**
@@ -533,6 +536,8 @@ function applyFrameOp(op) {
   recordUndo();
   const r = op();
   state.frames = r.frames;
+  // 帧数组变了 -> 缩略图缓存的 key(帧对象) 可能已失效，清掉避免显示错图
+  FS.thumbCache.clear();
   state.activeIdx = r.activeIdx;
   syncFrameMeta();
   renderPreview();
@@ -985,6 +990,98 @@ document.querySelectorAll('.tab').forEach((tab) => {
   };
 });
 
+// ---------------- 帧缩略图条 ----------------
+// 把整段动画可视化成一排小图：点击切帧、拖动排序。
+// 帧多时只渲染可视窗口（200 帧全渲染会卡死），窗口跟随当前帧自动滚动。
+const FS = { viewCount: 12, dragFrom: -1, thumbCache: new Map() };
+
+/** 取某帧的缩略图 dataURL（按帧对象缓存，避免每次重绘都重编码 PNG） */
+function thumbFor(frame) {
+  const f = frame && (frame.current || frame);
+  if (!f || !f.data || !f.width) return '';
+  const cached = FS.thumbCache.get(frame);
+  if (cached && cached.src === f) return cached.url;
+  const s = thumbSize(f.width, f.height);
+  const cv = document.createElement('canvas');
+  cv.width = s.w; cv.height = s.h;
+  const ctx = cv.getContext('2d');
+  const src = new ImageData(new Uint8ClampedArray(f.data), f.width, f.height);
+  // 先把原图放到临时 canvas 再缩放（直接 putImageData 到小 canvas 不会缩放）
+  const tmp = document.createElement('canvas');
+  tmp.width = f.width; tmp.height = f.height;
+  tmp.getContext('2d').putImageData(src, 0, 0);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(tmp, 0, 0, f.width, f.height, 0, 0, s.w, s.h);
+  const url = cv.toDataURL('image/png');
+  FS.thumbCache.set(frame, { src: f, url });
+  return url;
+}
+
+/** 重建缩略图条（帧变动或缩略图缓存失效时调用） */
+function renderFilmstrip() {
+  const box = $('#filmstrip'), track = $('#fsTrack'), label = $('#fsLabel');
+  if (!box || !track) return;
+  const n = state.frames.length;
+  if (n < 2) { box.hidden = true; track.innerHTML = ''; return; }
+  box.hidden = false;
+  if (label) label.textContent = stripLabel(state.activeIdx, n);
+  const win = visibleWindow(n, state.activeIdx, FS.viewCount);
+  track.innerHTML = '';
+  for (const i of win.indices) {
+    const el = document.createElement('div');
+    el.className = 'fs-cell' + (i === state.activeIdx ? ' on' : '');
+    el.dataset.idx = String(i);
+    el.draggable = true;
+    el.title = '第 ' + (i + 1) + ' 帧（点一下切到这帧，拖动可排序）';
+    const img = document.createElement('img');
+    img.draggable = false;
+    img.src = thumbFor(state.frames[i]);
+    img.alt = String(i + 1);
+    el.appendChild(img);
+    const num = document.createElement('span');
+    num.className = 'fs-num';
+    num.textContent = String(i + 1);
+    el.appendChild(num);
+    track.appendChild(el);
+  }
+  bindFilmstripEvents();
+}
+
+function bindFilmstripEvents() {
+  const track = $('#fsTrack');
+  if (!track) return;
+  for (const el of track.querySelectorAll('.fs-cell')) {
+    el.onclick = () => {
+      const i = parseInt(el.dataset.idx, 10);
+      if (Number.isFinite(i) && i !== state.activeIdx) {
+        state.activeIdx = i;
+        renderPreview();
+        renderFilmstrip();
+      }
+    };
+    el.ondragstart = (e) => {
+      FS.dragFrom = parseInt(el.dataset.idx, 10);
+      el.classList.add('dragging');
+      try { e.dataTransfer.setData('text/plain', String(FS.dragFrom)); e.dataTransfer.effectAllowed = 'move'; } catch {}
+    };
+    el.ondragend = () => { el.classList.remove('dragging'); FS.dragFrom = -1; };
+    el.ondragover = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; };
+    el.ondrop = (e) => {
+      e.preventDefault();
+      const from = FS.dragFrom;
+      if (!Number.isFinite(from) || from < 0) return;
+      // 用鼠标位置算插入点（而不是"落在哪一格"，避免只能整格跳）
+      const cells = [...track.querySelectorAll('.fs-cell')];
+      const rects = cells.map((c) => { const r = c.getBoundingClientRect(); return { left: r.left, right: r.right }; });
+      const ins = insertIndexAt(e.clientX, rects);
+      // 注意：rects 是"可视窗口"里的坐标，要换算回全局帧下标
+      const globalIns = visibleWindow(state.frames.length, state.activeIdx, FS.viewCount).start + ins;
+      const to = dropTarget(from, globalIns, state.frames.length);
+      if (to === null) return;
+      applyFrameOp(() => moveFrame(state.frames, state.activeIdx, from, to));
+    };
+  }
+}
 // ---------------- 撤销 / 重做 ----------------
 // 制作器里每个操作都是破坏性的（抠图/裁边/翻转/生成动画/自动适配），
 // 点错一次就得重新拖图 —— 这是最卡"制作性"的一处。用快照栈解决。

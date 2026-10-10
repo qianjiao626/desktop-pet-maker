@@ -90,7 +90,12 @@
       </div>
       <div class="frame-badge" id="frameBadge" hidden>帧 1/1</div>
     </div>
-    <div class="cut-hint" id="cutHint" hidden></div>
+<div class="cut-hint" id="cutHint" hidden></div>
+    <!-- 帧缩略图条：可视化整段动画，点击切帧、拖动排序 -->
+    <div class="filmstrip" id="filmstrip" hidden>
+      <span class="fs-label" id="fsLabel"></span>
+      <div class="fs-track" id="fsTrack"></div>
+    </div>
     <div class="stage-bar">
       <label class="chk"><input type="checkbox" id="chkPlay" /> 播放动画</label>
       <button id="btnPrevFrame" class="ghost">◀</button>

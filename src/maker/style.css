@@ -276,3 +276,23 @@ button.block{width:100%}
   font-size: 11px; line-height: 1; padding: 2px 5px; border-radius: 999px;
 }
 .clip-del:hover { background: rgba(255, 255, 255, 0.14); color: #ffb3b3; }
+/* ===== 帧缩略图条 ===== */
+.filmstrip {
+  margin-top: 8px; padding: 6px 8px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.fs-label { font-size: 12px; color: #8b97ad; margin-right: 8px; white-space: nowrap; }
+.fs-track { display: flex; gap: 6px; overflow-x: auto; padding: 4px 0; align-items: center; }
+.fs-cell {
+  position: relative; flex: 0 0 auto; cursor: pointer; border-radius: 6px;
+  border: 2px solid transparent; background: rgba(0, 0, 0, 0.25);
+  display: flex; align-items: center; justify-content: center; padding: 2px;
+}
+.fs-cell img { display: block; max-width: 72px; max-height: 72px; border-radius: 4px; }
+.fs-cell:hover { border-color: rgba(255, 255, 255, 0.25); }
+.fs-cell.on { border-color: #4c8dff; box-shadow: 0 0 0 2px rgba(76, 141, 255, 0.25); }
+.fs-cell.dragging { opacity: 0.45; }
+.fs-num {
+  position: absolute; right: 3px; bottom: 2px; font-size: 10px; line-height: 1;
+  padding: 2px 4px; border-radius: 6px; background: rgba(0, 0, 0, 0.6); color: #dfe7f5;
+}
