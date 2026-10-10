@@ -16,6 +16,7 @@ const suites = [
   ['e2e-struggle.mjs', []],
   ['e2e-autocut.mjs', []],
   ['e2e-cut-hint.mjs', []],
+  ['e2e-templates.mjs', []],
   ['e2e-pet-anim.mjs', []],
   ['e2e-pet-multi.mjs', []],
   ['e2e-pet-budget.mjs', []],
