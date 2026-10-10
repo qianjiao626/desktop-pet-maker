@@ -10,10 +10,10 @@
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.5](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.5/desktop-pet-maker-win32-x64-v0.9.5.zip)**
+**[下载 Windows 免安装版 v0.9.6](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.6/desktop-pet-maker-win32-x64-v0.9.6.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.5）：
+**Linux x64**（v0.9.6）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
