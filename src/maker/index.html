@@ -115,6 +115,7 @@
       <button class="tab" data-tab="anim">动画</button>
       <button class="tab" data-tab="phys">物理</button>
       <button class="tab" data-tab="bubble">气泡</button>
+      <button class="tab" data-tab="body">身体</button>
     </div>
 
     <div class="tabpane active" data-pane="cut">
@@ -291,12 +292,27 @@
       </label>
       <p class="note">运行时点击宠物也会立刻弹出一句台词。</p>
     </div>
+    <div class="tabpane" data-pane="body">
+      <div class="ai-head"><span class="ai-title">🧍 身体识别</span><span class="ai-tag" id="poseTag">检测中…</span></div>
+      <p class="note">上传一张<b>正面站好、手脚张开</b>的人物图，自动识别头 / 肩 / 肘 / 腕 / 髋 / 膝 / 踝。</p>
+      <div class="pose-guide" id="poseGuide"></div>
+      <div class="pose-progress" id="poseProgress" hidden><div class="ai-bar" id="poseBar"></div><span id="posePct">0%</span></div>
+      <button id="btnPoseDownload" class="ghost block">下载识别模型（约 9MB）</button>
+      <button id="btnPoseRun" class="primary block" disabled>识别身体部位</button>
+      <div class="pose-result" id="poseResult" hidden>
+        <div class="pose-canvas-wrap"><canvas id="poseCanvas"></canvas></div>
+        <div class="pose-summary" id="poseSummary"></div>
+        <div class="pose-parts" id="poseParts"></div>
+        <div class="pose-issues" id="poseIssues"></div>
+      </div>
+    </div>
 
     <div class="panel-foot">
       <button id="btnExportFolder" class="ghost">导出文件夹…</button>
       <button id="btnExport" class="primary" disabled>导出桌宠包</button>
       <button id="btnExportShare" class="accent block" disabled>🌐 导出分享页（单个 HTML，发给别人双击就能看）</button>
     </div>
+
     <div class="status" id="status">就绪</div>
     <div class="batch-panel" id="batchPanel" hidden>
       <div class="batch-head"><b>📚 批量制作中</b><span id="batchCount"></span></div>

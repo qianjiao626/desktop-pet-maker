@@ -238,3 +238,27 @@ button.block{width:100%}
 .batch-row { color: var(--muted, #8b97ad); }
 .batch-row.ok { color: #7bd88f; }
 .batch-row.err { color: #ff8f8f; }
+/* ===== 身体识别 ===== */
+.pose-guide {
+  font-size: 12px; line-height: 1.85; color: var(--muted, #8b97ad);
+  background: rgba(255, 255, 255, 0.04); border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 8px; padding: 8px 10px; margin: 8px 0;
+}
+.pose-progress { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.pose-progress .ai-bar { flex: 1; }
+.pose-canvas-wrap {
+  display: flex; justify-content: center; margin: 10px 0;
+  background: rgba(0, 0, 0, 0.25); border-radius: 8px; padding: 8px;
+}
+#poseCanvas { max-width: 100%; max-height: 340px; border-radius: 6px; }
+.pose-summary { font-size: 13px; margin-bottom: 8px; color: #cfd8e8; }
+.pose-parts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.pose-chip {
+  font-size: 12px; padding: 3px 9px; border-radius: 999px;
+  background: rgba(123, 216, 143, 0.16); color: #9fe7b0; border: 1px solid rgba(123, 216, 143, 0.3);
+}
+.pose-chip.off { background: rgba(255, 255, 255, 0.05); color: #6b7689; border-color: rgba(255, 255, 255, 0.1); }
+.pose-issues { font-size: 12px; line-height: 1.7; }
+.pose-issue { margin-bottom: 6px; padding-left: 8px; border-left: 2px solid #ffb27a; color: #ffd0a8; }
+.pose-issue.block { border-left-color: #ff8f8f; color: #ffb3b3; }
+.pose-issue b { color: #fff; }

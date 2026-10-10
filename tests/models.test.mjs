@@ -34,3 +34,19 @@ ok('listModels 返回 3 个模型', list.length === 3, 'n=' + list.length);
 ok('listModels 含 installed 字段', list.every((m) => typeof m.installed === 'boolean'));
 ok('listModels 含 divide 配置', list.every((m) => m.divide !== undefined));
 ok('listModels 含 preprocess 配置', list.every((m) => m.preprocess !== undefined));
+
+// ---------- 姿态模型必须与抠图模型分开 ----------
+// 背景：注册表里同时放抠图模型与姿态模型，便于统一下载/校验。
+// 但它们是两条不同的推理链路（输入 dtype 都不同），混进抠图下拉框会让抠图失败。
+{
+  const { MODELS: M, listModels: LM } = await import('../src/main/models.js');
+  const cut = LM(process.env.TEMP || '/tmp');
+  const pose = LM(process.env.TEMP || '/tmp', { kind: 'pose' });
+  ok('默认 listModels 只返回抠图模型', cut.every((m) => (m.kind || 'cutout') === 'cutout'), cut.map((m) => m.id + ':' + m.kind).join(','));
+  ok('抠图模型数 = 3', cut.length === 3, 'n=' + cut.length);
+  ok('姿态模型单独可查', pose.length >= 1, 'n=' + pose.length);
+  ok('姿态模型标了 kind=pose', pose.every((m) => m.kind === 'pose'));
+  ok('抠图列表里不含姿态模型', !cut.some((m) => m.id === 'poseMovenet'), cut.map((m) => m.id).join(','));
+  ok('姿态模型声明了 int32 输入（用 float 会直接报错）', M.poseMovenet.inputDtype === 'int32', String(M.poseMovenet.inputDtype));
+  ok('姿态模型有字节数与 md5', M.poseMovenet.bytes > 1e6 && /^[0-9a-f]{32}$/.test(M.poseMovenet.md5));
+}
