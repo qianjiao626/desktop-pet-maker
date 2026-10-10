@@ -18,7 +18,8 @@ import { normalizeTemplateList, addTemplate, removeTemplate, renameTemplate, tem
 import { planBatch, batchPackFor, summarizeBatch } from '../shared/batch.js';
 import { estimatePose, isPoseModelInstalled } from './pose.js';
 import { checkMaterial, MATERIAL_GUIDE } from '../shared/material.js';
-import { MICRO_MOTIONS } from '../shared/micro.js';
+import { autoFit, bodyBounds as bodyBoundsOf } from '../shared/autofit.js';
+import { MOTIONS, canAnimate, motionSequence, solveJoints, motionBounds, LIMB_LABELS } from '../shared/limb.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -644,13 +645,57 @@ ipcMain.handle('pose:estimate', async (e, { dataUrl }) => {
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
 
+// 按身体自动适配：算出「人物实际范围」与建议缩放/对齐，
+// 让不同构图（半身/全身/偏心）的素材在桌面上观感一致。
+ipcMain.handle('pose:autoFit', async (e, { dataUrl }) => {
+  try {
+    const dir = app.getPath('userData');
+    if (!isPoseModelInstalled(dir)) return { ok: false, needModel: true, errors: ['姿态模型未下载'] };
+    const r = await estimatePose(dir, dataUrl);
+    const fit = autoFit(r.keypoints, { canvasH: r.srcHeight });
+    if (!fit.ok) return { ok: false, errors: [fit.reason] };
+    return { ok: true, ...fit, srcWidth: r.srcWidth, srcHeight: r.srcHeight, keypoints: r.keypoints };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
+// 骨架微动作：只对「标准立绘」开放（canAnimate 是闸门）。
+// 返回逐帧的关节解算结果，渲染层直接照着转就行。
+ipcMain.handle('pose:motionPlan', async (e, { dataUrl, motionId, frames }) => {
+  try {
+    const dir = app.getPath('userData');
+    if (!isPoseModelInstalled(dir)) return { ok: false, needModel: true, errors: ['姿态模型未下载'] };
+    const r = await estimatePose(dir, dataUrl);
+    const gate = canAnimate(r.keypoints);
+    if (!gate.ok) {
+      return { ok: false, gated: true, reason: gate.reason, missing: gate.missing, errors: [gate.reason] };
+    }
+    const seq = motionSequence(motionId, { frames });
+    const jointsPerFrame = seq.map((pose) => solveJoints(r.keypoints, pose));
+    const bounds = motionBounds(jointsPerFrame, bodyBoundsOf(r.keypoints));
+    return {
+      ok: true,
+      keypoints: r.keypoints,
+      srcWidth: r.srcWidth, srcHeight: r.srcHeight,
+      pose: seq, jointsPerFrame, bounds,
+      available: gate.available, reason: gate.reason,
+      // 注意：MOTIONS 里的对象带 pose 函数，**不能**直接过 IPC ——
+      // 结构化克隆遇到函数会挂住（实测：e2e 卡死十几分钟没有任何输出）。
+      // 只回传纯数据字段。
+      motion: (() => {
+        const m = MOTIONS.find((x) => x.id === motionId);
+        return m ? { id: m.id, name: m.name, emoji: m.emoji, desc: m.desc } : null;
+      })(),
+    };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
 ipcMain.handle('pose:modelInfo', () => {
   const dir = app.getPath('userData');
   return {
     installed: isPoseModelInstalled(dir),
     model: listModels(dir, { kind: 'pose' })[0] || null,
     guide: MATERIAL_GUIDE,
-    motions: MICRO_MOTIONS.map((m) => ({ id: m.id, name: m.name, emoji: m.emoji, desc: m.desc })),
+    motions: MOTIONS.map((m) => ({ id: m.id, name: m.name, emoji: m.emoji, desc: m.desc })),
   };
 });
 

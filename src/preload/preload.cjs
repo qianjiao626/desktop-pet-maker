@@ -54,6 +54,8 @@ contextBridge.exposeInMainWorld('api', {
   poseModelInfo: () => ipcRenderer.invoke('pose:modelInfo'),
   poseDownloadModel: (id) => ipcRenderer.invoke('pose:downloadModel', id),
   poseEstimate: (dataUrl) => ipcRenderer.invoke('pose:estimate', { dataUrl }),
+  poseAutoFit: (dataUrl) => ipcRenderer.invoke('pose:autoFit', { dataUrl }),
+  poseMotionPlan: (dataUrl, motionId, frames) => ipcRenderer.invoke('pose:motionPlan', { dataUrl, motionId, frames }),
 
   // 批量处理：一次把多张图各自变成一只宠物（与「多张图 = 多帧」区分开）
   batchPickFiles: () => ipcRenderer.invoke('batch:pickFiles'),
