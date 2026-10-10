@@ -25,7 +25,16 @@ const SPRITE = kps([
 ]);
 
 // ---------- 结构 ----------
-ok('动作数 >= 4', MOTIONS.length >= 4, 'n=' + MOTIONS.length);
+ok('动作数 >= 8（含扩充的日常小动作）', MOTIONS.length >= 8, 'n=' + MOTIONS.length);
+// 桌面宠物真正用得上的动作都该有
+{
+  const ids = MOTIONS.map((m) => m.id);
+  for (const want of ['idle', 'sway', 'nod', 'wave', 'kick', 'stretch', 'yawn', 'tilt', 'lean', 'shift']) {
+    ok('含动作 ' + want, ids.includes(want), ids.join(','));
+  }
+  ok('每个动作都有中文名与说明', MOTIONS.every((m) => m.name.length > 0 && m.desc.length > 4));
+  ok('每个动作都有 emoji', MOTIONS.every((m) => /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(m.emoji)), MOTIONS.map((m) => m.id + ':' + m.emoji).join(' '));
+}
 ok('每个动作有 id/name/emoji/desc/pose', MOTIONS.every((m) => m.id && m.name && m.emoji && m.desc && typeof m.pose === 'function'));
 ok('动作 id 不重复', new Set(MOTIONS.map((m) => m.id)).size === MOTIONS.length);
 ok('默认动作存在', findMotion(DEFAULT_MOTION) !== null, DEFAULT_MOTION);

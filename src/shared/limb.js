@@ -134,6 +134,65 @@ export const MOTIONS = [
       };
     },
   },
+  {
+    id: 'yawn',
+    name: '打哈欠',
+    emoji: '🥱',
+    desc: '微微后仰再回正，配合打瞌睡的场景',
+    pose(t) {
+      // 用 sin(πt) 做「仰起-回正」的单次曲线，比正弦更像一次哈欠
+      const s = Math.sin(t * Math.PI);
+      return {
+        torso: -s * 0.05,
+        leftUpperArm: -s * 0.075, rightUpperArm: s * 0.075,
+        leftForeArm: -s * 0.035, rightForeArm: s * 0.035,
+      };
+    },
+  },
+  {
+    id: 'tilt',
+    name: '歪头',
+    emoji: '🤔',
+    desc: '头往一侧歪一点，像在好奇',
+    pose(t) {
+      const s = Math.sin(t * Math.PI * 2);
+      // 主要靠躯干轻微侧倾来表现"歪头"（骨骼里头是随躯干走的）
+      return {
+        torso: s * 0.075,
+        leftUpperArm: -s * 0.02, rightUpperArm: -s * 0.02,
+      };
+    },
+  },
+  {
+    id: 'lean',
+    name: '凑近看',
+    emoji: '🔍',
+    desc: '身体往前倾一下再回来，像在看什么',
+    pose(t) {
+      const s = Math.sin(t * Math.PI);
+      return {
+        torso: s * 0.08,
+        leftUpperArm: s * 0.03, rightUpperArm: s * 0.03,
+        leftThigh: -s * 0.02, rightThigh: -s * 0.02,
+      };
+    },
+  },
+  {
+    id: 'shift',
+    name: '换重心',
+    emoji: '⚖️',
+    desc: '左右腿交替承重，像站着换脚',
+    pose(t) {
+      const s = Math.sin(t * Math.PI * 2);
+      const c = Math.cos(t * Math.PI * 2);
+      return {
+        torso: c * 0.045,
+        leftThigh: Math.max(0, s) * 0.055, rightThigh: Math.max(0, -s) * 0.055,
+        leftShin: Math.max(0, s) * 0.03, rightShin: Math.max(0, -s) * 0.03,
+        leftUpperArm: -c * 0.015, rightUpperArm: -c * 0.015,
+      };
+    },
+  },
 ];
 
 export const DEFAULT_MOTION = 'idle';

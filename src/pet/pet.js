@@ -7,6 +7,7 @@ import { sanitizeSpeech, speechDuration } from '../shared/speech.js';
 import { handState, fistState, pettingPose, strugglePose, HAND_DURATION, FIST_DURATION, PETTING_DURATION } from '../shared/effects.js';
 import { computeLayout, computeFramePlacement, OVER, MARGIN } from '../shared/layout.js';
 import { createBug, stepBug, catchBug, isBugActive, canPounce } from '../shared/bugchase.js';
+import { commonGroundOffset } from '../shared/groundcontact.js';
 
 // 跳跃时最大抬高像素（渲染层视觉高度，不影响物理与窗口尺寸）
 const HOP_HEIGHT = 26;
@@ -41,6 +42,8 @@ let frameDraw = [];         // 每帧绘制尺寸与位置
 let frameCanvasPos = [];    // 每帧在 canvas 内的左上角
 let alphaMaps = [];         // Uint8Array[]
 let alphaW = 0, alphaH = 0;
+let groundDy = 0;        // 让脚底真正踩到地面线所需的垂直微调（像素）
+let groundReserve = 0;   // 为上面的微调在画布底部预留的高度（否则会被裁）
 
 
 // 待机行为（爬动 / 发呆 / 打瞌睡 / 摸头反应）
@@ -121,16 +124,21 @@ function loadImage(src) {
 function computeSizes() {
   const scale = pack.render.scale;
   const sizes = images.map((im) => ({ w: im.naturalWidth, h: im.naturalHeight }));
-  // 与主进程共用同一套布局公式（src/shared/layout.js），避免尺寸脱节
-  const L = computeLayout(pack, sizes);
+  // 与主进程共用同一套布局公式（src/shared/layout.js），避免尺寸脱节。
+  // bottomReserve：把"脚底下移量"先预留进画布高度，否则下移会把精灵裁掉。
+  const L = computeLayout(pack, sizes, { bottomReserve: groundReserve });
   W = L.W; H = L.H;
   canvasCssW = L.canvasCssW;
   canvasCssH = L.canvasCssH;
   topPad = L.topPad;
 
-  const placed = computeFramePlacement(sizes, scale, canvasCssW, canvasCssH);
+  const placed = computeFramePlacement(sizes, scale, canvasCssW, canvasCssH, groundReserve);
   frameDraw = placed.draw;
   frameCanvasPos = placed.pos;
+  // 注意：落点对齐（groundDy）**不能**在这里算 —— computeSizes 是在
+  // buildAlphaMaps 之前调用的，此时 alphaMaps 还是空的，算出来恒为 0
+  // （这个顺序问题让修复"看起来生效、实际没生效"，实测 gap 差 40px 才发现）。
+  // 统一放到 updateGroundOffset() 里，在 alphaMaps 建好之后调用。
 
   canvas.width = canvasCssW;
   canvas.height = canvasCssH;
@@ -167,8 +175,60 @@ function buildAlphaMaps() {
   });
   alphaW = alphaMaps[0] ? alphaMaps[0].w : 0;
   alphaH = alphaMaps[0] ? alphaMaps[0].h : 0;
+  updateGroundOffset();
 }
 
+/**
+ * 计算落点微调：让「真实不透明底边」（脚底）而不是「图片底边」贴地。
+ * 必须在 buildAlphaMaps() 之后调用（它依赖 alphaMaps 里的 content 边界）。
+ * 取多帧公共值，避免逐帧留白不同导致上下抽搐。
+ */
+function updateGroundOffset() {
+  // 注意：这里**不能**用空 catch 兜住一切 —— 曾经因为漏了 import，
+  // ReferenceError 被静默吞掉，导致"看起来改好了、实际根本没跑"，
+  // 排查了很久。现在只在真正拿不到数据时回退，并把异常打到控制台。
+  let dy = 0;
+  try {
+    const gc = commonGroundOffset(alphaMaps, frameDraw.map((d) => d.h));
+    dy = gc.dy;
+  } catch (err) {
+    console.warn('[ground] 落点计算失败，回退为 0：' + (err && err.message));
+    dy = 0;
+  }
+  groundDy = dy;
+  // 刻意**不在这里**重算布局：buildAlphaMaps -> updateGroundOffset -> computeSizes
+  // -> buildAlphaMaps 会形成重入，在渲染循环中途重建画布与 alpha 图，
+  // 表现为"有些采样点是透明的"（实测把 e2e-pet-anim 打挂）。
+  // 收敛交给 setupGround()：先量、再按需重算一次，然后才开始渲染。
+}
+
+/**
+ * 启动时收敛「落点预留」：先按无预留建一次 alpha 图，量出需要下移多少，
+ * 若超出画布底部空间就带上预留重建**一次**，之后不再变动。
+ *
+ * 为什么必须收敛在渲染之前：
+ *   重建会换掉 canvas 尺寸与 alphaMaps。若放在渲染循环里做，
+ *   会出现"这一帧用旧尺寸画、下一帧用新尺寸读"的错配（实测采样出全透明）。
+ */
+function setupGround() {
+  groundReserve = 0;
+  groundDy = 0;
+  computeSizes();
+  buildAlphaMaps();          // 这里会调用 updateGroundOffset，得到 groundDy
+  // 预留量 = 下移量本身。
+  //
+  // 推导（别凭感觉改）：基线固定在「原画布高 - MARGIN/2 - drawH」，
+  // 内容底边 = 基线 + groundDy，画布高 = 原画布高 + reserve。
+  // 要让内容底边落回「距画布底 MARGIN/2」处，解得 reserve = groundDy 正好。
+  // 早先写成 reserve = groundDy - MARGIN/2，结果内容正好贴到画布最边缘（gap=0），
+  // 被 e2e 抓出来。
+  if (groundDy > 0.5) {
+    const need = Math.ceil(groundDy);
+    groundReserve = need;
+    computeSizes();
+    buildAlphaMaps();       // 第二轮里 groundDy 不会超过已预留量
+  }
+}
 // ---------------- 命中测试（像素级） ----------------
 function isOverPet(clientX, clientY) {
   const rect = canvas.getBoundingClientRect();
@@ -178,7 +238,7 @@ function isOverPet(clientX, clientY) {
   const pos = frameCanvasPos[i], d = frameDraw[i], am = alphaMaps[i];
   if (!pos || !am) return false;
   const fx = (cx - pos.x) / d.w;
-  const fy = (cy - pos.y) / d.h;
+  const fy = (cy - (pos.y + groundDy)) / d.h;   // 命中区域跟着落点微调
   if (fx < 0 || fy < 0 || fx >= 1 || fy >= 1) return false;
   const ax = Math.floor(fx * am.w), ay = Math.floor(fy * am.h);
   return am.data[ay * am.w + ax] > 24;
@@ -838,7 +898,7 @@ function render(now) {
   const i = S.frameIdx;
   const pos = frameCanvasPos[i], d = frameDraw[i];
   const cxp = pos.x + d.w / 2;
-  const cyp = pos.y + d.h; // 以脚底为变换原点
+  const cyp = pos.y + d.h + groundDy; // 以脚底为变换原点（含落点微调）
 
   ctx.save();
   ctx.translate(cxp, cyp);
@@ -846,7 +906,8 @@ function render(now) {
   ctx.scale(o.scaleX, o.scaleY);
   ctx.translate(0, o.dy);
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(images[i], -d.w / 2, -d.h, d.w, d.h);
+  // groundDy 让「真实不透明底边」而不是「图片底边」贴地（素材有透明留白时尤其明显）
+  ctx.drawImage(images[i], -d.w / 2, -d.h + groundDy, d.w, d.h);
   ctx.restore();
 
   // 交互特效（画在宠物之上）：摸头的手 / 挨拳击的拳头
@@ -863,7 +924,7 @@ function render(now) {
     w: cw,
     h: ch,
     // 内容顶端在 canvas 中的 y（以脚底为原点缩放，再叠加 dy）
-    top: cyp + o.scaleY * (o.dy - d.h * (1 - ct.y0)),
+    top: cyp + o.scaleY * (o.dy - d.h * (1 - ct.y0)),   // cyp 已含 groundDy
     scaleY: o.scaleY,
   };
   drawBug();
@@ -1120,8 +1181,8 @@ async function applyScale(nextScale) {
   const bottom = S.body.y + H;             // 当前脚底（窗口底边）
   userScale = k;
   pack.render.scale = k;
-  computeSizes();
-  buildAlphaMaps();
+  // scale 变了 -> 绘制高度变了 -> 落点微调也要重新收敛（否则脚会离地）
+  setupGround();
   api.setSize(W, H);
   await new Promise((r) => setTimeout(r, 60));
   const b = await api.getBounds();
@@ -1342,7 +1403,11 @@ window.__petDebug = () => ({
       H = b0.height;
       W = b0.width;
     }
-    buildAlphaMaps();
+    // 关键：用真实窗口高度收敛落点（含底部预留），之后才进入渲染循环。
+    // 放在渲染循环之前是刻意的 —— 在循环中途重建画布会导致尺寸错配（实测采样全透明）。
+    setupGround();
+    const b1 = await api.getBounds();
+    if (b1 && b1.height > 0) { H = b1.height; W = b1.width; }
 
     // 初始位置：窗口底边贴住工作区底边
     const gy = area.y + area.height - H;
