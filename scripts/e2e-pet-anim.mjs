@@ -66,11 +66,28 @@ app.whenReady().then(async () => {
   });
 
   // 读取 canvas 中心像素（判断当前显示帧）
-  const readCenter = () => js(`(() => {
+  // 采样「内容的实际中心」，而不是「画布中心」。
+//
+// 为什么改（本轮踩到）：为了让宠物脚底贴地，运行时会按素材底部留白
+// 把内容整体下移，并把画布加高。于是**内容不再位于画布正中** ——
+// 继续采样画布中心会读到透明像素，表现为"没画出来"（其实是画好了、只是位置变了）。
+// 先扫描出不透明像素的包围盒，再取它的中心，这样与"内容在画布哪个位置"解耦。
+const readCenter = () => js(`(() => {
     const cv = document.querySelector('#stage');
     const cx = cv.getContext('2d');
     const d = cx.getImageData(0, 0, cv.width, cv.height).data;
-    const mid = ((cv.height >> 1) * cv.width + (cv.width >> 1)) * 4;
+    let minX = cv.width, minY = cv.height, maxX = -1, maxY = -1;
+    for (let y = 0; y < cv.height; y++) {
+      for (let x = 0; x < cv.width; x++) {
+        if (d[(y * cv.width + x) * 4 + 3] > 24) {
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (y < minY) minY = y; if (y > maxY) maxY = y;
+        }
+      }
+    }
+    if (maxX < 0) return { r: 0, g: 0, b: 0, a: 0 };
+    const cxp = (minX + maxX) >> 1, cyp = (minY + maxY) >> 1;
+    const mid = (cyp * cv.width + cxp) * 4;
     return { r: d[mid], g: d[mid + 1], b: d[mid + 2], a: d[mid + 3] };
   })()`);
 

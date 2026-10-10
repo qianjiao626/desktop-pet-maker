@@ -25,6 +25,7 @@ const suites = [
   ['e2e-batch.mjs', []],
   ['e2e-corrupt-model.mjs', []],
   ['e2e-pose.mjs', []],
+  ['e2e-ground.mjs', []],
   ['e2e-tray.mjs', []],
   ['e2e-library-prefs.mjs', []],
   ['e2e-share.mjs', []],

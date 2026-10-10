@@ -31,6 +31,8 @@ await import('./autoselect-earlystop.test.mjs');
 await import('./models-corrupt.test.mjs');
 await import('./pose.test.mjs');
 await import('./material.test.mjs');
+await import('./limb.test.mjs');
+await import('./groundcontact.test.mjs');
 await import('./autofit.test.mjs');
 await import('./dnd.test.mjs');
 await import('./library.test.mjs');
