@@ -34,6 +34,9 @@ contextBridge.exposeInMainWorld('api', {
   installAndRun: (srcPath) => ipcRenderer.invoke('pet:installAndRun', srcPath),
   runInstalled: (id) => ipcRenderer.invoke('pet:runInstalled', id),
   uninstall: (id) => ipcRenderer.invoke('pet:uninstall', id),
+  // 宠物库批量导出（备份 / 换机 / 分享合集）
+  exportAll: (opt) => ipcRenderer.invoke('pet:exportAll', opt),
+  previewExport: () => ipcRenderer.invoke('pet:previewExport'),
   // 拖拽文件时取它在磁盘上的真实路径（Electron 32+ 用 webUtils；File.path 已移除）
   pathForFile: (file) => {
     try { return webUtils.getPathForFile(file); } catch { return ''; }
