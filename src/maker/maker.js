@@ -10,6 +10,7 @@ import { fitFrameLimit, fmtBytes } from '../shared/budget.js';
 import { sanitizeSpeech, isSpeakable, pushSpeech } from '../shared/speech.js';
 import { emptyState, normalizeState, isFavorite, toggleFavorite, filterLibrary } from '../shared/library.js';
 import { classifyDroppedFiles } from '../shared/dnd.js';
+import { PERSONALITY_TEMPLATES, applyTemplate, templateFlags, matchTemplate } from '../shared/templates.js';
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $('#status');
@@ -490,11 +491,123 @@ const scheduleCutPreview = () => {
   clearTimeout(cutPreviewTimer);
   cutPreviewTimer = setTimeout(() => { rebuildAll(); }, 160);
 };
+// ---------------- 性格模板 ----------------
+// 新手面对 20+ 个参数（动画/物理/气泡/行为）不知道该配成什么。
+// 模板把这些打包成几个一拍即合的预设；只覆盖「性格」相关的字段，
+// 不碰用户已上传的图片、画布与外观（见 shared/templates.js 的说明）。
+let currentTemplate = null;
+
+/** 把模板的数值写回界面控件（必须覆盖模板涉及的每一项，否则界面与实际不一致） */
+function writeTemplateToUi(t) {
+  const p = t.patch || {};
+  const setVal = (id, v) => { const el = $('#' + id); if (el && v !== undefined) el.value = String(v); };
+  const setChk = (id, v) => { const el = $('#' + id); if (el && v !== undefined) el.checked = !!v; };
+  const setSel = (id, v) => { const el = $('#' + id); if (el && v !== undefined) el.value = v; };
+
+  // animation
+  const a = p.animation || {};
+  setSel('idleAnim', a.idle);
+  setVal('idleSpeed', a.idleSpeed !== undefined ? Math.round(a.idleSpeed * 100) : undefined);
+  setVal('fps', a.fps);
+  setSel('clickAnim', a.click);
+  setSel('hoverAnim', a.hover);
+
+  // physics（注意界面的单位换算：重力/弹性 ×100，摩擦 ×1000）
+  const ph = p.physics || {};
+  setVal('gravity', ph.gravity !== undefined ? Math.round(ph.gravity * 100) : undefined);
+  setVal('bounce', ph.bounce !== undefined ? Math.round(ph.bounce * 100) : undefined);
+  setVal('friction', ph.friction !== undefined ? Math.round(ph.friction * 1000) : undefined);
+  setChk('roam', ph.roam);
+  setVal('roamSpeed', ph.roamSpeed !== undefined ? Math.round(ph.roamSpeed * 100) : undefined);
+  setVal('throwScale', ph.throwScale !== undefined ? Math.round(ph.throwScale * 100) : undefined);
+
+  // bubble
+  const b = p.bubble || {};
+  setChk('bubbleEnabled', b.enabled);
+  setVal('interval', b.intervalSec);
+  setVal('duration', b.durationSec);
+
+  // behavior（bugChase 在快速条上）
+  const fl = t.flags || {};
+  setChk('chkBug', fl.bugChase !== undefined ? fl.bugChase : p.behavior && p.behavior.bugChase);
+  setChk('chkWalk', fl.walk);
+  setChk('chkHop', fl.hop);
+  setChk('chkLook', fl.look);
+
+  // 同步所有数值标签 + 让改动生效
+  syncLabels();
+  if (typeof quickUpdateButtons === 'function') quickUpdateButtons();
+}
+
+/** 套用一个模板：改界面控件 + 立即重建预览（如果正在跑桌宠，也会同步过去） */
+async function useTemplate(id) {
+  const t = PERSONALITY_TEMPLATES.find((x) => x.id === id);
+  if (!t) return;
+  currentTemplate = id;
+  writeTemplateToUi(t);
+
+  // 预览立即反映（画布/动画参数变了）
+  if (state.frames.length) await rebuildAll();
+
+  // 桌宠正在桌面上跑的话，把新配置推过去。
+  // 注意：pack 走 quickEnable，但「走路/跳跃/看向鼠标/抓虫子」是**独立通道**，
+  // 必须一起下发 —— 否则界面变了、桌面上的宠物行为没变（实测踩过这个坑）。
+  try {
+    if (window.api.quickIsEnabled) {
+      const r0 = await window.api.quickIsEnabled();
+      if (r0 && r0.enabled) {
+        await window.api.quickEnable(quickPack(), quickFrames());
+        const walk = $('#chkWalk'), hop = $('#chkHop'), look = $('#chkLook'), bug = $('#chkBug');
+        if (walk && window.api.quickSetWalk) await window.api.quickSetWalk(walk.checked);
+        if (hop && window.api.quickSetHop) await window.api.quickSetHop(hop.checked);
+        if (look && window.api.quickSetLook) await window.api.quickSetLook(look.checked);
+        if (bug && window.api.quickSetBugChase) await window.api.quickSetBugChase(bug.checked);
+      }
+    }
+  } catch {}
+
+  markTemplateButtons();
+  setStatus('已套用「' + t.name + '」：' + t.desc, 'ok');
+}
+
+/** 高亮当前模板（用户手改过参数就不再高亮，避免误导） */
+function markTemplateButtons() {
+  const box = $('#qbTemplates');
+  if (!box) return;
+  const matched = currentTemplate;
+  for (const b of box.querySelectorAll('button[data-tpl]')) {
+    b.classList.toggle('on', b.dataset.tpl === matched);
+  }
+}
+
+function initTemplates() {
+  const box = $('#qbTemplates');
+  if (!box) return;
+  for (const t of PERSONALITY_TEMPLATES) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'qb-tpl';
+    btn.dataset.tpl = t.id;
+    btn.title = t.desc + '（不会改动你上传的图片与画布）';
+    btn.innerHTML = '<span class="tpl-emoji">' + t.emoji + '</span>' + escapeHtml(t.name);
+    btn.onclick = () => useTemplate(t.id);
+    box.appendChild(btn);
+  }
+  markTemplateButtons();
+}
+
+initTemplates();
 bindRange('cutTol', scheduleCutPreview);
 bindRange('cutFeather', scheduleCutPreview);
 bindRange('scale'); bindRange('idleSpeed');
-bindRange('fps'); bindRange('gifMaxFrames'); bindRange('roamSpeed'); bindRange('gravity'); bindRange('bounce');
-bindRange('friction'); bindRange('throwScale'); bindRange('interval'); bindRange('duration');
+bindRange('fps', () => { currentTemplate = null; markTemplateButtons(); });
+bindRange('gifMaxFrames'); bindRange('roamSpeed', () => { currentTemplate = null; markTemplateButtons(); });
+bindRange('gravity', () => { currentTemplate = null; markTemplateButtons(); });
+bindRange('bounce', () => { currentTemplate = null; markTemplateButtons(); });
+bindRange('friction', () => { currentTemplate = null; markTemplateButtons(); });
+bindRange('throwScale', () => { currentTemplate = null; markTemplateButtons(); });
+bindRange('interval', () => { currentTemplate = null; markTemplateButtons(); });
+bindRange('duration', () => { currentTemplate = null; markTemplateButtons(); });
 
 $('#previewImg').onclick = () => { state.clickP = 1; };
 

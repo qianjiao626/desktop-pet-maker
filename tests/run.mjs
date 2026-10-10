@@ -21,6 +21,7 @@ await import('./budget.test.mjs');
 await import('./displays.test.mjs');
 await import('./motion.test.mjs');
 await import('./align.test.mjs');
+await import('./templates.test.mjs');
 await import('./dnd.test.mjs');
 await import('./library.test.mjs');
 await import('./tray.test.mjs');

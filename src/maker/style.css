@@ -207,3 +207,12 @@ button.block{width:100%}
 .cut-hint.warn{background:rgba(255,180,80,.10);border-color:rgba(255,180,80,.34);color:#ffd39a}
 .cut-hint.warn .ch-dot{background:#ffb450}
 .cut-hint .ch-meta{color:var(--dim);font-size:11px;margin-left:auto;white-space:nowrap}
+
+/* 性格模板：一排一键预设（新手不用理解 20+ 个参数） */
+.qb-templates{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 0 2px}
+.qb-tpl-label{font-size:11.5px;color:var(--dim);margin-right:2px}
+.qb-tpl{padding:5px 10px;border-radius:999px;border:1px solid var(--line);background:#181d2b;color:#c8cee0;
+  font-size:11.5px;cursor:pointer;transition:background .15s,border-color .15s,color .15s,transform .12s}
+.qb-tpl:hover{border-color:#4a5570;color:#e8ecf5;transform:translateY(-1px)}
+.qb-tpl.on{background:rgba(91,140,255,.18);border-color:#5b8cff;color:#cfe0ff}
+.qb-tpl .tpl-emoji{margin-right:3px}
