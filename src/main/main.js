@@ -12,6 +12,7 @@ import { MODELS, listModels, downloadModel, deleteModel, isInstalled } from './m
 import { segmentImage } from './segment.js';
 import { setCurrentPack, getCurrentPack, setPetWindow, getPetWindow, setMakerWindow, getMakerWindow, isPetAlive, setCurrentScale, getCurrentScale } from './state.js';
 import { buildTrayMenuTemplate, trayTooltip } from './tray.js';
+import { startupSwitches, appMenuTemplate } from '../shared/platform.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -24,6 +25,12 @@ const MIME = {
 const MIME_TO_EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif', 'image/bmp': '.bmp' };
 
 // ---------- 参数解析 ----------
+// Linux：无边框透明窗需要额外的 Chromium 开关（否则可能整窗黑屏或完全透明）。
+// 必须在 app ready 之前追加，故放在模块顶层。
+for (const sw of startupSwitches(process.platform, process.env)) {
+  try { app.commandLine.appendSwitch(sw); } catch {}
+}
+
 const argv = process.argv.slice(1);
 const petArg = argv.find((a) => a.startsWith('--pet'));
 const selftest = argv.includes('--selftest-ai');
@@ -828,7 +835,9 @@ app.whenReady().then(async () => {
   screen.on('display-removed', broadcast);
 
   if (isMaker) {
-    Menu.setApplicationMenu(null);
+    // macOS 必须保留最小菜单，否则 Cmd+Q / 复制粘贴等系统快捷键全部失效。
+    const tpl = appMenuTemplate(process.platform);
+    Menu.setApplicationMenu(tpl ? Menu.buildFromTemplate(tpl) : null);
     // 首次运行把内置卡通宠物装进宠物库（开箱即用）
     const seeded = seedBuiltinPets();
     if (seeded.length) console.log('[pet] 已安装内置宠物: ' + seeded.join('、'));
@@ -836,7 +845,8 @@ app.whenReady().then(async () => {
     createTray();   // 常驻入口：关掉制作器窗口也能退出桌宠 / 重开
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createMakerWindow(); });
   } else {
-    Menu.setApplicationMenu(null);
+    const tpl = appMenuTemplate(process.platform);
+    Menu.setApplicationMenu(tpl ? Menu.buildFromTemplate(tpl) : null);
     try {
       const { pack } = readPackFile(petPath);
       currentPet = { pack };

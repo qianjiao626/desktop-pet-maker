@@ -40,10 +40,12 @@ if (fs.existsSync(ortBin)) {
   const archDir = path.join(ortBin, platform);
   const archs = fs.readdirSync(archDir);
   check('仅保留目标架构', archs.length === 1 && archs[0] === arch, '实际: ' + archs.join(','));
-  const key = platform === 'win32' ? 'onnxruntime.dll' : (platform === 'darwin' ? 'libonnxruntime.1.30.0.dylib' : 'libonnxruntime.so.1.30.0');
+  // 动态库匹配用「正则」而不是精确文件名：Linux/macOS 的动态库带版本后缀
+  // （libonnxruntime.so.1 / libonnxruntime.1.dylib），写死文件名会漏判。
+  const keyRe = platform === 'win32' ? /^onnxruntime\.dll$/ : (platform === 'darwin' ? /^libonnxruntime.*\.dylib$/ : /^libonnxruntime\.so/);
   const files = fs.readdirSync(path.join(archDir, archs[0]));
   check('绑定 .node 已解包', files.some((f) => f.endsWith('.node')), files.join(','));
-  check('配套动态库已解包（关键）', files.some((f) => f === key), '需要 ' + key);
+  check('配套动态库已解包（关键）', files.some((f) => keyRe.test(f)), '需要 ' + keyRe + '，实际: ' + files.join(','));
   // 动态库不得留在 asar 内（否则会回退到系统 PATH 命中 Windows 自带旧版）
   const asarHasDll = files.length === 0;
   check('动态库未残留在 app.asar', !asarHasDll);
@@ -101,7 +103,8 @@ check('体积已裁剪(<600MB)', mb > 100 && mb < 600, mb.toFixed(1) + 'MB');
   const gpu = files2.filter((f) => ['DirectML.dll', 'dxcompiler.dll', 'dxil.dll'].includes(f));
   check('已裁掉 GPU 组件（DirectML/dxcompiler/dxil）', gpu.length === 0,
     gpu.length ? '残留: ' + gpu.join(',') : '已裁掉，省约 36MB');
-  check('CPU 推理所需的 dll 仍在', files2.some((f) => f === 'onnxruntime.dll'));
+  const cpuKeyRe = platform === 'win32' ? /^onnxruntime\.dll$/ : (platform === 'darwin' ? /^libonnxruntime.*\.dylib$/ : /^libonnxruntime\.so/);
+  check('CPU 推理所需的动态库仍在', files2.some((f) => cpuKeyRe.test(f)), files2.join(','));
 }
 
 log('');

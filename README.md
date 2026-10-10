@@ -10,8 +10,17 @@
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.8.11](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.8.11/desktop-pet-maker-win32-x64-v0.8.11.zip)**
+**[下载 Windows 免安装版 v0.8.12](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.8.12/desktop-pet-maker-win32-x64-v0.8.12.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
+
+**Linux x64**（v0.8.12）：
+```bash
+npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
+```
+
+> **macOS**：本机（Windows）无法打包 —— `.app` 需要符号链接（需管理员/开发者模式），
+> 且未签名应用会被 Gatekeeper 拦截（arm64 会被系统直接终止），需要 Apple 证书签名 + 公证。
+> 请在 Actions 页面手动运行 `package` 工作流（`ci/package.yml`）在 `macos-latest` 上构建。
 
 > 想看全部版本与更新说明：[Releases 页面](https://github.com/qianjiao626/desktop-pet-maker/releases)
 
@@ -255,7 +264,8 @@ npm test
 - [ ] AI 抠图（@imgly/background-removal）
 - [ ] GIF 导入自动拆帧
 - [ ] AI 生图造宠物 / 宠物对话（LLM）
-- [ ] electron-builder 打包（Win / macOS / Linux）
+- [x] 跨平台产物：Windows / Linux 可直接打包（pack.mjs / pack-cross.mjs）；macOS 走 CI
+- [ ] macOS 代码签名 + 公证（需要 Apple Developer 证书）
 - [ ] 宠物包在线分享站
 
 ## 🤖 AI 抠图实现要点

@@ -12,26 +12,40 @@ const platform = process.argv[2] || process.platform;
 const arch = process.argv[3] || 'x64';
 const KEEP_LOCALES = ['zh-CN', 'en-US'];   // 其余语言包裁剪
 
-// 找出已缓存的 Electron 运行时 zip，避免弱网下重新下载
-function findCachedZip() {
+// 找出已缓存的 Electron 运行时 zip，避免弱网下重新下载。
+// 必须按「平台 + 架构」精确匹配：多平台产物并存时（本地跨平台打包），
+// 只挑第一个 zip 会把 win32 的运行时喂给 linux 构建，直接打包失败。
+function findCachedZip(platform, arch) {
   const roots = [
+    path.join(ROOT, '.electron-cache'),          // 本项目自建缓存（跨平台打包用）
     path.join(process.env.LOCALAPPDATA || '', 'electron', 'Cache'),
     path.join(os.homedir(), '.cache', 'electron'),
     path.join(os.homedir(), 'Library', 'Caches', 'electron'),
   ].filter(Boolean);
+  const exact = new RegExp('^electron-v.+\\-' + platform + '\\-' + arch + '\\.zip$');
+  let fallback = null;
   for (const root of roots) {
     if (!fs.existsSync(root)) continue;
     for (const entry of fs.readdirSync(root)) {
       const dir = path.join(root, entry);
-      if (!fs.statSync(dir).isDirectory()) continue;
-      const zip = fs.readdirSync(dir).find((n) => n.startsWith('electron-v') && n.endsWith('.zip'));
-      if (zip) return path.join(dir, zip);
+      let st; try { st = fs.statSync(dir); } catch { continue; }
+      if (st.isDirectory()) {
+        for (const zip of fs.readdirSync(dir)) {
+          if (!zip.startsWith('electron-v') || !zip.endsWith('.zip')) continue;
+          if (exact.test(zip)) return path.join(dir, zip);
+          if (!fallback) fallback = path.join(dir, zip);
+        }
+      } else if (entry.startsWith('electron-v') && entry.endsWith('.zip')) {
+        // .electron-cache 里的 zip 是直接平铺的，不在子目录
+        if (exact.test(entry)) return dir;
+        if (!fallback) fallback = dir;
+      }
     }
   }
-  return null;
+  return fallback;
 }
 
-const cached = findCachedZip();
+const cached = findCachedZip(platform, arch);
 const opts = {
   dir: ROOT,
   name: 'desktop-pet-maker',
@@ -43,7 +57,13 @@ const opts = {
   // 只解包 .node 不够——onnxruntime_binding.node 还需要同目录的 onnxruntime.dll。
   // 若留在 asar 内，加载器会回退到系统 PATH，命中 Windows 自带的
   // C:\Windows\System32\onnxruntime.dll (1.17.1)，与本包 1.30.0 绑定不兼容。
-  asar: { unpack: '**/node_modules/**/*.{node,dll,so,dylib}' },
+  // 必须解包整个 onnxruntime bin 目录，而不是只匹配 *.so/*.dylib：
+  // Linux/mac 的动态库带版本后缀（libonnxruntime.so.1 / libonnxruntime.1.dylib），
+  // 用 '*.so' 这类模式匹配不到，会被留在 asar 内 → 原生绑定在真实文件系统里
+  // 找不到配套动态库，AI 抠图直接加载失败（Windows 的 onnxruntime.dll 无版本后缀，
+  // 所以这个 bug 在 Windows 上一直没暴露）。
+  // 解包后下面的裁剪步骤仍会删掉非目标平台目录，体积不受影响。
+  asar: { unpack: '**/node_modules/onnxruntime-node/bin/**' },
   // 注意：examples/ 必须随包分发——内置宠物（.petpack）就放在那里；
   // 早期版本误把 examples 整个排除，导致打包后宠物库是空的（已修）。
   ignore: [/^\/(dist|models|tests|scripts|\.git|\.electron-cache)($|\/)/],

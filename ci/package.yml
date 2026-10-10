@@ -1,5 +1,10 @@
 name: package
 
+# 说明：macOS 产物只能在这里构建。
+# Windows 主机无法创建 .app 需要的符号链接，且未签名的 macOS 包会被
+# Gatekeeper 拦截（arm64 会被系统直接终止），需要 Apple 证书签名 + 公证。
+# Linux 产物可在本地用 `node scripts/pack-cross.mjs linux x64` 直接产出。
+
 on:
   workflow_dispatch:
     inputs:
@@ -28,6 +33,8 @@ jobs:
       - run: npm ci
       - name: 打包
         run: node scripts/pack.mjs ${{ inputs.platform }} ${{ inputs.arch }}
+      - name: 校验产物结构
+        run: node scripts/e2e-package.mjs ${{ inputs.platform }} ${{ inputs.arch }}
       - name: 压缩产物
         shell: bash
         run: |

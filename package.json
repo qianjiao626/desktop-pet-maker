@@ -1,6 +1,6 @@
 {
   "name": "desktop-pet-maker",
-  "version": "0.8.11",
+  "version": "0.8.12",
   "description": "桌宠制作器 - 图片/GIF/多帧 + 离线AI抠图，一键生成跨平台桌面宠物",
   "type": "module",
   "main": "src/main/main.js",
@@ -20,6 +20,7 @@
     "examples": "node scripts/make-examples.js",
     "package": "node scripts/pack.mjs",
     "package:win": "node scripts/pack.mjs win32 x64",
+    "package:linux": "node scripts/pack-cross.mjs linux x64",
     "test:e2e:download-robust": "node scripts/e2e-download-robust.mjs",
     "test:e2e:package": "node scripts/e2e-package.mjs",
     "test:e2e:pet-anim": "electron scripts/e2e-pet-anim.mjs",
