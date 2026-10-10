@@ -1,6 +1,7 @@
 // 桌宠制作器 - 渲染进程
 import {
   floodCut, colorKeyCut, keepLargestComponent, trimBounds, cropData, flipHorizontal, alignFrames,
+  looksLikeFlatBackground,
 } from '../shared/imageops.js';
 import { decodeGif, parseGifHeader } from '../shared/gif.js';
 import { composeQBody } from './qcompose.js';
@@ -229,31 +230,24 @@ function autoCutIfNeeded(frame, name) {
   try {
     const { data, width, height } = frame.current || frame;
     if (!data || !width || !height) return frame;
-    // 采样四周边缘的不透明像素：若绝大多数颜色相近 -> 认为是「带背景的照片」
-    const edge = [];
-    const pushPx = (x, y) => {
-      const i = (y * width + x) * 4;
-      if (data[i + 3] < 40) return;            // 本来就透明 -> 不是背景色
-      edge.push([data[i], data[i + 1], data[i + 2]]);
-    };
-    for (let x = 0; x < width; x += Math.max(1, Math.floor(width / 32))) { pushPx(x, 0); pushPx(x, height - 1); }
-    for (let y = 0; y < height; y += Math.max(1, Math.floor(height / 32))) { pushPx(0, y); pushPx(width - 1, y); }
-    // 透明边缘占比高 -> 已有透明底，不处理
-    const edgeTotal = Math.max(1, Math.floor(width / Math.max(1, Math.floor(width / 32))) * 2 * 2);
-    if (edge.length < edgeTotal * 0.5) return frame;   // 边缘多为透明 -> 跳过
 
-    // 算边缘颜色的离散程度；越接近同色，越像是"纯色背景照片"
-    let r0 = 0, g0 = 0, b0 = 0;
-    for (const e of edge) { r0 += e[0]; g0 += e[1]; b0 += e[2]; }
-    r0 /= edge.length; g0 /= edge.length; b0 /= edge.length;
-    let varSum = 0;
-    for (const e of edge) varSum += Math.abs(e[0] - r0) + Math.abs(e[1] - g0) + Math.abs(e[2] - b0);
-    const varAvg = varSum / edge.length;
-    if (varAvg > 36) return frame;              // 边缘颜色杂乱 -> 不是纯色背景，跳过
+    // 判据：边缘颜色是否「连续」（纯色或渐变都算），见 shared/imageops.js 的说明。
+    // 旧实现只看「相对首像素的平均色差」阈 36，实测会把浅色渐变（墙面/天空 —— 用户最常拍的）
+    // 误判成复杂背景而跳过；但 floodCut 对这类图其实完全可用。
+    const look = looksLikeFlatBackground(data, width, height);
+    if (!look.ok) return frame;
 
     // 执行边缘漫水抠图（容差偏保守，只删与边界连通的同色区域）
     // 容差 38（与面板默认一致）：只删与边界连通的同色背景，不误伤主体内部同色区域。
     const out = floodCut(data, width, height, { tol: 38, feather: 14 });
+
+    // 兜底：若几乎没扣掉任何东西，说明本来就不像"带背景的照片"（比如主体占满整幅），
+    // 保持原图，避免用户看到一个"什么都没变的抠图结果"而困惑。
+    let transparent = 0;
+    for (let i = 3; i < out.data.length; i += 4) if (out.data[i] < 16) transparent++;
+    const ratio = transparent / (out.width * out.height);
+    if (ratio < 0.05) return frame;
+
     return { current: { width: out.width, height: out.height, data: out.data }, __autoCut: true };
   } catch (err) {
     console.warn('[autoCut] 跳过：' + (err && err.message ? err.message : err));
