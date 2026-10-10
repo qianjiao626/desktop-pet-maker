@@ -282,3 +282,68 @@ export function alignFrames(frames, { mode = 'bottom', alphaThreshold = 16 } = {
 
   return { frames: out, canvas: { width: cw, height: ch }, mode };
 }
+
+/**
+ * 判断一张图是否是「带纯色/渐变背景的照片」（可自动抠图）。
+ *
+ * 背景：之前只看「边缘采样相对首像素的平均色差」，阈值 36。
+ * 实测该判据会把**浅色渐变**（墙面、天空、桌面 —— 普通用户最常拍的）误判为
+ * "复杂背景"而跳过自动抠图，但这类图 floodCut 明明能处理好（实测透明率 67%）。
+ *
+ * 新判据：不看绝对色差，而看**相邻采样的颜色是否连续变化**。
+ * - 纯色背景：相邻差 ≈ 0
+ * - 渐变背景：相邻差很小且平滑（连续）
+ * - 真实复杂背景（桌面杂物、人像场景）：相邻差大且跳变
+ *
+ * @returns {{ok:boolean, reason:string, stats:object}}
+ */
+export function looksLikeFlatBackground(data, w, h, { maxAdjacent = 14, maxSpan = 120, maxStep = 60 } = {}) {
+  if (!data || !w || !h) return { ok: false, reason: 'no-data', stats: {} };
+
+  // 沿四条边采样。关键：必须**按边分别采样**再各自算相邻差 ——
+  // 否则「上边末 -> 下边首」这种跨边相接会把主体像素算进去，导致浅色渐变被误判为杂乱
+  // （实测跨边拼接会让浅色渐变的 adjAvg 从 <10 飙到 40.7）。
+  const step = Math.max(1, Math.floor(Math.min(w, h) / 40));
+  const edges = [[], [], [], []];   // 上 / 下 / 左 / 右
+  const read = (x, y) => {
+    const i = (y * w + x) * 4;
+    if (data[i + 3] < 40) return null;        // 透明像素不算背景色样本
+    return [data[i], data[i + 1], data[i + 2]];
+  };
+  for (let x = 0; x < w; x += step) { const c = read(x, 0); if (c) edges[0].push(c); }
+  for (let x = 0; x < w; x += step) { const c = read(x, h - 1); if (c) edges[1].push(c); }
+  for (let y = 0; y < h; y += step) { const c = read(0, y); if (c) edges[2].push(c); }
+  for (let y = 0; y < h; y += step) { const c = read(w - 1, y); if (c) edges[3].push(c); }
+
+  const pts = edges.flat();
+  if (pts.length < 8) return { ok: false, reason: 'too-few-samples', stats: { n: pts.length } };
+
+  // 相邻差：只在同一条边内比较，衡量「颜色是否连续变化」
+  let adjSum = 0, adjMax = 0, adjCnt = 0;
+  for (const line of edges) {
+    for (let i = 1; i < line.length; i++) {
+      const d = Math.abs(line[i][0] - line[i-1][0]) + Math.abs(line[i][1] - line[i-1][1]) + Math.abs(line[i][2] - line[i-1][2]);
+      adjSum += d; adjCnt++;
+      if (d > adjMax) adjMax = d;
+    }
+  }
+  const adjAvg = adjCnt ? adjSum / adjCnt : 0;
+
+  // 总跨度：整体颜色范围（纯色小、渐变中、杂乱大）
+  let minL = 255, maxL = 0;
+  for (const p of pts) {
+    const l = (p[0] + p[1] + p[2]) / 3;
+    if (l < minL) minL = l;
+    if (l > maxL) maxL = l;
+  }
+  const span = maxL - minL;
+
+  // 连续（相邻小）且总跨度不过分 -> 视为可抠的平坦/渐变背景。
+  // 必须同时约束**平均值与最大值**：只看平均值时，少数强跳变会被大量平滑采样稀释
+  // （实测"上下硬分界"用例 adjAvg 仅 2.5 却通过了，但局部跳变达 198）。
+  const ok = adjAvg <= maxAdjacent && adjMax <= maxStep && span <= maxSpan;
+  const reason = !ok
+    ? (adjMax > maxStep ? 'hard-edge' : adjAvg > maxAdjacent ? 'busy-edges' : 'too-wide-span')
+    : 'flat-or-gradient';
+  return { ok, reason, stats: { n: pts.length, adjAvg: Math.round(adjAvg * 10) / 10, adjMax: Math.round(adjMax), span: Math.round(span) } };
+}
