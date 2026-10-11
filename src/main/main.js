@@ -15,6 +15,7 @@ import { setCurrentPack, getCurrentPack, setPetWindow, getPetWindow, setMakerWin
 import { buildTrayMenuTemplate, trayTooltip } from './tray.js';
 import { startupSwitches, appMenuTemplate } from '../shared/platform.js';
 import { buildShareHtml, shareFileName } from '../shared/sharepack.js';
+import { assignSlugs, planSiteFiles } from '../shared/sharesite.js';
 import { normalizeTemplateList, addTemplate, removeTemplate, renameTemplate, templateFromPack, normalizeTemplate, templateFileName, TEMPLATE_SCHEMA } from '../shared/mytemplates.js';
 import { planBatch, batchPackFor, summarizeBatch } from '../shared/batch.js';
 import { estimatePose, isPoseModelInstalled } from './pose.js';
@@ -533,6 +534,71 @@ ipcMain.handle('share:exportHtml', async (e, { pack, images, clipImages }) => {
     if (r.canceled || !r.filePath) return { ok: false, canceled: true };
     fs.writeFileSync(r.filePath, html, 'utf8');
     return { ok: true, path: r.filePath, bytes: Buffer.byteLength(html, 'utf8'), petpackBytes: petpackBuf.length };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
+// ---------- 导出「在线分享站」：零后端静态站点，扔到 GitHub Pages 就能给别人逛 ----------
+// 单个 .html 只能一对一地发；要做「人人可浏览的广场」就需要一个静态站点。
+// 这里逐只宠物渲染成自包含分享页，再生成 index（卡片 + 搜索）/ manifest / README。
+// 缩略图直接内嵌 dataURL（站点里不含额外图片文件，方便整体上传）。
+ipcMain.handle('share:exportSite', async (e, opt) => {
+  const o = opt || {};
+  try {
+    const dir = petsDir();
+    const builtinNames = new Set();
+    try { for (const f of fs.readdirSync(builtinPetsDir())) if (/\.petpack$/i.test(f)) builtinNames.add(f); } catch {}
+    const items = [];
+    for (const f of fs.readdirSync(dir)) {
+      if (!/\.(petpack|zip)$/i.test(f)) continue;
+      const full = path.join(dir, f);
+      const builtin = builtinNames.has(f);
+      if (builtin && !o.includeBuiltin) continue;
+      try {
+        const { pack, frames, clips } = readPackFile(full);
+        items.push({ id: f, name: String(pack.name || f), author: String(pack.author || ''), frames, clips, pack, builtin });
+      } catch { /* 坏包跳过：不能让一只坏宠物毁掉整站 */ }
+    }
+    if (!items.length) return { ok: false, errors: ['宠物库里没有可导出的宠物'] };
+
+    // 目标目录：用户选一个文件夹（站点文件都写进它，方便整体拖去托管）
+    const r = await dialog.showOpenDialog({ title: '选择导出站点的文件夹', properties: ['openDirectory', 'createDirectory'] });
+    if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true };
+    const outDir = path.join(r.filePaths[0], 'desk-pet-site');
+    fs.mkdirSync(outDir, { recursive: true });
+
+    const slugs = assignSlugs(items.map((it) => ({ id: it.id, name: it.name })));
+    const siteName = String(o.siteName || '我的桌宠广场');
+    const petMeta = [];
+    const pages = {};
+
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i], sl = slugs[i];
+      // 每只宠物渲染成一个自包含分享页（复用已有的 buildShareHtml，含 petpack 兜底）
+      const clipImages = {};
+      for (const c of (it.clips || [])) clipImages[c.id] = c.frames;
+      const { pack: p, files } = buildPackAndEntries(it.pack, it.frames, clipImages);
+      const petpackBuf = zipCreate([{ name: 'pet.json', data: JSON.stringify(p, null, 2) }, ...files]);
+      const html = buildShareHtml(p, it.frames, {
+        title: it.name,
+        petpackBase64: petpackBuf.toString('base64'),
+        petpackName: petPackFileName(it.name),
+      });
+      pages[sl.fileName] = html;
+      petMeta.push({
+        name: it.name, file: sl.fileName, author: it.author,
+        frames: it.frames.length, thumb: (it.frames[0] && it.frames[0].dataUrl) || '',
+      });
+    }
+
+    const siteFiles = planSiteFiles(petMeta, pages, { siteName, description: o.description });
+    // 写盘前先确认没有重名，避免静默互相覆盖
+    const seen = new Set();
+    for (const f of siteFiles) {
+      if (seen.has(f.name)) return { ok: false, errors: ['站点内文件名重复：' + f.name] };
+      seen.add(f.name);
+      fs.writeFileSync(path.join(outDir, f.name), f.data, 'utf8');
+    }
+    return { ok: true, path: outDir, count: petMeta.length, files: siteFiles.length, bytes: siteFiles.reduce((n, f) => n + Buffer.byteLength(f.data, 'utf8'), 0) };
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
 

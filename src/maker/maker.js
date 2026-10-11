@@ -1945,6 +1945,37 @@ if ($('#btnLibExportGif')) $('#btnLibExportGif').onclick = async () => {
   }
 };
 
+// 导出「在线分享站」：零后端静态站点，扔到 GitHub Pages 就能给别人逛。
+// 单个 .html 只能一对一地发；这一步是把整个宠物库变成一个可浏览的广场。
+if ($('#btnLibExportSite')) $('#btnLibExportSite').onclick = async () => {
+  const btn = $('#btnLibExportSite');
+  const includeBuiltin = window.confirm(
+    '导出在线分享站：会在你选的文件夹里生成一个 desk-pet-site/，里面有：\n'
+    + '  · index.html   首页（卡片网格 + 搜索）\n'
+    + '  · pet-*.html   每只宠物的独立分享页（双击就能玩）\n'
+    + '  · manifest.json / README.txt\n\n'
+    + '点「确定」= 连内置宠物一起导出（站更大、更有排面）\n'
+    + '点「取消」= 只导出你自己的宠物\n\n'
+    + '导出后把整个 desk-pet-site 文件夹传上 GitHub Pages / Netlify 即可分享（README 里有步骤）'
+  );
+  btn.disabled = true;
+  setStatus('正在生成在线分享站（宠物多时需要一会儿）…');
+  try {
+    const r = await window.api.exportShareSite({ includeBuiltin });
+    btn.disabled = false;
+    if (r.canceled) { setStatus('已取消'); return; }
+    if (!r.ok) { setStatus('导出失败：' + (r.errors || []).join(';'), 'err'); return; }
+    const kb = (r.bytes / 1024).toFixed(0);
+    setStatus('✅ 已生成 ' + r.count + ' 只宠物的在线分享站（' + r.files + ' 个文件，' + kb + ' KB）到：' + r.path, 'ok');
+    showShareHint(r.path, '在线分享站');
+  } catch (err) {
+    btn.disabled = false;
+    // 绝不静默吞异常
+    console.warn('[share-site] 失败：' + (err && err.message ? err.message : err));
+    setStatus('导出异常：' + String((err && err.message) || err), 'err');
+  }
+};
+
 // 进度回报：宠物多时让用户看到"在动"而不是以为卡死
 if (window.api.onBulkGifProgress) {
   window.api.onBulkGifProgress((p) => {

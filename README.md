@@ -4,16 +4,16 @@
 
 > 技术选型参考了这些开源项目：`B666T/DesktopPetGenerator`（上传图→抠图→动画→打包）、
 > `PC2005-cloud/dsh-pet`（宠物包 / 素材链思路）、`ln2146/ai-desktop-pet-generator`（抠图→精灵流水线）。
-> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 1724 项单测 + 37 套 e2e**。
+> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 1779 项单测 + 38 套 e2e**。
 
 ---
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.12](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.12/desktop-pet-maker-win32-x64-v0.9.12.zip)**
+**[下载 Windows 免安装版 v0.9.13](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.13/desktop-pet-maker-win32-x64-v0.9.13.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.12）：
+**Linux x64**（v0.9.13）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
@@ -82,6 +82,9 @@ npm start
 - 五类参数可视化调节：抠图 / 外观 / 动画 / 物理 / 气泡
 - **桌面预览**：一键在真实桌面启动试用
 - 导出为单文件 **`.petpack`** 或文件夹
+- **在线分享站（零后端）**：把整个宠物库一键导成一个**静态网站** ——
+  `index.html`（卡片网格 + 搜索）+ 每只宠物一个自包含分享页 + `manifest.json` + 发布说明。
+  整个文件夹传上 **GitHub Pages / Netlify / Cloudflare Pages** 就能给人逛，不需要服务器、不需要数据库
 
 **运行时（Pet）**
 - 无边框透明置顶窗，**canvas 多帧渲染**（呼吸 / 摇摆 / 逐帧循环 / 逐帧一次）
@@ -241,7 +244,7 @@ ZIP 内含 `pet.json` + 若干帧图片 + `README.txt`：
 | GIF 处理 | 自研解析器 + 内联 gifuct-js 的 LZW（MIT） |
 | 打包格式 | 自研 ZIP 读写（零第三方依赖） |
 | 交互 | 像素级 alpha 命中测试 + `setIgnoreMouseEvents` 穿透 |
-| 测试 | 自研断言框架：1724 项单测 + 37 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包） |
+| 测试 | 自研断言框架：1779 项单测 + 38 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站） |
 
 ## 🧪 测试
 
@@ -271,7 +274,7 @@ npm test
 - [ ] AI 生图造宠物 / 宠物对话（LLM）
 - [x] 跨平台产物：Windows / Linux 可直接打包（pack.mjs / pack-cross.mjs）；macOS 走 CI
 - [ ] macOS 代码签名 + 公证（需要 Apple Developer 证书）
-- [ ] 宠物包在线分享站
+- [x] 宠物包在线分享站（零后端静态站点：卡片网格 + 搜索 + 每只一个自包含页面，可上 GitHub Pages）
 
 ## 🤖 AI 抠图实现要点
 

@@ -1,6 +1,6 @@
 # 桌宠制作器 — 交接文档
 
-> 生成时间：2026-10-11　｜　交接版本：**v0.9.12**
+> 生成时间：2026-10-11　｜　交接版本：**v0.9.13**
 > 用途：在新对话中无缝接手本项目。**先读「二、硬约束」和「五、已知坑」，能省掉大量返工。**
 
 ---
@@ -46,15 +46,15 @@ Windows 桌面宠物制作器（Electron）。核心定位由用户原话确定�
 
 ---
 
-## 三、当前状态（v0.9.12，已交付）
+## 三、当前状态（v0.9.13，已交付）
 
 | 项 | 值 |
 |---|---|
-| 版本 | 0.9.12 |
+| 版本 | 0.9.13 |
 | 远端 main | `28c9da9`（整树 152/152 逐字节一致） |
 | Releases | v0.8.0 ~ v0.8.16（每版含 Windows + Linux，均已实测可下载） |
-| 单测 | **1724/1724** ✅ |
-| e2e | **37/37 套件** ✅（见下） |
+| 单测 | **1779/1779** ✅ |
+| e2e | **38/38 套件** ✅（见下） |
 | 打包产物 | Windows 325.4MB/144.1MB zip · Linux 321.4MB/136.2MB zip |
 | 打包自检 | `--selftest-ai` → PASS |
 | 远端一致性 | 用 git Trees API 推送后，整树逐文件 sha 必须零差异 |
@@ -83,6 +83,7 @@ SHARE 17 · SHARE-DROP 10 · DOWNLOAD-ROBUST 13 · PACKAGE 22
 10. **AI 抠图**（本地 ONNX，纯 CPU）
 11. **单帧替换**：把新图拖到缩略图上只替换那一帧（画布不变、可撤销）
 12. **撤销 / 重做**：抠图/裁边/翻转/生成动画/自动适配/帧编辑全部可回退
+13. **在线分享站（零后端）**：宠物库一键导出静态站点（卡片网格+搜索+每只一个自包含页），可上 GitHub Pages
 
 ---
 
@@ -300,6 +301,24 @@ ci/          GitHub Actions（暂存，待 workflow 权限）
       新增可放置区域时必须同步更新这个集合。
 52. **单帧替换必须把新图规整到原帧画布**：新图尺寸往往不同，直接换会让整段动画忽大忽小。
     逻辑抽到 `src/shared/framereplace.js`（纯函数 + 32 项单测），UI 只管接线。
+
+---
+### 53：v0.9.13「在线分享站」踩的坑
+53. **`@electron/packager` 的报错会「指错地方」**。真实原因是第一次尝试
+    `EPERM: operation not permitted, unlink 'dist\\...\\d3dcompiler_47.dll'`
+    （上一轮 selftest / 预览用的 desktop-pet-maker.exe **还在运行**，占着 dist 里的文件），
+    但后续重试抛的是 `Could not locate a package.json file ... with the following fields: author` ——
+    一个和真实原因（文件占用）毫无关系的报错，很容易让人跑去改 package.json。
+    → 打包失败时**先看「尝试 1」的错误**，那才是根因；后面的重试报错常常是掩盖的结果。
+    → 打包前先确认没有残留进程：`Get-Process | ? ProcessName -like '*desktop-pet*'`。
+54. **同名宠物会让分享站的两个页面互相覆盖**。第一版 `assignSlugs` 只记「某个 base 用过几次」，
+    于是 `x / x / x-2` 三只里，第二只去重得到 `x-2`，和第三只（名字本来就叫 x-2）撞车。
+    → 必须对着「已产出的 slug 全集」逐个试号（`while (taken.has(slug)) n++`），而不是记计数器。
+55. **生成的站点要自带 CSP**。Electron 打开生成的页面时会弹
+    「Insecure Content-Security-Policy」警告 —— 说明这个页面托管到公网后缺少防护。
+    → 生成 HTML 时写入 `default-src 'none'; img-src data:; ...`（图片本来就是内嵌 dataURL，够用）。
+56. **e2e 里测「要选文件夹」的功能**：`dialog.showOpenDialog` 无法交互，
+    可在测试里 monkey-patch 它返回固定临时目录，从而**真实走完整 handler**（而不是把逻辑抄一份到测试里）。
 
 ---
 ## 六、交付流程（每轮收尾照做）

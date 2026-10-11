@@ -54,6 +54,8 @@ contextBridge.exposeInMainWorld('api', {
   // 零依赖分享页：导出一个自包含 HTML；收到 .html 时能从里面还原出宠物包
   exportShareHtml: (pack, images, clipImages) => ipcRenderer.invoke('share:exportHtml', { pack, images, clipImages }),
   readShareHtml: (p) => ipcRenderer.invoke('share:readHtml', p),
+  // 在线分享站：把宠物库导出成零后端静态站点（扔到 GitHub Pages 就能给别人逛）
+  exportShareSite: (opt) => ipcRenderer.invoke('share:exportSite', opt),
 
   // 我的模板（自定义性格模板）
   templatesList: () => ipcRenderer.invoke('tpl:list'),
