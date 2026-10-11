@@ -1,6 +1,6 @@
 {
   "name": "desktop-pet-maker",
-  "version": "0.9.8",
+  "version": "0.9.9",
   "description": "桌宠制作器 - 图片/GIF/多帧 + 离线AI抠图，一键生成跨平台桌面宠物",
   "type": "module",
   "main": "src/main/main.js",

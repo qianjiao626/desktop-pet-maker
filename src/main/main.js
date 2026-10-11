@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { zipCreate, zipRead, zipWriteToFile } from '../shared/zip.js';
+import { encodeGif } from '../shared/gifencode.js';
 import { normalizePack, validatePack } from '../shared/petpack.js';
 import { petPackFileName, safeFileName } from '../shared/safeid.js';
 import { computeLayout } from '../shared/layout.js';
@@ -927,6 +928,52 @@ ipcMain.handle('pet:runInstalled', (e, id) => {
     if (!fs.existsSync(full)) throw new Error('宠物不存在');
     launchPet(full);
     return { ok: true };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
+// ---------- 导出 GIF 动图（发社交平台 / 当表情包）----------
+// 宠物包本身是 .petpack，别人不装工具看不了；导出一张 GIF 就能直接发出去。
+ipcMain.handle('export:gif', async (e, { frames, width, height, fps, suggestedName }) => {
+  try {
+    if (!Array.isArray(frames) || !frames.length) return { ok: false, errors: ['没有可导出的帧'] };
+    // frames: [{ dataUrl, durationMs }]
+    const decoded = [];
+    for (const f of frames) {
+      const m = /^data:[^;]+;base64,(.*)$/i.exec(f.dataUrl || '');
+      if (!m) continue;
+      const img = nativeImage.createFromBuffer(Buffer.from(m[1], 'base64'));
+      const s = img.getSize();
+      if (!s.width || !s.height) continue;
+      // **必须把 BGRA 换成 RGBA**：
+      // nativeImage.toBitmap() 给的是 BGRA（实测：纯红图读出来是 0,0,255,255），
+      // 而 GIF 编码器按 RGBA 解读 —— 不换的话导出图会**红蓝互换**（实测踩到）。
+      const bgra = img.toBitmap();
+      const rgba = Buffer.allocUnsafe(bgra.length);
+      for (let i = 0; i < bgra.length; i += 4) {
+        rgba[i] = bgra[i + 2];
+        rgba[i + 1] = bgra[i + 1];
+        rgba[i + 2] = bgra[i];
+        rgba[i + 3] = bgra[i + 3];
+      }
+      decoded.push({ data: new Uint8ClampedArray(rgba), width: s.width, height: s.height, delayMs: Math.max(16, Math.round(f.durationMs || 100)) });
+    }
+    if (!decoded.length) return { ok: false, errors: ['帧解码失败'] };
+    // 多帧尺寸必须一致（GIF 全局尺寸取第一帧），不一致的按第一帧裁剪/拉伸会变形，
+    // 所以这里统一成第一帧尺寸：不一致时用 canvas 缩放（交给渲染进程预处理更合适，这里只做校验提示）
+    const W = decoded[0].width, H = decoded[0].height;
+    const mismatched = decoded.some((d) => d.width !== W || d.height !== H);
+    if (mismatched) {
+      return { ok: false, errors: ['各帧尺寸不一致（' + decoded.map((d) => d.width + 'x' + d.height).join(', ') + '）。请先在制作器里「统一画布」再导出 GIF'] };
+    }
+    const enc = encodeGif(decoded, { loop: 0 });
+    const r = await dialog.showSaveDialog({
+      title: '导出 GIF 动图',
+      defaultPath: String(suggestedName || 'pet') + '.gif',
+      filters: [{ name: 'GIF 动图', extensions: ['gif'] }],
+    });
+    if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+    fs.writeFileSync(r.filePath, Buffer.from(enc.buffer));
+    return { ok: true, path: r.filePath, bytes: enc.buffer.length, frames: enc.frameCount, width: enc.width, height: enc.height };
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
 

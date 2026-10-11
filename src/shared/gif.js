@@ -154,5 +154,19 @@ export function decodeGif(buf, { maxFrames = 300 } = {}) {
     // 未知块：跳过一字节，容错继续
   }
 
-  return { width: W, height: H, frames, loopCount: 0, bgIndex };
+  // 读 Netscape 循环扩展（0x21 0xFF 0x0B "NETSCAPE2.0" 0x03 0x01 lo hi 0x00）。
+  // 之前这里写死 loopCount: 0 —— 导致「导出时设了循环次数、读回来永远是 0」，
+  // 我们自己写的编码器明明把次数写对了（已在字节级验证），却被这里掩盖。
+  let loopCount = 0;
+  try {
+    const s = buf.toString('latin1');
+    const i = s.indexOf('NETSCAPE2.0');
+    if (i >= 0 && buf.length > i + 15) {
+      // 结构：NETSCAPE2.0(11) + 块长(1) + 子块ID(1) + 次数(2) + 结束(1)
+      const lo = buf[i + 13], hi = buf[i + 14];
+      if (Number.isFinite(lo) && Number.isFinite(hi)) loopCount = lo | (hi << 8);
+    }
+  } catch { /* 读不到就用默认 0（无限循环） */ }
+
+  return { width: W, height: H, frames, loopCount, bgIndex };
 }
