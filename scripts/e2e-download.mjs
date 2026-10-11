@@ -24,5 +24,5 @@ app.whenReady().then(async () => {
   const del = deleteModel(ud, 'silueta');
   log('delete ok=' + del.ok + ' then isInstalled=' + isInstalled(ud, 'silueta'));
   fs.copyFileSync('models/silueta.onnx', dst);
-  app.quit();
+  app.exit(0);   // 观察型脚本：跑完即通过（这里没有 fail 计数，别写 fail）
 }).catch((e) => { log('FATAL ' + e.message); app.quit(); });

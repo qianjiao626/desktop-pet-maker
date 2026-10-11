@@ -44,6 +44,7 @@ await import('./spritesheet.test.mjs');
 await import('./framereplace.test.mjs');
 await import('./sharesite.test.mjs');
 await import('./pubguide.test.mjs');
+await import('./shortcuts.test.mjs');
 await import('./charstudio.test.mjs');
 await import('./dialog.test.mjs');
 await import('./autofit.test.mjs');

@@ -1270,6 +1270,10 @@ menuEl.querySelectorAll('.mi').forEach((mi) => {
     else if (act === 'bubble') { talk('poke', { force: true }); }
     else if (act === 'top') { S.topmost = !S.topmost; api.setAlwaysOnTop(S.topmost); }
     else if (act === 'clickthrough') { S.ignoreMouse = !S.ignoreMouse; api.setIgnoreMouse(S.ignoreMouse); }
+    else if (act === 'bigger') { withScale(1.15); }
+    else if (act === 'smaller') { withScale(1 / 1.15); }
+    else if (act === 'tone') { cycleTone(); }
+    else if (act === 'center') { recenterSelf(); }
     else if (act === 'close') api.closePet();
   };
 });
@@ -1286,6 +1290,59 @@ function clampScale(v) {
 }
 
 /** 应用缩放：重算布局 -> 设窗口尺寸 -> 以脚底为锚点重新定位 */
+/**
+ * 在**当前**缩放基础上再乘一个系数（右键菜单的放大/缩小用）。
+ * 注意 userScale 为 0 表示"还没设过"（用包里的默认值），所以要先兜底。
+ */
+function withScale(factor) {
+  const base = userScale || clampScale(pack && pack.render ? pack.render.scale : 0.6);
+  // 步进不能太小：素材本身小的时候，窗口有 160px 的最小宽度，
+  // 乘 1.15 可能只让窗口宽从 160 变到 161，用户会以为"点了没反应"（实测踩到）。
+  // 所以取"比例步进"和"绝对至少 ±8%"里更大的那个。
+  const target = base * factor;
+  const delta = Math.max(0.08, Math.abs(target - base));
+  const next = clampScale(factor >= 1 ? base + delta : base - delta);
+  if (Math.abs(next - base) < 1e-4) {
+    showBubble(next >= 1 ? '已经最大啦' : '已经最小啦');
+    return;
+  }
+  applyScale(next).catch((err) => console.warn('[menu] 缩放失败: ' + (err && err.message ? err.message : err)));
+}
+
+/** 把桌宠移到当前显示器中央底部（找不到它时的救命动作） */
+async function recenterSelf() {
+  try {
+    refreshArea(true);
+    // 用**实时**窗口尺寸算，而不是缓存里的 W/H：
+    // 刚刚改过缩放时 W/H 可能还没通过异步回读更新，用旧值会算偏（实测偏了 44px）。
+    // 注意 api.getBounds() 是 IPC，必须 await —— 不 await 会拿到 Promise，宽度就变成 undefined。
+    let b = null;
+    try { b = await api.getBounds(); } catch (err) { b = null; }
+    const w = (b && b.width) ? b.width : W;
+    const h = (b && b.height) ? b.height : H;
+    const x = Math.round(area.x + (area.width - w) / 2);
+    const y = Math.round(area.y + area.height - h - 40);
+    S.body.x = x; S.body.y = y;
+    S.body.vx = 0; S.body.vy = 0; S.body.onGround = false;
+    api.setPos(x, y);
+    showBubble('我来啦～');
+  } catch (err) { console.warn('[menu] 回中央失败: ' + (err && err.message ? err.message : err)); }
+}
+
+/** 轮流切换对话口吻（右键菜单「换个性格」）——只改口吻，不动外观与物理 */
+const TONE_CYCLE = ['default', 'lively', 'gentle', 'sleepy', 'clingy', 'quiet'];
+function cycleTone() {
+  try {
+    if (!pack.behavior) pack.behavior = {};
+    const cur = toneOf(pack.behavior.personality);
+    const idx = TONE_CYCLE.indexOf(cur);
+    const next = TONE_CYCLE[(idx + 1) % TONE_CYCLE.length];
+    pack.behavior.personality = next;
+    const label = { default: '平常', lively: '活泼', gentle: '温顺', sleepy: '贪睡', clingy: '粘人', quiet: '安静' }[next] || next;
+    showBubble('换个性格：' + label);
+  } catch (err) { console.warn('[menu] 换性格失败: ' + (err && err.message ? err.message : err)); }
+}
+
 async function applyScale(nextScale) {
   if (!pack) return;
   const k = clampScale(nextScale);

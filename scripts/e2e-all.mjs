@@ -37,6 +37,7 @@ const suites = [
   ['e2e-sharesite.mjs', []],
   ['e2e-charstudio.mjs', []],
   ['e2e-dialog.mjs', []],
+  ['e2e-menu.mjs', []],
   ['e2e-framereplace.mjs', []],
   ['e2e-tray.mjs', []],
   ['e2e-library-prefs.mjs', []],
@@ -49,6 +50,33 @@ const suites = [
   ['e2e-download-robust.mjs', []],
   ['e2e-package.mjs', []],
 ];
+
+// 防假绿自检：每个套件都必须能在失败时返回非 0 退出码。
+// 背景（v0.9.17 踩到）：12 个套件结尾只有 app.quit() 没有退出码，
+// 于是它们 FAIL 了 e2e-all 仍报"全部通过"——前几轮的"全绿"是不可信的。
+// 这段自检把"脚本有没有设置退出码"作为硬性前置条件。
+{
+  const fs = await import('node:fs');
+  const bad = [];
+  for (const [file] of suites) {
+    const src = fs.readFileSync(path.join(ROOT, 'scripts', file), 'utf8');
+    // 认几种**正确**写法，别写太窄（曾经因为只认 fail ? 1 : 0，
+    // 误判了 12 个用 app.exit(fail === 0 ? 0 : 1) 的套件）。
+    const hasExitCode =
+      /app\.exit\(\s*fail\s*\?\s*1\s*:\s*0\s*\)/.test(src) ||
+      /app\.exit\(\s*fail\s*===\s*0\s*\?\s*0\s*:\s*1\s*\)/.test(src) ||
+      /app\.exit\(\s*fail\s*\?\s*1\s*:\s*0\s*\)/.test(src) ||
+      /app\.exit\(\s*[0-9]+\s*\)/.test(src) ||
+      /process\.exit\(/.test(src);
+    if (!hasExitCode) bad.push(file);
+  }
+  if (bad.length) {
+    console.log('!! 防假绿自检失败：以下套件没有设置退出码，FAIL 也会被当成通过：');
+    for (const f of bad) console.log('   - ' + f);
+    process.exit(1);
+  }
+  console.log('防假绿自检通过：' + suites.length + ' 个套件都能在失败时返回非 0 退出码');
+}
 
 let failed = 0;
 for (const [file, args] of suites) {

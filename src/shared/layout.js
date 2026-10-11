@@ -43,7 +43,12 @@ export function computeLayout(pack, frameSizes, opt = {}) {
   const canvasCssH = Math.round(baseH * OVER + MARGIN) + bottomReserve;
 
   const bubbleH = (pack && pack.bubble && pack.bubble.enabled) ? BUBBLE_H : 0;
-  const W = Math.max(canvasCssW, 160);
+  // 最小宽度保护：素材太小的时候窗口不能小到点不中。
+  // 但这个下限**不能是死值 160** —— 否则小素材（比如 64x64）在 0.6~0.8 这一段缩放里，
+  // 宽度一直被 160 钳住，用户点"放大"会看到窗口宽 160->161（像没反应，实测踩到）。
+  // 改成：下限随缩放一起长（scale 越大下限越大），既保住可点击性，又让缩放看得见。
+  const minW = Math.max(96, Math.round(160 * Math.min(1.6, scale / 0.6)));
+  const W = Math.max(canvasCssW, minW);
   const H = canvasCssH + topPad + bubbleH;
 
   return { W, H, canvasCssW, canvasCssH, topPad, bubbleH, bottomReserve };
