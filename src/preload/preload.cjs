@@ -84,6 +84,12 @@ contextBridge.exposeInMainWorld('api', {
   libraryGet: () => ipcRenderer.invoke('library:get'),
   libraryToggleFav: (id) => ipcRenderer.invoke('library:toggleFav', id),
   libraryTouch: (id) => ipcRenderer.invoke('library:touch', id),
+  // 宠物分组（本地偏好，不写进 .petpack）
+  libraryAddGroup: (name) => ipcRenderer.invoke('library:addGroup', name),
+  libraryRemoveGroup: (id) => ipcRenderer.invoke('library:removeGroup', id),
+  libraryRenameGroup: (id, name) => ipcRenderer.invoke('library:renameGroup', { id, name }),
+  librarySetGroupMember: (id, petId, on) => ipcRenderer.invoke('library:setGroupMember', { id, petId, on }),
+  libraryPruneGroups: (aliveIds) => ipcRenderer.invoke('library:pruneGroups', aliveIds),
 
   // AI 抠图
   listModels: () => ipcRenderer.invoke('ai:listModels'),

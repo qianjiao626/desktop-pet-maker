@@ -8,7 +8,7 @@ import { encodeGif } from '../shared/gifencode.js';
 import { normalizePack, validatePack } from '../shared/petpack.js';
 import { petPackFileName, safeFileName } from '../shared/safeid.js';
 import { computeLayout } from '../shared/layout.js';
-import { emptyState, normalizeState, toggleFavorite, touchRecent, forgetPet } from '../shared/library.js';
+import { emptyState, normalizeState, toggleFavorite, touchRecent, forgetPet, addGroup, removeGroup, renameGroup, addToGroup, removeFromGroup, pruneGroups } from '../shared/library.js';
 import { MODELS, listModels, downloadModel, deleteModel, isInstalled } from './models.js';
 import { segmentImage, segmentAuto } from './segment.js';
 import { setCurrentPack, getCurrentPack, setPetWindow, getPetWindow, setMakerWindow, getMakerWindow, isPetAlive, setCurrentScale, getCurrentScale } from './state.js';
@@ -1370,6 +1370,44 @@ ipcMain.handle('library:toggleFav', (e, id) => {
   const next = toggleFavorite(loadLibraryPrefs(), id);
   saveLibraryPrefs(next);
   return next;
+});
+
+// ---------- 宠物分组（把库里的宠物归类）----------
+// 一只宠物可以在多个分组里 —— 比"只能属于一个文件夹"更贴合真实用法
+// （同一只宠物既是"表情包"又是"给孩子的"）。
+// 分组偏好只存在本地 library.json，不写进 .petpack（不污染可分享的包）。
+ipcMain.handle('library:addGroup', (e, name) => {
+  const r = addGroup(loadLibraryPrefs(), name);
+  if (!r.ok) return { ok: false, reason: r.reason, library: r.state };
+  saveLibraryPrefs(r.state);
+  return { ok: true, id: r.id, library: r.state };
+});
+
+ipcMain.handle('library:removeGroup', (e, id) => {
+  const next = removeGroup(loadLibraryPrefs(), id);
+  saveLibraryPrefs(next);
+  return { ok: true, library: next };
+});
+
+ipcMain.handle('library:renameGroup', (e, { id, name }) => {
+  const r = renameGroup(loadLibraryPrefs(), id, name);
+  if (!r.ok) return { ok: false, reason: r.reason, library: r.state };
+  saveLibraryPrefs(r.state);
+  return { ok: true, library: r.state };
+});
+
+ipcMain.handle('library:setGroupMember', (e, { id, petId, on }) => {
+  const r = on ? addToGroup(loadLibraryPrefs(), id, petId) : removeFromGroup(loadLibraryPrefs(), id, petId);
+  if (!r.ok) return { ok: false, reason: r.reason, library: r.state };
+  saveLibraryPrefs(r.state);
+  return { ok: true, library: r.state };
+});
+
+// 清掉已经不存在的宠物在分组里的残留（删除宠物后调用）
+ipcMain.handle('library:pruneGroups', (e, aliveIds) => {
+  const next = pruneGroups(loadLibraryPrefs(), aliveIds);
+  saveLibraryPrefs(next);
+  return { ok: true, library: next };
 });
 
 // 记一次「使用」：启动宠物后调用

@@ -5,7 +5,9 @@ import {
 } from '../src/shared/library.js';
 
 // ---------- 归一化 / 容错 ----------
-ok('空状态结构正确', JSON.stringify(emptyState()) === JSON.stringify({ favorites: [], recent: [] }));
+// 用「包含」而不是「全等」：以后给状态加字段（比如分组）不该弄断这条断言。
+const es = emptyState();
+ok('空状态结构正确', Array.isArray(es.favorites) && Array.isArray(es.recent) && es.favorites.length === 0 && es.recent.length === 0, JSON.stringify(es));
 const bad = normalizeState(null);
 ok('null 输入不崩', bad.favorites.length === 0 && bad.recent.length === 0);
 ok('非对象输入不崩', normalizeState('x').favorites.length === 0);

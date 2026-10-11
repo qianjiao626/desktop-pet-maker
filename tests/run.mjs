@@ -50,6 +50,7 @@ await import('./dialog.test.mjs');
 await import('./autofit.test.mjs');
 await import('./dnd.test.mjs');
 await import('./library.test.mjs');
+await import('./groups.test.mjs');
 await import('./tray.test.mjs');
 await import('./ipc.test.mjs');
 const { pass, total } = report('桌宠制作器 单元测试');

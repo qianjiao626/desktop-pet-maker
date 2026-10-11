@@ -4,16 +4,16 @@
 
 > 技术选型参考了这些开源项目：`B666T/DesktopPetGenerator`（上传图→抠图→动画→打包）、
 > `PC2005-cloud/dsh-pet`（宠物包 / 素材链思路）、`ln2146/ai-desktop-pet-generator`（抠图→精灵流水线）。
-> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 2293 项单测 + 41 套 e2e**。
+> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 2344 项单测 + 42 套 e2e**。
 
 ---
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.17](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.17/desktop-pet-maker-win32-x64-v0.9.17.zip)**
+**[下载 Windows 免安装版 v0.9.18](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.18/desktop-pet-maker-win32-x64-v0.9.18.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.17）：
+**Linux x64**（v0.9.18）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
@@ -144,6 +144,8 @@ npm start
   - 生成脚本在 `scripts/make-*.mjs`，全部程序化绘制、不依赖外部素材，可随时重跑
   - 原创形象不复制任何第三方 IP 的具体造型；历史 CC0 素材来源与许可见 `THIRD-PARTY.md`
 - **宠物库支持搜索与排序**：按名字过滤、按名字/体积/帧数排序、显示"n / N 只"计数
+- **宠物库分组**：给宠物打标签归类（一只可同属多个分组），分组栏一点就只看该组，
+  右键分组可改名 / 删除；分组偏好只存本地，不写进 `.petpack`（不污染可分享的包）
 - **上传即用（含渐变背景）**：拖入照片会自动检测并抠掉纯色**或渐变**背景
   （墙面 / 天空 / 桌面这类常见背景都能识别；杂乱背景会自动跳过，避免误伤主体）
 - **性格模板（一键预设）**：快速条上一排 5 种性格 —— 活泼好动 / 温顺安静 / 贪睡宅家 /
@@ -169,7 +171,7 @@ npm install                 # 安装依赖（仅 Electron）
 
 npm start                   # 打开制作器
 npm test                    # 545 项单元测试
-npm run test:e2e            # 12 套端到端测试（快速模式 / UI / 宠物 / 动画 / 多屏 / 内存 / 宠物库 / 打包）
+npm run test:e2e            # 42 套端到端测试（含防假绿自检：套件失败一定返回非 0 退出码）
 npm run package             # 打包为免安装目录（dist/）
 npm run selftest            # AI 引擎自检
 npm run examples            # 生成示例宠物（多帧动画）
@@ -255,7 +257,7 @@ ZIP 内含 `pet.json` + 若干帧图片 + `README.txt`：
 | GIF 处理 | 自研解析器 + 内联 gifuct-js 的 LZW（MIT） |
 | 打包格式 | 自研 ZIP 读写（零第三方依赖） |
 | 交互 | 像素级 alpha 命中测试 + `setIgnoreMouseEvents` 穿透 |
-| 测试 | 自研断言框架：2293 项单测 + 41 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站 / 角色工坊 / 对话） |
+| 测试 | 自研断言框架：2344 项单测 + 42 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站 / 角色工坊 / 对话） |
 
 ## 🧪 测试
 

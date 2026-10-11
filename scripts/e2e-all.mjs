@@ -38,6 +38,7 @@ const suites = [
   ['e2e-charstudio.mjs', []],
   ['e2e-dialog.mjs', []],
   ['e2e-menu.mjs', []],
+  ['e2e-groups.mjs', []],
   ['e2e-framereplace.mjs', []],
   ['e2e-tray.mjs', []],
   ['e2e-library-prefs.mjs', []],

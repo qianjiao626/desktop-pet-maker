@@ -108,6 +108,44 @@ ok('拳: 时长为正', FIST_DURATION > 0);
   ok('通用 import 守护已扫描 shared 导出', checked > 0, '检查了 ' + checked + ' 个被使用的导出');
 }
 
+// ============ 静态守护：maker.js 用到的 shared 导出必须已 import ============
+// 背景：v0.9.17 我给宠物库加分组时，用了 groupsOf 却没 import，
+// 结果 renderLibrary 抛 ReferenceError，整个宠物库列表渲染不出来（界面全空）。
+// node --check 通过、单测也全绿，只有真的打开库才暴露 —— 所以必须在单测里静态兜住。
+{
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync('src/maker/maker.js', 'utf8');
+  const imported = new Set();
+  for (const m of src.matchAll(/import \{([^}]+)\} from '\.\.\/shared\/[^']+'/g)) {
+    for (const name of m[1].split(',')) imported.add(name.trim().split(/\s+as\s+/)[0]);
+  }
+  // 本文件自己定义的名字不算"漏 import"（比如 maker.js 自己就有一个 escapeHtml）
+  const localNames = new Set();
+  for (const m of src.matchAll(/(?:^|\n)\s*(?:async\s+)?function\s+(\w+)/g)) localNames.add(m[1]);
+  for (const m of src.matchAll(/(?:^|\n)\s*(?:const|let|var)\s+(\w+)\s*=/g)) localNames.add(m[1]);
+  for (const m of src.matchAll(/import\s+\*\s+as\s+(\w+)/g)) localNames.add(m[1]);
+  // 剥掉注释再检测：注释里提到某个名字不代表代码用了它
+  // （实测：maker.js 的注释里写了 canAnimate（主进程），被误判成"漏 import"）。
+  const body = src
+    .replace(/^import[\s\S]*?;$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  const files = (await import('node:fs')).readdirSync('src/shared').filter((f) => f.endsWith('.js'));
+  let checked = 0;
+  const missing = [];
+  for (const f of files) {
+    const mod = readFileSync('src/shared/' + f, 'utf8');
+    for (const m of mod.matchAll(/export (?:function|const|let|class)\s+(\w+)/g)) {
+      const name = m[1];
+      if (!new RegExp('(^|[^\\w.$])' + name + '\\b').test(body)) continue;
+      checked++;
+      if (!imported.has(name) && !localNames.has(name)) missing.push(name + ' (from ' + f + ')');
+    }
+  }
+  ok('maker.js 用到的 shared 导出都已 import', missing.length === 0, missing.join(', '));
+  ok('maker import 守护已扫描到导出', checked > 0, '检查了 ' + checked + ' 个');
+}
+
 // ============ 被摸头时的「舒服」姿态 ============
 {
   const s0 = pettingPose(0);

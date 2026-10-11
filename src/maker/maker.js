@@ -8,7 +8,7 @@ import { composeQBody } from './qcompose.js';
 import { synthesizeMotion, MOTION_NAMES, motionCanvasSize } from '../shared/motion.js';
 import { fitFrameLimit, fmtBytes } from '../shared/budget.js';
 import { sanitizeSpeech, isSpeakable, pushSpeech } from '../shared/speech.js';
-import { emptyState, normalizeState, isFavorite, toggleFavorite, filterLibrary } from '../shared/library.js';
+import { emptyState, normalizeState, isFavorite, toggleFavorite, filterLibrary, groupsOf } from '../shared/library.js';
 import { classifyDroppedFiles, isShareFile } from '../shared/dnd.js';
 import { PERSONALITY_TEMPLATES, applyTemplate, templateFlags, matchTemplate } from '../shared/templates.js';
 import { applyCustomTemplate, matchCustomTemplate } from '../shared/mytemplates.js';
@@ -1776,6 +1776,129 @@ let libCache = [];
 // 过滤 + 排序统一走 src/shared/library.js（有单测覆盖，避免前端另写一套规则）
 let libPrefs = emptyState();
 
+/** 渲染分组栏：每个分组一个可点的 chip（点了就只看它），末尾是新建分组 */
+function renderGroupBar() {
+  const box = $('#libGroups');
+  if (!box) return;
+  const groups = (libPrefs && libPrefs.groups) || [];
+  box.innerHTML = '';
+  if (!groups.length) {
+    box.innerHTML = '<span class="lib-groups-empty">还没有分组。宠物多了可以分组归类（点宠物卡片上的 🏷）</span>';
+  }
+  for (const g of groups) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'lib-gchip' + (libScope === 'group:' + g.id ? ' on' : '');
+    chip.dataset.gid = g.id;
+    chip.innerHTML = '<span>' + escapeHtml(g.name) + '</span><em>' + g.pets.length + '</em>';
+    chip.title = '只看这个分组（右键可改名 / 删除）';
+    chip.onclick = () => {
+      libScope = (libScope === 'group:' + g.id) ? 'all' : ('group:' + g.id);
+      for (const b of $('#libSeg').querySelectorAll('button')) b.classList.toggle('on', libScope === b.dataset.scope);
+      renderLibrary();
+    };
+    chip.oncontextmenu = (e) => { e.preventDefault(); openGroupAdmin(g); };
+    box.appendChild(chip);
+  }
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.className = 'lib-gchip lib-gadd';
+  add.textContent = '＋ 新建分组';
+  add.onclick = () => createGroupFlow();
+  box.appendChild(add);
+}
+
+/** 新建分组 */
+async function createGroupFlow() {
+  const name = window.prompt('新分组叫什么？例如：表情包 / 工作用 / 给孩子的');
+  if (name == null) return;
+  const t = String(name).trim();
+  if (!t) { setStatus('分组名不能为空', 'err'); return; }
+  try {
+    const r = await window.api.libraryAddGroup(t);
+    if (!r || !r.ok) { setStatus('新建分组失败：' + ((r && r.reason) || '未知错误'), 'err'); return; }
+    libPrefs = normalizeState(r.library);
+    renderLibrary();
+    setStatus('✅ 已新建分组「' + t + '」', 'ok');
+  } catch (err) {
+    console.warn('[library] 新建分组失败：' + (err && err.message ? err.message : err));
+    setStatus('新建分组异常：' + String((err && err.message) || err), 'err');
+  }
+}
+
+/** 点宠物卡片上的 🏷：勾选它属于哪些分组 */
+function openGroupMenu(item, anchorEl) {
+  // 用轻量浮层而不是 window.prompt：分组是多选，要看到全部并逐项勾选
+  const old = document.getElementById('groupMenu');
+  if (old) old.remove();
+  const groups = (libPrefs && libPrefs.groups) || [];
+  const box = document.createElement('div');
+  box.id = 'groupMenu';
+  box.className = 'group-menu';
+  const mine = new Set(groupsOf(libPrefs, item.id).map((g) => g.id));
+  if (!groups.length) {
+    box.innerHTML = '<div class="gm-empty">还没有分组</div>';
+  } else {
+    for (const g of groups) {
+      const row = document.createElement('label');
+      row.className = 'gm-row';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = mine.has(g.id);
+      cb.onchange = async () => {
+        try {
+          const r = await window.api.librarySetGroupMember(g.id, item.id, cb.checked);
+          if (r && r.ok) { libPrefs = normalizeState(r.library); renderLibrary(); renderGroupBar(); }
+        } catch (err) { console.warn('[library] 改分组失败：' + (err && err.message ? err.message : err)); }
+      };
+      const span = document.createElement('span');
+      span.textContent = g.name;
+      row.appendChild(cb);
+      row.appendChild(span);
+      box.appendChild(row);
+    }
+  }
+  const addRow = document.createElement('button');
+  addRow.type = 'button';
+  addRow.className = 'gm-add';
+  addRow.textContent = '＋ 新建分组…';
+  addRow.onclick = async () => { box.remove(); await createGroupFlow(); };
+  box.appendChild(addRow);
+  document.body.appendChild(box);
+  const r = anchorEl.getBoundingClientRect();
+  box.style.left = Math.max(8, Math.min(r.left, window.innerWidth - box.offsetWidth - 8)) + 'px';
+  box.style.top = Math.min(r.bottom + 6, window.innerHeight - box.offsetHeight - 8) + 'px';
+  const close = (ev) => {
+    if (box.contains(ev.target)) return;
+    box.remove();
+    document.removeEventListener('mousedown', close, true);
+  };
+  setTimeout(() => document.addEventListener('mousedown', close, true), 0);
+}
+
+/** 右键分组 chip：改名 / 删除 */
+async function openGroupAdmin(g) {
+  const action = window.prompt('分组「' + g.name + '」：输入新名字 = 改名；输入 - = 删除；取消 = 什么都不做', g.name);
+  if (action == null) return;
+  const t = String(action).trim();
+  if (t === '-') {
+    if (!window.confirm('删除分组「' + g.name + '」？宠物本身不会被删')) return;
+    try {
+      const r = await window.api.libraryRemoveGroup(g.id);
+      if (r && r.ok) { libPrefs = normalizeState(r.library); if (libScope === 'group:' + g.id) libScope = 'all'; renderLibrary(); setStatus('已删除分组', 'ok'); }
+    } catch (err) { setStatus('删除分组失败：' + String((err && err.message) || err), 'err'); }
+    return;
+  }
+  if (!t || t === g.name) return;
+  try {
+    const r = await window.api.libraryRenameGroup(g.id, t);
+    if (!r || !r.ok) { setStatus('改名失败：' + ((r && r.reason) || '未知错误'), 'err'); return; }
+    libPrefs = normalizeState(r.library);
+    renderLibrary();
+    setStatus('✅ 分组已改名为「' + t + '」', 'ok');
+  } catch (err) { setStatus('改名异常：' + String((err && err.message) || err), 'err'); }
+}
+
 function libFiltered() {
   return filterLibrary(libCache, {
     query: ($('#libSearch') ? $('#libSearch').value : ''),
@@ -1810,6 +1933,7 @@ function renderLibrary() {
     return;
   }
 
+  renderGroupBar();
   grid.innerHTML = '';
   for (const it of list) {
     const el = document.createElement('div');
@@ -1818,13 +1942,19 @@ function renderLibrary() {
       el.innerHTML = '<div class="nm">⚠ 损坏</div><div class="meta">' + escapeHtml(it.id) + '</div>';
     } else {
       const fav = isFavorite(libPrefs, it.id);
+      // 这只宠物已在哪些分组里（卡片上显示小标签，否则用户不知道分过组没）
+      const inGroups = groupsOf(libPrefs, it.id);
       el.innerHTML = '<img src="' + it.thumb + '" alt="" />'
         + '<button class="lib-fav' + (fav ? ' on' : '') + '" title="'
         + (fav ? '取消收藏' : '收藏') + '">' + (fav ? '★' : '☆') + '</button>'
+        + '<button class="lib-groupbtn" title="加入 / 移出分组">🏷</button>'
+        + (inGroups.length ? '<div class="lib-gtags">' + inGroups.map((g) => '<span class="lib-gtag">' + escapeHtml(g.name) + '</span>').join('') + '</div>' : '')
         // 只给「用户自己装的」打标：内置宠物占多数，全都标反而成了噪音
         + (it.builtin ? '' : '<span class="lib-badge mine">我的</span>')
         + '<div class="nm">' + escapeHtml(it.name) + '</div>'
         + '<div class="meta">' + it.frames + ' 帧 · ' + (it.size / 1024).toFixed(0) + ' KB</div>';
+      const gbtn = el.querySelector('.lib-groupbtn');
+      if (gbtn) gbtn.onclick = (ev) => { ev.stopPropagation(); openGroupMenu(it, gbtn); };
       el.querySelector('.lib-fav').onclick = async (ev) => {
         ev.stopPropagation();
         const prev = libPrefs;
