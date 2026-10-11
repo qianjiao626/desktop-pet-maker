@@ -23,6 +23,7 @@ import { autoFit, bodyBounds as bodyBoundsOf } from '../shared/autofit.js';
 import { MOTIONS, canAnimate, motionSequence, solveJoints, motionBounds, LIMB_LABELS } from '../shared/limb.js';
 import { planExport, exportReadme } from '../shared/bulkexport.js';
 import { planBulkGif, bulkGifSummary } from '../shared/bulkgif.js';
+import { planSheet, sheetFrames, sheetMetadata } from '../shared/spritesheet.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -188,6 +189,9 @@ function dataUrlToBuffer(dataUrl) {
   if (!m) throw new Error('图片数据无效');
   return { mime: m[1].toLowerCase(), buf: Buffer.from(m[2], 'base64') };
 }
+
+/** 一张 width×height 的 BGRA 缓冲需要多少字节 */
+function sheetBytes(w, h) { return Math.max(0, (w | 0)) * Math.max(0, (h | 0)) * 4; }
 
 // images: [{ dataUrl, durationMs }]
 /**
@@ -1018,6 +1022,68 @@ ipcMain.handle('pet:exportAll', async (e, opt) => {
     return {
       ok: true, path: r.filePath, count: plan.entries.length,
       bytes: w.bytes, skipped: plan.skipped,
+    };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
+// ---------- 导出 Sprite Sheet（给开发者接自己的引擎用）----------
+// 产出一张拼接图 + 一份 JSON 元数据（每帧坐标/时长），引擎直接读 JSON 就能播。
+ipcMain.handle('export:spriteSheet', async (e, { frames, cellW, cellH, suggestedName }) => {
+  try {
+    if (!Array.isArray(frames) || !frames.length) return { ok: false, errors: ['没有可导出的帧'] };
+    const W = Math.max(1, Math.round(Number(cellW) || 0));
+    const H = Math.max(1, Math.round(Number(cellH) || 0));
+    if (!W || !H) return { ok: false, errors: ['帧尺寸无效'] };
+
+    const plan = planSheet(frames.length, W, H);
+    // 拼图：用一张大 canvas 逐帧画（在渲染进程做更合适，但主进程也能用 nativeImage 合成）
+    // nativeImage 没有直接"画到画布"的 API，所以这里用 Buffer 手工拼 BGRA。
+    const sheetBgra = Buffer.alloc(sheetBytes(plan.width, plan.height));
+    const durations = [];
+    for (let i = 0; i < frames.length; i++) {
+      const f = frames[i];
+      const m = /^data:[^;]+;base64,(.*)$/i.exec(f.dataUrl || '');
+      if (!m) continue;
+      const img = nativeImage.createFromBuffer(Buffer.from(m[1], 'base64'));
+      const sz = img.getSize();
+      if (!sz.width || !sz.height) continue;
+      // 逐帧统一到单元尺寸（尺寸不一致时拉伸；调用方一般已统一画布）
+      const resized = (sz.width === W && sz.height === H) ? img : img.resize({ width: W, height: H, quality: 'good' });
+      const src = resized.toBitmap();   // BGRA
+      const col = i % plan.cols, row = Math.floor(i / plan.cols);
+      const ox = col * W, oy = row * H;
+      for (let y = 0; y < H; y++) {
+        const s = y * W * 4;
+        const d = ((oy + y) * plan.width + ox) * 4;
+        src.copy(sheetBgra, d, s, s + W * 4);
+      }
+      durations.push(Math.max(16, Math.round(f.durationMs || 100)));
+    }
+
+    // 用 nativeImage 把 BGRA 还原成 PNG
+    const sheetImg = nativeImage.createFromBuffer(sheetBgra, { width: plan.width, height: plan.height });
+    if (sheetImg.isEmpty()) return { ok: false, errors: ['拼接图生成失败'] };
+
+    const frameRects = sheetFrames(frames.length, W, H, plan.cols, plan.rows);
+    const meta = sheetMetadata(frameRects, {
+      name: String(suggestedName || 'pet'), image: String(suggestedName || 'pet') + '-sheet.png',
+      sheetWidth: plan.width, sheetHeight: plan.height, cols: plan.cols, rows: plan.rows, durations,
+    });
+
+    const r = await dialog.showSaveDialog({
+      title: '导出 Sprite Sheet（会同时生成 PNG 与 JSON）',
+      defaultPath: String(suggestedName || 'pet') + '-sheet.png',
+      filters: [{ name: 'PNG 图片', extensions: ['png'] }],
+    });
+    if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+    const pngPath = r.filePath.replace(/\.[a-z0-9]+$/i, '') + '.png';
+    const jsonPath = pngPath.replace(/\.png$/i, '.json');
+    fs.writeFileSync(pngPath, sheetImg.toPNG());
+    fs.writeFileSync(jsonPath, JSON.stringify(meta, null, 2));
+    return {
+      ok: true, png: pngPath, json: jsonPath, frames: frames.length,
+      sheet: { width: plan.width, height: plan.height, cols: plan.cols, rows: plan.rows },
+      oversized: plan.oversized, bytes: fs.statSync(pngPath).size,
     };
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });

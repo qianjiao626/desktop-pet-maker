@@ -16,6 +16,7 @@ import { renderLimbFrames } from './limbrender.js';
 import { createHistory, estimateSnapshotBytes } from '../shared/history.js';
 import { removeFrame, duplicateFrame, shiftFrame, moveFrame, uniqueFrameName } from '../shared/frames.js';
 import { visibleWindow, thumbSize, dropTarget, insertIndexAt, stripLabel } from '../shared/filmstrip.js';
+import { planSheet, sheetSummary } from '../shared/spritesheet.js';
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $('#status');
@@ -203,6 +204,7 @@ function updateButtons() {
   if ($('#btnSaveTpl')) $('#btnSaveTpl').disabled = !has;
   if ($('#btnExportShare')) $('#btnExportShare').disabled = !has;
   if ($('#btnExportGif')) $('#btnExportGif').disabled = !has;
+  if ($('#btnExportSheet')) $('#btnExportSheet').disabled = !has;
   if (typeof poseUpdateButtons === 'function') poseUpdateButtons();
   const multi = state.frames.length > 1;
   $('#btnPrevFrame').disabled = !multi;
@@ -867,6 +869,44 @@ $('#btnExportShare').onclick = async () => {
   showShareHint(r.path, $('#petName').value || '我的桌宠');
 };
 
+// 界面用的网格预估（直接复用 shared 的纯函数，保证与实际导出一致）
+function planSheetUI(n, w, h) { return planSheet(n, w, h); }
+
+// 导出 Sprite Sheet 的界面接线。
+// 导出前先把"会得到多大的图、几行几列"告诉用户 —— 引擎对纹理尺寸有上限，
+// 用户需要提前知道（尤其是多帧大图时会超 4096）。
+if ($('#btnExportSheet')) $('#btnExportSheet').onclick = async () => {
+  if (!state.frames.length) { setStatus('请先导入图片', 'err'); return; }
+  const f0 = state.frames[0].current;
+  const plan = planSheetUI(state.frames.length, f0.width, f0.height);
+  const warn = plan.oversized ? '\n\n⚠ 这张图会比 4096px 还大，部分引擎/显卡不支持这么大的纹理。' : '';
+  if (!window.confirm('将导出 Sprite Sheet：\n\n'
+    + '· ' + state.frames.length + ' 帧拼成 ' + plan.cols + '×' + plan.rows + ' 网格\n'
+    + '· 图片 ' + plan.width + '×' + plan.height + ' 像素\n'
+    + '· 同时生成一份 JSON（含每帧坐标与时长）\n\n'
+    + '引擎读 JSON 就能直接播放。继续吗？' + warn)) return;
+
+  const btn = $('#btnExportSheet');
+  btn.disabled = true;
+  setStatus('正在拼接 Sprite Sheet…');
+  try {
+    const useRaw = !!($('#chkGifDelay') && $('#chkGifDelay').checked);
+    const fpsDelay = Math.round(1000 / parseInt($('#fps').value, 10));
+    const frames = state.frames.map((f) => ({
+      dataUrl: imageDataToDataURL(f.current),
+      durationMs: (useRaw && f.durationMs) ? f.durationMs : fpsDelay,
+    }));
+    const r = await window.api.exportSpriteSheet(frames, f0.width, f0.height, $('#petName').value || 'pet');
+    btn.disabled = false;
+    if (r.canceled) { setStatus('已取消'); return; }
+    if (!r.ok) { setStatus('导出失败：' + (r.errors || []).join(';'), 'err'); return; }
+    setStatus('✅ Sprite Sheet 已导出（' + r.frames + ' 帧 · ' + r.sheet.width + '×' + r.sheet.height
+      + ' · ' + (r.bytes / 1024).toFixed(0) + ' KB）：' + r.png + ' 与同名 .json', 'ok');
+  } catch (err) {
+    btn.disabled = false;
+    setStatus('导出异常：' + String(err.message || err), 'err');
+  }
+};
 // 导出 GIF 动图：把当前帧序列编码成一张 GIF（对方不装工具也能看，可直接发表情包）
 if ($('#btnExportGif')) $('#btnExportGif').onclick = async () => {
   if (!state.frames.length) { setStatus('请先导入图片', 'err'); return; }
