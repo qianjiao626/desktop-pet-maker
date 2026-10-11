@@ -302,3 +302,20 @@ button.block{width:100%}
   box-shadow: 0 0 0 2px rgba(123, 216, 143, 0.3);
   background: rgba(123, 216, 143, 0.12);
 }
+/* ---------- 角色工坊 ---------- */
+.studio-preview{
+  display:flex;align-items:center;justify-content:center;
+  padding:12px;border-radius:14px;border:1px solid var(--line);
+  background:repeating-conic-gradient(#1b2130 0% 25%, #171c28 0% 50%) 50% / 22px 22px;
+}
+.studio-preview canvas{max-width:100%;height:auto;display:block;filter:drop-shadow(0 10px 16px rgba(0,0,0,.45))}
+.st-palettes{display:flex;flex-wrap:wrap;gap:8px}
+.st-pal{
+  width:30px;height:30px;border-radius:50%;border:2px solid transparent;cursor:pointer;
+  outline:none;padding:0;transition:transform .12s ease,border-color .12s ease;
+}
+.st-pal:hover{transform:scale(1.10)}
+.st-pal.on{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.28)}
+.st-toggles{display:flex;flex-wrap:wrap;gap:10px 16px}
+.st-actions{display:flex;gap:8px}
+.st-actions button{flex:1}

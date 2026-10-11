@@ -18,6 +18,8 @@ import { removeFrame, duplicateFrame, shiftFrame, moveFrame, uniqueFrameName } f
 import { fitIntoCanvas, replaceFrameAt, canReplaceFrame } from '../shared/framereplace.js';
 import { visibleWindow, thumbSize, dropTarget, insertIndexAt, stripLabel } from '../shared/filmstrip.js';
 import { planSheet, sheetSummary } from '../shared/spritesheet.js';
+import { normalizeCharacter, randomCharacter, PALETTES, paletteOf, DEFAULT_CHARACTER } from '../shared/charstudio.js';
+import { renderCharacter, renderCharacterFrames } from './charrender.js';
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $('#status');
@@ -2518,8 +2520,187 @@ function bindQuick() {
   }).catch(() => {});
 }
 
+// ---------------- 角色工坊 ----------------
+// 用参数当场画一只原创小人。完全程序化绘制：不联网、不要素材、不要 API Key。
+// 几何计算在 shared/charstudio.js（有单测），这里只管读控件 / 重绘预览 / 变成帧。
+const ST = { cfg: normalizeCharacter(DEFAULT_CHARACTER), previewTimer: 0 };
+
+function stReadCfg() {
+  return normalizeCharacter({
+    name: $('#stName') ? $('#stName').value : '我的小人',
+    bodyShape: $('#stShape') ? $('#stShape').value : 'round',
+    earType: $('#stEar') ? $('#stEar').value : 'cat',
+    eyeType: $('#stEye') ? $('#stEye').value : 'round',
+    mouthType: $('#stMouth') ? $('#stMouth').value : 'smile',
+    paletteId: ST.cfg.paletteId,
+    size: $('#stSize') ? parseInt($('#stSize').value, 10) / 100 : 0.7,
+    eyeGap: $('#stGap') ? parseInt($('#stGap').value, 10) / 100 : 0.5,
+    eyeSize: $('#stEyeSize') ? parseInt($('#stEyeSize').value, 10) / 100 : 0.5,
+    blush: $('#stBlush') ? $('#stBlush').checked : true,
+    tail: $('#stTail') ? $('#stTail').checked : true,
+    arms: $('#stArms') ? $('#stArms').checked : true,
+    legs: $('#stLegs') ? $('#stLegs').checked : true,
+  });
+}
+
+function stWriteCfg(cfg) {
+  const c = normalizeCharacter(cfg);
+  ST.cfg = c;
+  if ($('#stName')) $('#stName').value = c.name;
+  if ($('#stShape')) $('#stShape').value = c.bodyShape;
+  if ($('#stEar')) $('#stEar').value = c.earType;
+  if ($('#stEye')) $('#stEye').value = c.eyeType;
+  if ($('#stMouth')) $('#stMouth').value = c.mouthType;
+  if ($('#stSize')) $('#stSize').value = String(Math.round(c.size * 100));
+  if ($('#stGap')) $('#stGap').value = String(Math.round(c.eyeGap * 100));
+  if ($('#stEyeSize')) $('#stEyeSize').value = String(Math.round(c.eyeSize * 100));
+  if ($('#stBlush')) $('#stBlush').checked = c.blush;
+  if ($('#stTail')) $('#stTail').checked = c.tail;
+  if ($('#stArms')) $('#stArms').checked = c.arms;
+  if ($('#stLegs')) $('#stLegs').checked = c.legs;
+  stSyncLabels();
+  stRenderPalettes();
+  stPreview();
+}
+
+function stSyncLabels() {
+  if ($('#stSizeV')) $('#stSizeV').textContent = $('#stSize').value + '%';
+  if ($('#stGapV')) $('#stGapV').textContent = $('#stGap').value + '%';
+  if ($('#stEyeSizeV')) $('#stEyeSizeV').textContent = $('#stEyeSize').value + '%';
+  if ($('#stFramesV')) $('#stFramesV').textContent = $('#stFrames').value;
+}
+
+function stRenderPalettes() {
+  const box = $('#stPalettes');
+  if (!box) return;
+  if (!box.dataset.built) {
+    box.innerHTML = PALETTES.map((p) =>
+      '<button type="button" class="st-pal" data-pal="' + p.id + '" title="' + escapeHtml(p.name) + '" style="background:' + p.body + '"></button>'
+    ).join('');
+    box.dataset.built = '1';
+    box.onclick = (e) => {
+      const b = e.target.closest('.st-pal');
+      if (!b) return;
+      ST.cfg = normalizeCharacter({ ...stReadCfg(), paletteId: b.dataset.pal });
+      stRenderPalettes();
+      stPreview();
+    };
+  }
+  for (const b of box.querySelectorAll('.st-pal')) b.classList.toggle('on', b.dataset.pal === ST.cfg.paletteId);
+}
+
+function stPreview() {
+  const cv = $('#studioCanvas');
+  if (!cv) return;
+  try {
+    ST.cfg = stReadCfg();
+    // 预览按设备像素比放大，避免高分屏上发虚
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    const css = 180;
+    renderCharacter(cv, ST.cfg, { width: Math.round(css * dpr), height: Math.round(css * dpr) });
+    cv.style.width = css + 'px';
+    cv.style.height = css + 'px';
+  } catch (err) {
+    console.warn('[studio] 预览失败：' + (err && err.message ? err.message : err));
+  }
+}
+
+// 拖动滑块时不要每个像素都重画（高频重绘会明显卡顿）
+function stSchedulePreview() {
+  if (ST.previewTimer) return;
+  ST.previewTimer = setTimeout(() => { ST.previewTimer = 0; stPreview(); }, 40);
+}
+
+/** 把工坊角色变成真实的帧，返回加入的帧数 */
+function stGenerateFrames(cfg, frameCount) {
+  const list = renderCharacterFrames(cfg, { width: 256, height: 256, frames: frameCount });
+  const made = [];
+  for (let i = 0; i < list.length; i++) {
+    const ctx = list[i].canvas.getContext('2d', { willReadFrequently: true });
+    const d = ctx.getImageData(0, 0, list[i].canvas.width, list[i].canvas.height);
+    made.push({
+      original: d,
+      current: d,
+      name: (cfg.name || 'pet') + '_' + String(i).padStart(3, '0') + '.png',
+      durationMs: list[i].durationMs,
+      generatedFrom: 'studio',
+    });
+  }
+  return made;
+}
+
+function stBind() {
+  if (!$('#studioCanvas')) return;
+  stRenderPalettes();
+  stWriteCfg(ST.cfg);
+
+  for (const id of ['stName', 'stShape', 'stEar', 'stEye', 'stMouth']) {
+    if ($('#' + id)) $('#' + id).oninput = () => stSchedulePreview();
+  }
+  for (const id of ['stSize', 'stGap', 'stEyeSize', 'stFrames']) {
+    if ($('#' + id)) $('#' + id).oninput = () => { stSyncLabels(); stSchedulePreview(); };
+  }
+  for (const id of ['stBlush', 'stTail', 'stArms', 'stLegs']) {
+    if ($('#' + id)) $('#' + id).onchange = () => stPreview();
+  }
+
+  $('#btnStRandom').onclick = () => { stWriteCfg(randomCharacter()); setStatus('🎲 随机了一只，不喜欢就再点一次', 'ok'); };
+
+  $('#btnStAdd').onclick = () => {
+    const cfg = stReadCfg();
+    const n = parseInt($('#stFrames').value, 10) || 8;
+    const wasEmpty = state.frames.length === 0;
+    recordUndo();
+    const made = stGenerateFrames(cfg, n);
+    state.frames.push(...made);
+    state.activeIdx = state.frames.length - made.length;
+    syncFrameMeta();
+    FS.thumbCache.clear();
+    renderPreview();
+    updateButtons();
+    if (wasEmpty && state.frames.length) establishUndoBaseline();
+    if ($('#petName')) $('#petName').value = cfg.name;
+    // 生成的帧已经是抠好的（本身就是透明背景）-> 关掉抠图，别把它当照片抠
+    if ($('#cutMode')) $('#cutMode').value = 'none';
+    setStatus('✅ 已生成 ' + made.length + ' 帧「' + cfg.name + '」，点「启用桌宠」就能上桌', 'ok');
+  };
+
+  $('#btnStReplace').onclick = () => {
+    if (!state.frames.length) { setStatus('还没有帧，先用「生成动画帧」', 'err'); return; }
+    const cfg = stReadCfg();
+    const n = parseInt($('#stFrames').value, 10) || 8;
+    recordUndo();
+    const made = stGenerateFrames(cfg, n);
+    const r = replaceFrameAt(state.frames, state.activeIdx, made[0]);
+    if (!r.replaced) { setStatus('替换失败', 'err'); return; }
+    state.frames = r.frames;
+    state.activeIdx = r.activeIdx;
+    FS.thumbCache.clear();
+    syncFrameMeta();
+    renderPreview();
+    updateButtons();
+    setStatus('✅ 已用「' + cfg.name + '」替换第 ' + (r.activeIdx + 1) + ' 帧（可 Ctrl+Z 撤销）', 'ok');
+  };
+
+  $('#btnStSaveChar').onclick = async () => {
+    const cfg = stReadCfg();
+    const r = await window.api.saveCharacter ? await window.api.saveCharacter(cfg) : { ok: false, errors: ['当前版本不支持'] };
+    if (r && r.ok) setStatus('✅ 角色配置已保存到：' + r.path, 'ok');
+    else if (r && r.canceled) setStatus('已取消');
+    else setStatus('保存失败：' + ((r && r.errors) || []).join(';'), 'err');
+  };
+
+  $('#btnStLoadChar').onclick = async () => {
+    const r = await window.api.loadCharacter ? await window.api.loadCharacter() : { ok: false, errors: ['当前版本不支持'] };
+    if (r && r.ok && r.character) { stWriteCfg(r.character); setStatus('✅ 已载入角色：' + r.character.name, 'ok'); }
+    else if (r && r.canceled) setStatus('已取消');
+    else setStatus('载入失败：' + ((r && r.errors) || []).join(';'), 'err');
+  };
+}
+
 // ================= 初始化 =================
 bindQuick();
+stBind();
 syncLabels();
 updateButtons();
 setStatus('就绪');

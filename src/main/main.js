@@ -602,6 +602,38 @@ ipcMain.handle('share:exportSite', async (e, opt) => {
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
 
+// ---------- 角色工坊：把捏好的角色配置存成文件 / 从文件载入 ----------
+// 配置文件是纯 JSON，方便用户备份、发给朋友、或者手改。
+ipcMain.handle('char:save', async (e, cfg) => {
+  try {
+    if (!cfg || typeof cfg !== 'object') throw new Error('没有可保存的角色配置');
+    const safeName = safeFileName(String(cfg.name || 'my-character'), { maxLen: 40, fallback: 'character' });
+    const r = await dialog.showSaveDialog({
+      title: '保存角色配置',
+      defaultPath: safeName + '.petchar.json',
+      filters: [{ name: '角色配置', extensions: ['json'] }],
+    });
+    if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+    fs.writeFileSync(r.filePath, JSON.stringify(cfg, null, 2), 'utf8');
+    return { ok: true, path: r.filePath };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
+ipcMain.handle('char:load', async () => {
+  try {
+    const r = await dialog.showOpenDialog({
+      title: '载入角色配置',
+      properties: ['openFile'],
+      filters: [{ name: '角色配置', extensions: ['json'] }],
+    });
+    if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true };
+    const raw = fs.readFileSync(r.filePaths[0], 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') throw new Error('这个文件不是角色配置');
+    return { ok: true, character: parsed, path: r.filePaths[0] };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
 // ---------- 我的模板：增删改 / 导入导出 ----------
 ipcMain.handle('tpl:list', () => ({ ok: true, templates: loadTemplates() }));
 

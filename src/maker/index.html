@@ -128,6 +128,7 @@
       <button class="tab" data-tab="phys">物理</button>
       <button class="tab" data-tab="bubble">气泡</button>
       <button class="tab" data-tab="body">身体</button>
+      <button class="tab" data-tab="studio">工坊</button>
     </div>
 
     <div class="tabpane active" data-pane="cut">
@@ -331,6 +332,76 @@
         <div class="pose-parts" id="poseParts"></div>
         <div class="pose-issues" id="poseIssues"></div>
       </div>
+    </div>
+
+    <div class="tabpane" data-pane="studio">
+      <p class="note">没有素材、也不会画画？在这里捏一只 —— 完全程序化绘制，原创、零依赖、秒出，
+      不联网、不花钱、没有版权风险。捏好后一键变成会动的桌宠。</p>
+      <div class="studio-preview"><canvas id="studioCanvas" width="200" height="200"></canvas></div>
+      <label class="row">名字
+        <input type="text" id="stName" maxlength="40" value="我的小人" />
+      </label>
+      <label class="row">配色
+        <div class="st-palettes" id="stPalettes"></div>
+      </label>
+      <label class="row">体型
+        <select id="stShape">
+          <option value="round">圆滚滚</option>
+          <option value="egg">蛋形</option>
+          <option value="square">方方正正</option>
+          <option value="bean">豆子（歪一点）</option>
+        </select>
+      </label>
+      <label class="row">耳朵
+        <select id="stEar">
+          <option value="cat">猫耳</option>
+          <option value="rabbit">兔耳</option>
+          <option value="round">圆耳</option>
+          <option value="horn">小角</option>
+          <option value="none">没有耳朵</option>
+        </select>
+      </label>
+      <label class="row">眼睛
+        <select id="stEye">
+          <option value="round">圆圆眼</option>
+          <option value="dot">豆豆眼</option>
+          <option value="sparkle">亮晶晶</option>
+          <option value="sleepy">眯着眼</option>
+        </select>
+      </label>
+      <label class="row">嘴巴
+        <select id="stMouth">
+          <option value="smile">微笑</option>
+          <option value="cat">猫嘴（ω）</option>
+          <option value="open">张嘴</option>
+          <option value="flat">一条线</option>
+        </select>
+      </label>
+      <label class="row">体型大小 <span class="val" id="stSizeV">70%</span>
+        <input type="range" id="stSize" min="35" max="100" value="70" />
+      </label>
+      <label class="row">双眼间距 <span class="val" id="stGapV">50%</span>
+        <input type="range" id="stGap" min="20" max="100" value="50" />
+      </label>
+      <label class="row">眼睛大小 <span class="val" id="stEyeSizeV">50%</span>
+        <input type="range" id="stEyeSize" min="20" max="100" value="50" />
+      </label>
+      <div class="st-toggles">
+        <label class="chk"><input type="checkbox" id="stBlush" checked /> 腮红</label>
+        <label class="chk"><input type="checkbox" id="stTail" checked /> 尾巴</label>
+        <label class="chk"><input type="checkbox" id="stArms" checked /> 手</label>
+        <label class="chk"><input type="checkbox" id="stLegs" checked /> 脚</label>
+      </div>
+      <label class="row">动画帧数 <span class="val" id="stFramesV">8</span>
+        <input type="range" id="stFrames" min="4" max="24" value="8" />
+      </label>
+      <div class="st-actions">
+        <button id="btnStRandom" class="ghost">🎲 随机一只</button>
+        <button id="btnStAdd" class="primary">＋ 生成动画帧</button>
+      </div>
+      <button id="btnStReplace" class="ghost block">替换当前帧</button>
+      <button id="btnStSaveChar" class="ghost block">保存角色配置…</button>
+      <button id="btnStLoadChar" class="ghost block">载入角色配置…</button>
     </div>
 
     <div class="panel-foot">

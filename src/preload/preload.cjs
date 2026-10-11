@@ -54,6 +54,9 @@ contextBridge.exposeInMainWorld('api', {
   // 零依赖分享页：导出一个自包含 HTML；收到 .html 时能从里面还原出宠物包
   exportShareHtml: (pack, images, clipImages) => ipcRenderer.invoke('share:exportHtml', { pack, images, clipImages }),
   readShareHtml: (p) => ipcRenderer.invoke('share:readHtml', p),
+  // 角色工坊：保存 / 载入角色配置（纯 JSON，可备份可分享）
+  saveCharacter: (cfg) => ipcRenderer.invoke('char:save', cfg),
+  loadCharacter: () => ipcRenderer.invoke('char:load'),
   // 在线分享站：把宠物库导出成零后端静态站点（扔到 GitHub Pages 就能给别人逛）
   exportShareSite: (opt) => ipcRenderer.invoke('share:exportSite', opt),
 
