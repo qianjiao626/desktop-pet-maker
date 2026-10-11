@@ -61,6 +61,7 @@ function makeStill(size) {
 
 let win = null;
 const js = (code) => win.webContents.executeJavaScript(code);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 app.whenReady().then(async () => {
   registerIpc();   // 真实注册全部 IPC（与正式运行一致）
@@ -405,6 +406,27 @@ app.whenReady().then(async () => {
   }
 
   log('');
+  // ---- 空状态的「三条出路」----
+  // 以前空状态只提"拖图片/选图片"，22 只内置宠物和角色工坊都没被提及 ——
+  // 有能力但用户不知道，等于没有（见 HANDOFF 第 134 条）。
+  {
+    const hasStudio = await js("!!document.querySelector('#btnEmptyStudio')");
+    const hasLib = await js("!!document.querySelector('#btnEmptyLibrary')");
+    check('空状态有「没有素材？捏一只」入口', hasStudio === true);
+    check('空状态有「从宠物库挑一只」入口', hasLib === true);
+    if (hasStudio) {
+      await js("document.querySelector('#btnEmptyStudio').click()");
+      await sleep(300);
+      check('点它会切到工坊页', await js("document.querySelector('.tabpane[data-pane=\"studio\"]').classList.contains('active')"));
+    }
+    if (hasLib) {
+      await js("document.querySelector('#btnEmptyLibrary').click()");
+      await sleep(400);
+      check('点它会打开宠物库', await js("!document.querySelector('#libModal').hidden"));
+      await js("(() => { const m = document.querySelector('#libModal'); if (m) m.hidden = true; return undefined; })()");
+    }
+  }
+
   log('==== UI E2E: ' + pass + '/' + (pass + fail) + ' ====');
   app.exit(fail ? 1 : 0);   // 用 app.exit 才能可靠传退出码（Windows 上实测；别改成 process.exitCode）
 }).catch((e) => { log('FATAL ' + e.message + '\n' + (e.stack || '')); app.quit(); });

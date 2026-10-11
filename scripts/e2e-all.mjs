@@ -92,7 +92,10 @@ for (const [file, args] of suites) {
     killSignal: 'SIGKILL',
     // PETMAKER_NO_LAUNCH=1：禁止真的拉起宠物子进程，否则会留下 --pet= 孤儿进程，
     // 让后续套件连不上/挂起（pet:runInstalled / pet:launch 都受此开关保护）。
-    env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', PETMAKER_NO_LAUNCH: '1' },
+    // PETMAKER_HEADLESS=1：**任何窗口都不要真的显示到屏幕上**。
+    // 用户明确要求过：跑任务时桌面不要反复冒出窗口影响工作。
+    // 离屏渲染照常，断言照样能读像素/位置，但屏幕上什么都不会出现。
+    env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', PETMAKER_NO_LAUNCH: '1', PETMAKER_HEADLESS: '1' },
   });
   if (r.error && r.error.code === 'ETIMEDOUT') { failed++; console.log('!! ' + file + ' 超时（5 分钟未结束，已强制结束）'); }
   else if (r.status !== 0) { failed++; console.log('!! ' + file + ' 退出码 ' + r.status); }

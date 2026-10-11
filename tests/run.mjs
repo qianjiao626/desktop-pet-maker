@@ -60,6 +60,8 @@ await import('./releaseverify.test.mjs');
 await import('./positionstore.test.mjs');
 await import('./unusedapi.test.mjs');
 await import('./deadcode.test.mjs');
+await import('./help.test.mjs');
+await import('./headless.test.mjs');
 await import('./tray.test.mjs');
 await import('./ipc.test.mjs');
 const { pass, total } = report('桌宠制作器 单元测试');

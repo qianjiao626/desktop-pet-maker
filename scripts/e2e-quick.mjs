@@ -123,7 +123,14 @@ app.whenReady().then(async () => {
     const pd = await pw.webContents.executeJavaScript('window.__petDebug()');
     check('摸头进入 pat 状态', pd.behavior.state === 'pat', pd.behavior.state);
     check('制作器提示摸头', /摸/.test(await mx('document.querySelector("#status").textContent')));
-    await sleep(1800);
+    // 等状态**真的离开 pat**，而不是等固定墙钟时间。
+    // 无头模式（跑 e2e 时不显示窗口，桌面保持干净）下 rAF 被 Chromium 节流，
+    // 状态推进比可见时慢得多 —— 固定 1.8 秒可能还在 pat（实测踩到）。
+    for (let i = 0; i < 60; i++) {
+      await sleep(100);
+      const st = (await pw.webContents.executeJavaScript('window.__petDebug()')).behavior.state;
+      if (st !== 'pat') break;
+    }
     const ad = await pw.webContents.executeJavaScript('window.__petDebug()');
     check('摸头后自动恢复', ad.behavior.state !== 'pat', ad.behavior.state);
 
@@ -159,7 +166,11 @@ app.whenReady().then(async () => {
     await sleep(120);
     const hitVel = await pw.webContents.executeJavaScript('window.__petDebug()');
     const vx = Math.abs((hitVel.body && hitVel.body.vx) || 0);
-    await sleep(1700);
+    for (let i = 0; i < 60; i++) {
+      await sleep(100);
+      const st = (await pw.webContents.executeJavaScript('window.__petDebug()')).behavior.state;
+      if (st !== 'hit') break;
+    }
     const afterHit = await pw.webContents.executeJavaScript('window.__petDebug()');
     check('受击后自动恢复', afterHit.behavior.state !== 'hit', afterHit.behavior.state);
     // 判定：要么产生了明显位移，要么受击瞬间有击退速度（二者其一即可，避免被碰撞误判为失败）

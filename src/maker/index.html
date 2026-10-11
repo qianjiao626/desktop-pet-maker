@@ -82,7 +82,11 @@
           <div class="step"><b>③</b> 点「启用桌宠」</div>
         </div>
         <div class="sub">或</div>
-        <button id="btnChoose" class="primary">选择图片</button>
+        <div class="empty-ways">
+          <button id="btnChoose" class="primary">选择图片</button>
+          <button id="btnEmptyStudio" class="ghost" title="没有素材、也不会画画？用滑块捏一只原创小人">🎨 没有素材？捏一只</button>
+          <button id="btnEmptyLibrary" class="ghost" title="内置 22 只原创桌宠，点一只就能用">🐾 从宠物库挑一只</button>
+        </div>
         <div class="hint">支持 PNG / JPG / WEBP / <b>GIF</b> / BMP<br />纯色背景的照片可以直接用（会自动抠图）；<br />GIF 自动拆帧，多张图 = 多帧动画</div>
       </div>
       <div class="stage-view" id="stageView" hidden>

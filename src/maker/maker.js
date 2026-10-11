@@ -20,6 +20,7 @@ import { visibleWindow, thumbSize, dropTarget, insertIndexAt, stripLabel } from 
 import { planSheet, sheetSummary } from '../shared/spritesheet.js';
 import { mapKey, isTypingTarget } from '../shared/makerkeys.js';
 import { progressText, summaryText, progressPct } from '../shared/launchprogress.js';
+import { helpText } from '../shared/help.js';
 import { normalizeCharacter, randomCharacter, PALETTES, paletteOf, DEFAULT_CHARACTER } from '../shared/charstudio.js';
 import { renderCharacter, renderCharacterFrames } from './charrender.js';
 
@@ -1022,23 +1023,9 @@ $('#btnOpenPack').onclick = async () => {
   setStatus('已载入宠物包：' + r.pack.name, 'ok');
 };
 
-$('#btnHelp').onclick = () => alert(
-  '使用步骤：\n' +
-  '1. 拖入或选择角色图片（纯色背景效果最佳）\n' +
-  '2. 「抠图」页调整模式与容差，点“应用到所有帧”\n' +
-  '3. 拖入 GIF 会自动拆帧；多张图片 = 多帧动画；单张图可用「从单张图生成动画」\n' +
-  '   多帧时用「多帧对齐方式」把主体对齐，可消除播放抖动\n' +
-  '4. 「外观/动画/物理/气泡」调参数，画布实时预览\n' +
-  '5. 点「桌面预览」真实体验，满意后「导出桌宠包」\n\n' +
-  '导出的 .petpack 可在「宠物库」安装后随时启动。\n' +
-  '命令行运行：npm run pet -- --pet=xxx.petpack\n\n' +
-  '【想关掉桌宠？】三种方式，任选一种：\n' +
-  '  · 任务栏右下角托盘图标 → 右键 → 「退出桌宠」（推荐）\n' +
-  '  · 按 Ctrl+Alt+Q（全局快捷键，任何情况下都有效）\n' +
-  '  · 把鼠标移到桌宠身上（不是周围空白）右键 → 退出桌宠\n\n' +
-  '【关掉制作器窗口后】托盘图标会继续留在任务栏右下角，\n' +
-  '  随时可以右键退出桌宠，或重新打开制作器。'
-);
+// 使用说明：文案在 shared/help.js（纯函数 + 单测锁住"必须提到每一类能力"）。
+// 以前这段文案直接写在 alert 里，做了新功能没人更新它 —— 用户点开看到的还是旧说明。
+$('#btnHelp').onclick = () => alert(helpText());
 
 // 拖拽
 const stage = $('#stage');
@@ -2210,6 +2197,19 @@ if ($('#chkPowerSave')) {
     }
   };
 }
+
+// 空状态里的另外两条出路：让第一次打开的人知道"没素材也能做"。
+// 以前空状态只提"拖图片/选图片"，而 22 只内置宠物和刚做好的角色工坊都没被提及 ——
+// 有能力但用户不知道，等于没有。
+if ($('#btnEmptyStudio')) $('#btnEmptyStudio').onclick = () => {
+  const tab = document.querySelector('.tab[data-tab="studio"]');
+  if (tab) tab.click();
+  setStatus('在右侧「工坊」里用滑块捏一只 —— 左边会实时预览', 'ok');
+};
+if ($('#btnEmptyLibrary')) $('#btnEmptyLibrary').onclick = () => {
+  const modal = $('#libModal');
+  if (modal) { modal.hidden = false; refreshLibrary(); setStatus('挑一只内置宠物，点「启动」就能上桌', 'ok'); }
+};
 
 $('#btnLibrary').onclick = () => { $('#libModal').hidden = false; refreshLibrary(); };
 $('#btnLibClose').onclick = () => { $('#libModal').hidden = true; };

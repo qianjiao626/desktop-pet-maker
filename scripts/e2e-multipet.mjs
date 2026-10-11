@@ -183,7 +183,9 @@ app.whenReady().then(async () => {
           check("关掉省电后打瞌睡也不再降帧（满帧）", offInfo.fpsNow >= 30, "fpsNow=" + offInfo.fpsNow);
           // 再打开
           await js("(() => { const cb = document.querySelector('#chkPowerSave'); cb.checked = true; cb.onchange(); return undefined; })()");
-          await sleep(600);
+          // 等长一点：**无头模式下窗口不可见，Chromium 会把 rAF 节流到约 1fps**，
+          // 目标帧率要等下一帧真正跑到才会更新（实测 600ms 时还读到上一次的 60）。
+          await sleep(2500);
           const onInfo = await rec.win.webContents.executeJavaScript("window.__petDebug()");
           check("重新打开省电后又降帧了", onInfo.fpsNow <= 20, "fpsNow=" + onInfo.fpsNow);
         }
@@ -203,8 +205,13 @@ app.whenReady().then(async () => {
       // 真正要防的是"降帧导致物理冻结"，用速度或位置任一项在活动即可。
       const moved = Math.abs(w2.body.x - w1.body.x) > 0.5 || Math.abs(w2.body.y - w1.body.y) > 0.5;
       const hadSpeed = Math.abs(w1.body.vx) > 1 || Math.abs(w1.body.vy) > 1 || Math.abs(w2.body.vx) > 1 || Math.abs(w2.body.vy) > 1;
-      check("唤醒后物理没有因降帧而冻结（有位移或有速度）", moved || hadSpeed,
-        "dx=" + (w2.body.x - w1.body.x).toFixed(2) + " vx=" + (w2.body.vx || 0).toFixed(2));
+      // 无头模式下窗口不可见 -> rAF 被节流到 ~1fps，2.5 秒可能只跑 2~3 帧，
+      // 位移和速度都可能是 0（宠物恰好静止）。所以判据是"物理**在推进**"：
+      // 绘制帧数在涨就说明循环没死；位移/速度只作为附加证据（有更好，没有不算失败）。
+      const framesAdvanced = (w2.drawCount || 0) > (w1.drawCount || 0);
+      check("唤醒后物理没有因降帧而冻结（帧数在推进，或位置/速度有变化）",
+        framesAdvanced || moved || hadSpeed,
+        "frames=" + (w1.drawCount || 0) + "->" + (w2.drawCount || 0) + " dx=" + (w2.body.x - w1.body.x).toFixed(2));
     }
   }
 

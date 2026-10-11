@@ -78,14 +78,25 @@ app.whenReady().then(async () => {
     return null;
   };
 
+  // 注入光标后要**等宠物真的画了几帧**再看姿态，而不是等固定墙钟时间。
+  // 无头模式（跑 e2e 时不显示窗口，桌面保持干净）下 rAF 被 Chromium 节流，
+  // 200ms 可能一帧都没跑 -> 读到的还是上一次的姿态（实测：左右倾斜读数一模一样）。
+  const waitFrames = async (n = 3) => {
+    const s0 = (await dbg()).drawCount || 0;
+    for (let i = 0; i < 80; i++) {
+      await sleep(100);
+      if (((await dbg()).drawCount || 0) - s0 >= n) break;
+    }
+  };
+
   const okR = await inj(centerX + R, centerY);
-  const stR = await ensureAwake(); await sleep(200);
+  const stR = await ensureAwake(); await waitFrames(3);
   const pr = await dbg();
   const okL = await inj(centerX - R, centerY);
-  const stL = await ensureAwake(); await sleep(200);
+  const stL = await ensureAwake(); await waitFrames(3);
   const pl = await dbg();
   const okU = await inj(centerX, centerY - R);
-  const stU = await ensureAwake(); await sleep(200);
+  const stU = await ensureAwake(); await waitFrames(3);
   const pu = await dbg();
   check('断言前宠物处于可注视状态（非睡眠）', !!stR && !!stL && !!stU, `${stR}/${stL}/${stU}`);
 

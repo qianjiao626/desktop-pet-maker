@@ -53,6 +53,36 @@ const petPath = petArg && petArg.includes('=') ? petArg.split('=').slice(1).join
 
 // ---------- 调试 ----------
 const DEBUG = process.env.PETMAKER_DEBUG === '1';
+
+// 是否允许**真的把窗口显示到屏幕上**。
+// 为什么要有这个（用户明确要求：桌面窗口不要反复弹出来影响工作）：
+//   e2e 会创建宠物窗口，以前它在 ready-to-show 时无条件 win.show()，
+//   于是跑测试时宠物真的出现在用户桌面上（实测看到标题为「桌宠」的窗口）。
+//   设 PETMAKER_HEADLESS=1 时一律只创建、不显示 —— 渲染照常跑（离屏），
+//   断言照样能读像素/位置，但用户屏幕上什么都不会冒出来。
+// 三重保险（用户明确要求：桌面窗口不要反复弹出来影响工作）：
+//   ① PETMAKER_HEADLESS=1（e2e-all 会自动带上）
+//   ② PETMAKER_NO_LAUNCH=1（老的测试开关）
+//   ③ **命令行里有 scripts/e2e- 就自动无头** —— 兜底。
+//      这样即使某个测试忘了设环境变量，也绝不会把窗口弹到用户屏幕上。
+const HEADLESS = process.env.PETMAKER_HEADLESS === '1'
+  || process.env.PETMAKER_NO_LAUNCH === '1'
+  || process.argv.some((a) => /scripts[\\/]e2e-/.test(String(a)));
+/** 只有非无头模式才真的显示窗口 */
+function safeShow(win, mode = 'show') {
+  if (!win || (win.isDestroyed && win.isDestroyed())) return;
+  // 无头模式（测试）：**不显示任何窗口**，用户屏幕上不会冒出东西。
+  // 注意：不可见窗口的 requestAnimationFrame 会被 Chromium 节流（约 1fps），
+  // 所以无头下的"帧率/时序"类断言不可靠 —— 那些断言要看**纯逻辑**，
+  // 或者用 window.__forceXxx 之类的确定性钩子，而不是"等 N 秒看它动没动"。
+  // （试过把窗口挪到屏幕外再 show：Chromium 仍视为不可见，rAF 直接停，反而更糟。）
+  if (HEADLESS) return;
+  try {
+    if (mode === 'inactive') win.showInactive();
+    else win.show();
+  } catch (err) { /* 忽略 */ }
+}
+
 function attachDebug(win, tag) {
   if (!DEBUG) return;
   try {
@@ -291,8 +321,14 @@ function createMakerWindow() {
     width: 1160, height: 800, minWidth: 940, minHeight: 660,
     backgroundColor: '#0f1117', title: '桌宠制作器', autoHideMenuBar: true,
     icon: loadAppIcon(),
+    // ★ show: false 很关键：不加的话窗口**一创建就显示**。
+    //   过去跑 e2e 时制作器窗口会真的弹到用户桌面上（实测抓到标题「桌宠制作器」的窗口）。
+    //   用户明确要求过：不要让窗口反复跳出来影响工作。
+    show: false,
     webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false },
   });
+  // 无头模式（测试）下永不显示；正常使用时再显示出来。
+  if (!HEADLESS) win.once('ready-to-show', () => safeShow(win));
   win.on('closed', () => { setMakerWindow(null); refreshTray(); });
   setMakerWindow(win);
   attachDebug(win, 'maker');
@@ -348,7 +384,7 @@ function togglePetVisible() {
   petHidden = !petHidden;
   try {
     if (petHidden) w.hide();
-    else { w.showInactive(); w.setAlwaysOnTop(true, 'screen-saver'); }
+    else { safeShow(w, 'inactive'); w.setAlwaysOnTop(true, 'screen-saver'); }
   } catch (err) { console.warn('[pet] 显示/隐藏失败: ' + err.message); }
   return true;
 }
@@ -364,7 +400,7 @@ function centerPetNow() {
     const y = Math.round(area.y + area.height - b.height - 40);
     // 用 setContentBounds 而非 setPosition：非整数 DPI 下 setPosition 会让窗口逐渐变宽（见 HANDOFF）
     w.setContentBounds({ x, y, width: b.width, height: b.height });
-    if (petHidden) { petHidden = false; w.showInactive(); }
+    if (petHidden) { petHidden = false; safeShow(w, 'inactive'); }
   } catch (err) { console.warn('[pet] 回中央失败: ' + err.message); }
   return true;
 }
@@ -474,13 +510,13 @@ function showMakerWindow() {
   const w = getMakerWindow();
   if (w && !w.isDestroyed()) {
     if (w.isMinimized()) w.restore();
-    w.show();
+    safeShow(w);
     w.focus();
     return;
   }
   // 制作器窗口已被关闭：重建一个
   const win = createMakerWindow();
-  win.show();
+  safeShow(win);   // 用户主动点「重开制作器」-> 这里要显示；无头模式下 safeShow 会跳过
 }
 
 function refreshTray() {
@@ -561,11 +597,17 @@ function createPetWindow(pack, opt) {
     webPreferences: { preload: PRELOAD, contextIsolation: true, nodeIntegration: false },
   });
   if (pack.behavior.keepAbove) win.setAlwaysOnTop(true, 'screen-saver');
+  // 无头（测试）模式：窗口不显示，但**只对这一个 webContents** 关掉后台节流，
+  // 否则 Chromium 会把不可见窗口的 rAF 压到 ~1fps，动画/物理类断言全废。
+  // 用 setBackgroundThrottling 而不是创建参数 backgroundThrottling：
+  //   前者只影响这一个窗口，后者会把全局帧率行为也改掉（实测导致多个时序套件回归）。
+  if (HEADLESS) { try { win.webContents.setBackgroundThrottling(false); } catch (err) { /* 忽略 */ } }
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   attachDebug(win, 'pet');
   win.loadFile(path.join(ROOT, 'src', 'pet', 'index.html'));
   if (process.env.SIZEDBG === '1') console.log('[SIZEDBG] created  = ' + JSON.stringify(win.getBounds()));
-  win.once('ready-to-show', () => win.show());
+  // 注意：这里以前是无条件 win.show()，跑 e2e 时宠物会真的弹到用户桌面上。
+  win.once('ready-to-show', () => safeShow(win));
   // 只有桌宠存活期间才占用该快捷键，没有宠物时不劫持用户按键
   registerQuitShortcut();
   win.on('closed', () => unregisterQuitShortcut());
@@ -1599,7 +1641,7 @@ ipcMain.handle('pet:setPowerSave', (e, on) => {
 function ensurePetWindowVisibility() {
   const w = getPetWindow();
   if (w && !w.isDestroyed()) {
-    w.showInactive();
+    safeShow(w, 'inactive');
     w.setAlwaysOnTop(true, 'screen-saver');
     w.moveTop();
   }
