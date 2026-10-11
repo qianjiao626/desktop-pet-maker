@@ -39,6 +39,7 @@ await import('./frames.test.mjs');
 await import('./filmstrip.test.mjs');
 await import('./bulkexport.test.mjs');
 await import('./gifencode.test.mjs');
+await import('./bulkgif.test.mjs');
 await import('./autofit.test.mjs');
 await import('./dnd.test.mjs');
 await import('./library.test.mjs');

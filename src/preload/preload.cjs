@@ -37,6 +37,10 @@ contextBridge.exposeInMainWorld('api', {
   // 导出 GIF 动图（发社交平台 / 当表情包）
   exportGif: (frames, width, height, fps, suggestedName) => ipcRenderer.invoke('export:gif', { frames, width, height, fps, suggestedName }),
 
+  // 批量导出 GIF（宠物库里每只各一个 GIF）
+  exportBulkGif: (opt) => ipcRenderer.invoke('export:bulkGif', opt),
+  onBulkGifProgress: (cb) => ipcRenderer.on('export:bulkGifProgress', (e, p) => cb(p)),
+
   // 宠物库批量导出（备份 / 换机 / 分享合集）
   exportAll: (opt) => ipcRenderer.invoke('pet:exportAll', opt),
   previewExport: () => ipcRenderer.invoke('pet:previewExport'),
