@@ -22,6 +22,7 @@ import { checkMaterial, MATERIAL_GUIDE } from '../shared/material.js';
 import { autoFit, bodyBounds as bodyBoundsOf } from '../shared/autofit.js';
 import { MOTIONS, canAnimate, motionSequence, solveJoints, motionBounds, LIMB_LABELS } from '../shared/limb.js';
 import { planExport, exportReadme } from '../shared/bulkexport.js';
+import { planBulkGif, bulkGifSummary } from '../shared/bulkgif.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -1018,6 +1019,97 @@ ipcMain.handle('pet:exportAll', async (e, opt) => {
       ok: true, path: r.filePath, count: plan.entries.length,
       bytes: w.bytes, skipped: plan.skipped,
     };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
+// ---------- 批量导出 GIF：宠物库里每只宠物各导出一个 GIF ----------
+// 编码是纯 CPU 且量化是 O(像素×调色板)，大图多帧会非常慢，
+// 所以 planBulkGif 会把尺寸统一到 <=320px、帧数抽稀到 <=40。
+ipcMain.handle('export:bulkGif', async (e, opt) => {
+  const o = opt || {};
+  try {
+    const dir = petsDir();
+    const builtinNames = new Set();
+    try { for (const f of fs.readdirSync(builtinPetsDir())) if (/\.petpack$/i.test(f)) builtinNames.add(f); } catch {}
+
+    const items = [];
+    for (const f of fs.readdirSync(dir)) {
+      if (!/\.(petpack|zip)$/i.test(f)) continue;
+      const full = path.join(dir, f);
+      const builtin = builtinNames.has(f);
+      if (builtin && !o.includeBuiltin) continue;
+      try {
+        const { pack, frames } = readPackFile(full);
+        items.push({
+          id: f, name: pack.name || f, builtin, broken: false,
+          width: (pack.canvas && pack.canvas.width) || 0,
+          height: (pack.canvas && pack.canvas.height) || 0,
+          frames: frames.map((fr) => ({ dataUrl: fr.dataUrl, durationMs: fr.durationMs })),
+        });
+      } catch { items.push({ id: f, name: f, builtin, broken: true, frames: [] }); }
+    }
+
+    const plan = planBulkGif(items, { includeBuiltin: true, maxEdge: o.maxEdge, maxFrames: o.maxFrames });
+    if (!plan.ok) return { ok: false, errors: [plan.reason], skipped: plan.skipped };
+
+    const r = await dialog.showOpenDialog({
+      title: '选择导出位置（会在里面新建一个文件夹放 GIF）',
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true };
+    const outDir = path.join(r.filePaths[0], '桌宠GIF-' + new Date().toISOString().slice(0, 10));
+    fs.mkdirSync(outDir, { recursive: true });
+
+    let written = 0, failed = 0, bytes = 0;
+    const failures = [];
+    for (const en of plan.entries) {
+      try {
+        const src = items.find((it) => it.id === en.sourceId);
+        if (!src) throw new Error('源宠物缺失');
+        // 按与 plan 完全相同的规则取帧（保证实际导出与预览一致）
+        const list = src.frames;
+        const n = en.frameCount;
+        const picked = list.length <= n ? list : Array.from({ length: n }, (_, i) => list[Math.round((i * (list.length - 1)) / (n - 1))]);
+        const decoded = [];
+        for (const fr of picked) {
+          const m = /^data:[^;]+;base64,(.*)$/i.exec(fr.dataUrl || '');
+          if (!m) continue;
+          const img = nativeImage.createFromBuffer(Buffer.from(m[1], 'base64'));
+          const sz = img.getSize();
+          if (!sz.width || !sz.height) continue;
+          const resized = img.resize({ width: plan.canvas.w, height: plan.canvas.h, quality: 'good' });
+          const bgra = resized.toBitmap();
+          // 必须换通道：toBitmap 是 BGRA，编码器按 RGBA 解读（不换则红蓝互换）
+          const rgba = Buffer.allocUnsafe(bgra.length);
+          for (let i = 0; i < bgra.length; i += 4) {
+            rgba[i] = bgra[i + 2]; rgba[i + 1] = bgra[i + 1]; rgba[i + 2] = bgra[i]; rgba[i + 3] = bgra[i + 3];
+          }
+          decoded.push({ data: new Uint8ClampedArray(rgba), width: plan.canvas.w, height: plan.canvas.h, delayMs: Math.max(16, Math.round(fr.durationMs || 100)) });
+        }
+        if (!decoded.length) throw new Error('帧解码失败');
+        const enc = encodeGif(decoded, { loop: 0 });
+        fs.writeFileSync(path.join(outDir, en.outName), Buffer.from(enc.buffer));
+        bytes += enc.buffer.length;
+        written++;
+        if (e.sender && !e.sender.isDestroyed()) {
+          e.sender.send('export:bulkGifProgress', { done: written + failed, total: plan.entries.length, name: en.name });
+        }
+      } catch (err) {
+        failed++;
+        failures.push({ name: en.name, error: String(err.message || err) });
+      }
+    }
+
+    try {
+      fs.writeFileSync(path.join(outDir, 'README.txt'), [
+        '桌宠 GIF 合集', '='.repeat(32), '',
+        '本目录含 ' + written + ' 个 GIF（每只宠物一个），均为无限循环动图。',
+        '画布统一为 ' + plan.canvas.w + 'x' + plan.canvas.h + '。', '',
+        '导出时间：' + new Date().toISOString().slice(0, 19).replace('T', ' '), '',
+      ].join('\n'));
+    } catch {}
+
+    return { ok: true, dir: outDir, written, failed, failures, bytes, canvas: plan.canvas, skipped: plan.skipped, summary: bulkGifSummary(plan) };
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
 

@@ -32,6 +32,7 @@ const suites = [
   ['e2e-filmstrip.mjs', []],
   ['e2e-bulkexport.mjs', []],
   ['e2e-gifexport.mjs', []],
+  ['e2e-bulkgif.mjs', []],
   ['e2e-tray.mjs', []],
   ['e2e-library-prefs.mjs', []],
   ['e2e-share.mjs', []],

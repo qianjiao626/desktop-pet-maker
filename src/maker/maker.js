@@ -1795,6 +1795,45 @@ $('#btnLibClose').onclick = () => { $('#libModal').hidden = true; };
 $('#libModal').onclick = (e) => { if (e.target.id === 'libModal') $('#libModal').hidden = true; };
 $('#btnLibOpenDir').onclick = () => window.api.openDataDir();
 
+// 批量导出 GIF 的界面接线。
+// 与「导出合集」一样，先给用户交代清楚会发生什么（数量 / 画布 / 是否会抽稀），
+// 再让他决定要不要连内置宠物一起导。
+if ($('#btnLibExportGif')) $('#btnLibExportGif').onclick = async () => {
+  const btn = $('#btnLibExportGif');
+  const includeBuiltin = window.confirm(
+    '批量导出 GIF：宠物库里每只宠物会各变成一个 GIF 文件。\n\n'
+    + '点「确定」= 连内置宠物一起导出\n'
+    + '点「取消」= 只导出你自己的宠物\n\n'
+    + '（为保证速度，画布会统一缩到最长边 320px 以内，帧数过多的会均匀抽稀）'
+  );
+  btn.disabled = true;
+  setStatus('正在批量导出 GIF（宠物多时需要一会儿）…');
+  try {
+    const r = await window.api.exportBulkGif({ includeBuiltin });
+    btn.disabled = false;
+    if (r.canceled) { setStatus('已取消'); return; }
+    if (!r.ok) { setStatus('批量导出失败：' + (r.errors || []).join(';'), 'err'); return; }
+    const kb = (r.bytes / 1024).toFixed(0);
+    let msg = '✅ 已导出 ' + r.written + ' 个 GIF（共 ' + kb + ' KB，画布 ' + r.canvas.w + '×' + r.canvas.h + '）到：' + r.dir;
+    if (r.failed) msg += '；失败 ' + r.failed + ' 个';
+    setStatus(msg, r.failed ? 'err' : 'ok');
+    if (r.failed && r.failures && r.failures.length) {
+      console.warn('[bulk-gif] 失败明细:', r.failures);
+    }
+  } catch (err) {
+    btn.disabled = false;
+    setStatus('批量导出异常：' + String(err.message || err), 'err');
+  }
+};
+
+// 进度回报：宠物多时让用户看到"在动"而不是以为卡死
+if (window.api.onBulkGifProgress) {
+  window.api.onBulkGifProgress((p) => {
+    if (!p) return;
+    setStatus('批量导出 GIF… ' + p.done + '/' + p.total + '（' + p.name + '）');
+  });
+}
+
 // 导出整个宠物库为一个 zip（备份 / 换机 / 分享合集）。
 // 先问用户「要不要包含内置宠物」，并给出体积预估 —— 避免导出一个几百 MB 的包才发现不对。
 if ($('#btnLibExport')) $('#btnLibExport').onclick = async () => {
