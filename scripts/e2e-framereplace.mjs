@@ -138,11 +138,15 @@ app.whenReady().then(async () => {
     await sleep(250);
     const playAfter = await js("document.querySelector('#chkPlay').checked");
     check("输入框里按空格不会误触播放", playAfter === playBefore, playBefore + " -> " + playAfter);
+    // ★ 先把播放关掉：上一步按空格把播放打开了，帧号会**自己往前走**，
+    // 那样量到的变化是自动播放、不是快捷键抢键（实测踩到：误判成"输入框里 → 切帧了"）。
+    await js("(() => { const cb = document.querySelector('#chkPlay'); if (cb.checked) { cb.checked = false; cb.onchange({ target: cb }); } return undefined; })()");
+    await sleep(300);
     const badgeBefore = await idxNow();
     await js("(() => { const i = document.querySelector('#petName'); i.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })); return undefined; })()");
-    await sleep(250);
+    await sleep(350);
     const badgeAfter = await idxNow();
-    check("输入框里按 → 不会误切帧", badgeAfter === badgeBefore, badgeBefore + " -> " + badgeAfter);
+    check("输入框里按 → 不会误切帧（播放已关，变化只可能来自抢键）", badgeAfter === badgeBefore, badgeBefore + " -> " + badgeAfter);
     await js("(() => { document.querySelector('#petName').blur(); return undefined; })()");
   }
 
