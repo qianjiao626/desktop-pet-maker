@@ -13,7 +13,6 @@ export const BUG_STATES = {
   caught: { label: '被抓住' },
 };
 
-function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 function finite(v, d) { return typeof v === 'number' && Number.isFinite(v) ? v : d; }
 
 /**

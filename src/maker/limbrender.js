@@ -8,25 +8,6 @@
 //
 // 前置条件（由 shared/limb.js 的 canAnimate 把关）：标准立绘，四肢不重叠。
 
-/** 双线性采样（预乘 alpha），避免透明边缘脏色 */
-function samplePremul(src, sw, sh, x, y) {
-  if (x < -1 || y < -1 || x > sw || y > sh) return [0, 0, 0, 0];
-  const x0 = Math.floor(x), y0 = Math.floor(y);
-  const fx = x - x0, fy = y - y0;
-  let r = 0, g = 0, b = 0, a = 0;
-  for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) {
-    const sx = x0 + i, sy = y0 + j;
-    if (sx < 0 || sy < 0 || sx >= sw || sy >= sh) continue;
-    const wgt = (i ? fx : 1 - fx) * (j ? fy : 1 - fy);
-    if (wgt <= 0) continue;
-    const k = (sy * sw + sx) * 4;
-    const al = src[k + 3] / 255;
-    r += src[k] * al * wgt; g += src[k + 1] * al * wgt; b += src[k + 2] * al * wgt; a += al * wgt;
-  }
-  if (a <= 1e-6) return [0, 0, 0, 0];
-  return [r / a, g / a, b / a, a];
-}
-
 /**
  * 画一个肢体：以 pivot 为中心把原图按 angle 旋转，并裁到「沿肢体的胶囊」内。
  * 这样只有该肢体区域参与旋转，其它部分保持原位。
