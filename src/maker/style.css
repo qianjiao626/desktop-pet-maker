@@ -362,3 +362,14 @@ button.block{width:100%}
 .lib-pick.on{background:linear-gradient(135deg,var(--accent),var(--accent2));border-color:transparent;font-weight:700}
 .lib-item.picked{outline:2px solid var(--accent);outline-offset:-2px}
 #btnLibMulti.on{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border-color:transparent}
+
+/* ---------- 多宠物启用进度条 ---------- */
+.lib-launchbar{
+  position:absolute;left:0;right:0;bottom:0;height:3px;background:#232a3a;
+  border-radius:0 0 16px 16px;overflow:hidden;
+}
+.lib-launchfill{
+  height:100%;width:0%;
+  background:linear-gradient(90deg,var(--accent),var(--accent2));
+  transition:width .18s ease;
+}

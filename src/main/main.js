@@ -1578,6 +1578,14 @@ function ensurePetWindowVisibility() {
 // 一次性启用多只宠物，各自独立窗口、独立动作、互不影响。
 // 与 quick:enable 的区别：这里**不复用**已有窗口，每只都新建；
 // 并且把每只登记进 state 的多实例表（pet:getPack 就靠这个按窗口反查）。
+/** 把启用进度发回发起请求的那个窗口（多宠物时逐只回报） */
+function sendLaunchProgress(event, payload) {
+  try {
+    const w = event && event.sender && !event.sender.isDestroyed() ? BrowserWindow.fromWebContents(event.sender) : null;
+    if (w && !w.isDestroyed()) w.webContents.send('pet:launchProgress', payload);
+  } catch (err) { /* 回报失败不能影响真正的启用流程 */ }
+}
+
 ipcMain.handle('quick:enableMulti', async (e, payload) => {
   try {
     const items = (payload && Array.isArray(payload.pets)) ? payload.pets : [];
@@ -1589,7 +1597,11 @@ ipcMain.handle('quick:enableMulti', async (e, payload) => {
     for (let i = 0; i < items.length; i++) {
       const it = items[i] || {};
       const pack = it.pack, frames = it.frames;
-      if (!pack || !Array.isArray(frames) || !frames.length) { results.push({ ok: false, name: it.name || '', errors: ['缺少宠物数据'] }); continue; }
+      if (!pack || !Array.isArray(frames) || !frames.length) {
+        results.push({ ok: false, name: it.name || '', errors: ['缺少宠物数据'] });
+        sendLaunchProgress(e, { done: results.length, total: items.length, name: it.name || '', ok: false });
+        continue;
+      }
       const id = addPet({ pack, frames });        // 先登记（会设为 active）
       let win = null;
       try {
@@ -1603,6 +1615,7 @@ ipcMain.handle('quick:enableMulti', async (e, payload) => {
       } catch (err) {
         removePet(id);
         results.push({ ok: false, name: pack.name || '', errors: [String(err.message || err)] });
+        sendLaunchProgress(e, { done: results.length, total: items.length, name: pack.name || '', ok: false });
         continue;
       }
       win.on('closed', () => {
@@ -1613,6 +1626,9 @@ ipcMain.handle('quick:enableMulti', async (e, payload) => {
         if (mw && !mw.isDestroyed()) mw.webContents.send('quick:state', { enabled: petCount() > 0, count: petCount() });
       });
       results.push({ ok: true, id, name: pack.name || '' });
+      // 逐只回报进度：一次启用多只时，用户需要知道"到哪一步了"，
+      // 否则从点击到全部出现之间是一片空白（会以为没反应、重复点击）。
+      sendLaunchProgress(e, { done: results.length, total: items.length, name: pack.name || '', ok: true });
     }
     const okCount = results.filter((r) => r.ok).length;
     if (okCount > 0) {
@@ -1620,6 +1636,7 @@ ipcMain.handle('quick:enableMulti', async (e, payload) => {
       const mw = getMakerWindow();
       if (mw && !mw.isDestroyed()) mw.webContents.send('quick:state', { enabled: true, count: petCount() });
     }
+    sendLaunchProgress(e, { done: items.length, total: items.length, name: '', ok: true, finished: true, failed: results.filter((r) => !r.ok).length });
     return { ok: okCount > 0, count: okCount, results };
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });

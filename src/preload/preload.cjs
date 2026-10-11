@@ -108,6 +108,7 @@ contextBridge.exposeInMainWorld('api', {
   quickIsEnabled: () => ipcRenderer.invoke('quick:isEnabled'),
   quickEnableMulti: (pets) => ipcRenderer.invoke('quick:enableMulti', { pets }),
   petCount: () => ipcRenderer.invoke('pet:count'),
+  onLaunchProgress: (cb) => ipcRenderer.on('pet:launchProgress', (e, p) => cb(p)),
   quickSetWalk: (walking) => ipcRenderer.invoke('quick:setWalk', walking),
   quickSetBugChase: (on) => ipcRenderer.invoke('quick:setBugChase', !!on),
   quickSetHop: (on) => ipcRenderer.invoke('quick:setHop', !!on),

@@ -76,6 +76,10 @@ app.whenReady().then(async () => {
   check("勾选的是 3 只不同的宠物（按 id 判定）", new Set(pickedNames).size === 3, JSON.stringify(pickedNames));
   check("勾选后按钮可用", await js("document.querySelector('#btnLibEnableMulti').disabled === false"));
 
+  // ---- 启用进度：逐只回报（一次放 3 只时，用户要知道"到哪一步了"）----
+  // 在渲染进程里挂一个收集器，点完按钮后检查收到了几条进度、内容对不对。
+  await js("(() => { window.__launchLog = []; if (window.api.onLaunchProgress) window.api.onLaunchProgress((p) => window.__launchLog.push(p)); return undefined; })()");
+
   // ★ 一起放出来
   await js("document.querySelector('#btnLibEnableMulti').click()");
   await sleep(7000);
@@ -123,6 +127,20 @@ app.whenReady().then(async () => {
   // 位置错开
   const pos = pets.map((p) => { const b = p.win.getBounds(); return b.x + "," + b.y; });
   check("各只位置错开（不叠在一起）", new Set(pos).size === pos.length, JSON.stringify(pos));
+
+  // ---- 检查启用进度日志 ----
+  {
+    const logs = await js("window.__launchLog || []");
+    check("收到了启用进度回报", Array.isArray(logs) && logs.length > 0, "n=" + (logs && logs.length));
+    check("进度里带总数（=3）", logs.some((x) => x.total === 3), JSON.stringify(logs && logs.map((x) => x.total)));
+    check("进度是递增的（1,2,3）", (() => {
+      const d = logs.filter((x) => !x.finished).map((x) => x.done);
+      for (let i = 1; i < d.length; i++) if (d[i] < d[i - 1]) return false;
+      return d.length >= 3;
+    })(), JSON.stringify(logs && logs.map((x) => x.done)));
+    check("最后一条是 finished（全部结束）", logs.some((x) => x.finished === true), JSON.stringify(logs && logs[logs.length - 1]));
+    check("进度条元素存在", await js("!!document.querySelector('#libLaunchFill')"));
+  }
 
   // ---- 省电节流：打瞌睡时降帧，但不能因此走得慢 ----
   {

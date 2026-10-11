@@ -18,6 +18,7 @@ import { removeFrame, duplicateFrame, shiftFrame, moveFrame, uniqueFrameName } f
 import { fitIntoCanvas, replaceFrameAt, canReplaceFrame } from '../shared/framereplace.js';
 import { visibleWindow, thumbSize, dropTarget, insertIndexAt, stripLabel } from '../shared/filmstrip.js';
 import { planSheet, sheetSummary } from '../shared/spritesheet.js';
+import { progressText, summaryText, progressPct } from '../shared/launchprogress.js';
 import { normalizeCharacter, randomCharacter, PALETTES, paletteOf, DEFAULT_CHARACTER } from '../shared/charstudio.js';
 import { renderCharacter, renderCharacterFrames } from './charrender.js';
 
@@ -2080,6 +2081,25 @@ if ($('#btnLibMulti')) $('#btnLibMulti').onclick = () => {
   renderLibrary();
 };
 
+// 多宠物启用进度：主进程每放出来一只就回报一次，这里更新状态栏，
+// 免得"点了之后到全部出现"之间是一片空白（用户会以为没反应）。
+if (window.api.onLaunchProgress) {
+  window.api.onLaunchProgress((p) => {
+    if (!p) return;
+    if (p.finished) setStatus(summaryText({ total: p.total, failed: p.failed }), p.failed ? 'err' : 'ok');
+    else setStatus(progressText(p), p.ok === false ? 'err' : '');
+    const fill = $('#libLaunchFill');
+    const bar = $('#libLaunchBar');
+    if (bar) bar.hidden = false;
+    if (fill) fill.style.width = progressPct(p) + '%';
+    if (p.finished) {
+      // 完成后停一下再收起，让用户看得到"100%"
+      clearTimeout(window.__launchBarTimer);
+      window.__launchBarTimer = setTimeout(() => { if (bar) bar.hidden = true; }, 1500);
+    }
+  });
+}
+
 if ($('#btnLibEnableMulti')) $('#btnLibEnableMulti').onclick = async () => {
   const btn = $('#btnLibEnableMulti');
   const ids = [...libMulti.picked];
@@ -2088,6 +2108,9 @@ if ($('#btnLibEnableMulti')) $('#btnLibEnableMulti').onclick = async () => {
   if (!picked.length) { setStatus('没有可启用的宠物', 'err'); return; }
   // 每只需要完整的帧数据 —— 从磁盘读包（listInstalled 只给了缩略图）
   btn.disabled = true;
+  const bar0 = $('#libLaunchBar'), fill0 = $('#libLaunchFill');
+  if (bar0) { bar0.hidden = false; }
+  if (fill0) { fill0.style.width = '0%'; }
   setStatus('正在准备 ' + picked.length + ' 只宠物…');
   try {
     const pets = [];
