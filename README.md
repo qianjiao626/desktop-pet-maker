@@ -10,10 +10,10 @@
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.29](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.29/desktop-pet-maker-win32-x64-v0.9.29.zip)**
+**[下载 Windows 免安装版 v0.9.30](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.30/desktop-pet-maker-win32-x64-v0.9.30.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.29）：
+**Linux x64**（v0.9.30）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
@@ -156,6 +156,8 @@ npm start
   让个路、或者一起蹦一下（有冷却与概率，不会几只凑一起就吵成一团）
 - **托盘能看到/关掉每一只**：养了多只时，托盘菜单会逐只列出来，
   可以直接点名关掉某一只，不用去屏幕上找它
+- **右键一键「安静」**：宠物右键菜单里有「暂停走动（待在原地）」和「静音气泡」——
+  专心工作时不用关掉它，也不用回去改设置
 - **放出来时有进度**：一次放多只时逐只回报「正在放出来… 2/3（大胖鸡）」+ 底部进度条，
   不会点了之后一片空白让人以为没反应
 - **多宠物同屏**：宠物库里点「☑ 多选」勾几只 -> 「▶ 一起放出来」,

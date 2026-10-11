@@ -164,7 +164,11 @@ app.whenReady().then(async () => {
   const miCount = await js("document.querySelectorAll('#menu .mi').length");
   // 6 项：回到屏幕底部 / 说一句话 / 切换置顶 / 切换鼠标穿透 / 换个动作 / 退出桌宠
   // （「换个动作」只有包里带多段片段时才可见，但 DOM 里始终存在 -> 这里是文档级计数）
-  check('菜单含 10 项', miCount === 10, 'n=' + miCount);
+  // 菜单项数量会随功能增加；这里断言的是**下限 + 关键项都在**，
+  // 而不是钉死一个数字（以前写死 6，加了功能就假失败）。
+  check('菜单项数量合理（>=10）', miCount >= 10, 'n=' + miCount);
+  check('菜单含「暂停走动」', await js(`[...document.querySelectorAll('#menu .mi')].some(m => m.dataset.act === 'toggleMove')`));
+  check('菜单含「静音气泡」', await js(`[...document.querySelectorAll('#menu .mi')].some(m => m.dataset.act === 'toggleMute')`));
   check('无片段时「换个动作」是隐藏的', await js(`document.querySelector('#miNextClip').hidden === true`));
 
   log('');

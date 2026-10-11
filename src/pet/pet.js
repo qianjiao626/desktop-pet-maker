@@ -5,6 +5,7 @@ import { planRuntimeFrames } from '../shared/budget.js';
 import { createBehavior, tickBehavior, enterState, pat as doPat, isWalking, targetVelocityX, stateLabel, hit as doHit, isReacting, hopPose, dozePose, shouldSnore, lookAtPose } from '../shared/behavior.js';
 import { sanitizeSpeech, speechDuration } from '../shared/speech.js';
 import { reactToNeighbor, gazeAt, yieldDirection } from '../shared/companions.js';
+import { moveMenuLabel, muteMenuLabel } from '../shared/quietmode.js';
 import { applyThrottle, frameGate } from '../shared/throttle.js';
 import { EVENTS, pickLine, shouldSpeak, lineDuration, toneOf } from '../shared/dialog.js';
 import { handState, fistState, pettingPose, strugglePose, HAND_DURATION, FIST_DURATION, PETTING_DURATION } from '../shared/effects.js';
@@ -61,6 +62,8 @@ let snorePending = false;      // 本次睡眠是否该冒一次 Zzz
 let wasDoze = false;           // 上一帧是否在打瞌睡（用于检测睡醒的边沿）
 let cursorScreen = null;      // 屏幕光标坐标（由主进程推送）
 let peers = [];              // 其它宠物在哪（主进程定期推送）—— 多宠物互相感知
+let quietPaused = false;     // 「暂停走动」：在专心工作时让它待着别乱走
+let quietMuted = false;      // 「静音气泡」：不冒任何台词（含事件台词与轮播）
 let powerSave = true;        // 省电节流：静止/打瞌睡时降帧（用户可关）
 let _testFreeze = false;     // 仅测试用：冻结行为状态机（让强制状态不被切走）
 let lastDrawAt = 0;          // 上次**真正绘制**的时间（省电时不是每帧都画）
@@ -1106,6 +1109,15 @@ function loop(ts) {
       refreshArea();   // 先按当前位置确定所在显示器，再按该显示器边界积分
       // 爬动：给一个目标水平速度（平滑逼近，避免瞬间变向）
       // 受击击退：短暂水平冲量，随后由摩擦自然衰减
+      // 「暂停走动」：把水平目标速度压成 0，并持续抑制漫游。
+      // 放在物理步进之前，保证"点了暂停就立刻不再走"。
+      if (quietPaused) {
+        S.body.vx *= 0.5;
+        if (Math.abs(S.body.vx) < 0.5) S.body.vx = 0;
+        S.body.roamTimer = Math.max(S.body.roamTimer, 5);
+        if (B.state === 'walk') { B.walkDir = 0; }
+      }
+
       if (behaviorEnabled && B.state === 'hit' && hitKnockDir !== 0) {
         S.body.vx = hitKnockDir * 260;
         S.body.roamTimer = 1.5;
@@ -1181,6 +1193,9 @@ const TALK_COOLDOWN_MS = 6000;    // 同类事件 6 秒内不重复触发
  */
 function talk(event, opt = {}) {
   try {
+    // 「静音气泡」开关优先：用户点了静音就该真的闭嘴。
+    // 注意连 force 也要挡 —— 否则他点了静音，摸头还是会冒一句，等于没静音。
+    if (quietMuted) return '';
     if (!pack || !pack.bubble || !pack.bubble.enabled) return '';
     const now = performance.now();
     if (!opt.force) {
@@ -1322,6 +1337,7 @@ function showMenu(x, y) {
   // 只有包里真的带多段片段时才显示「换个动作」
   const miClip = document.getElementById('miNextClip');
   if (miClip) miClip.hidden = !(clipScheduler && clipScheduler.hasClips());
+  refreshQuietMenu();   // 「暂停走动 / 静音气泡」的文案要反映当前状态
   menuEl.hidden = false;
   const r = menuEl.getBoundingClientRect();
   menuEl.style.left = Math.max(4, Math.min(x, window.innerWidth - r.width - 4)) + 'px';
@@ -1330,6 +1346,16 @@ function showMenu(x, y) {
   menuEl.style.bottom = 'auto';
 }
 function hideMenu() { menuEl.hidden = true; }
+/** 右键菜单里「暂停走动 / 静音气泡」两项的文案要反映**当前状态**，
+ *  否则用户不知道自己现在是暂停还是正常（纯逻辑在 shared/quietmode.js）。 */
+function refreshQuietMenu() {
+  try {
+    const a = document.getElementById('miToggleMove');
+    const b = document.getElementById('miToggleMute');
+    if (a) a.textContent = moveMenuLabel(!quietPaused ? false : true);
+    if (b) b.textContent = muteMenuLabel(quietMuted);
+  } catch (err) { /* 忽略 */ }
+}
 
 canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); showMenu(e.clientX, e.clientY); });
 window.addEventListener('mousedown', (e) => { if (!menuEl.contains(e.target)) hideMenu(); }, true);
@@ -1362,6 +1388,24 @@ menuEl.querySelectorAll('.mi').forEach((mi) => {
     else if (act === 'clickthrough') { S.ignoreMouse = !S.ignoreMouse; api.setIgnoreMouse(S.ignoreMouse); }
     else if (act === 'bigger') { withScale(1.15); }
     else if (act === 'smaller') { withScale(1 / 1.15); }
+    else if (act === 'toggleMove') {
+      quietPaused = !quietPaused;
+      if (quietPaused) {
+        // 立刻停下：清掉水平速度与目标速度，避免"点了还在滑"
+        S.body.vx = 0; S.body.roamTimer = 999;
+        if (B.state === 'walk') { B.walkDir = 0; B.remaining = Math.max(B.remaining, 0.2); }
+      } else {
+        S.body.roamTimer = 0.5;   // 恢复漫游
+      }
+      refreshQuietMenu();
+      showBubble(quietPaused ? '好，我待着不动～' : '那我走走啦～');
+    }
+    else if (act === 'toggleMute') {
+      quietMuted = !quietMuted;
+      if (quietMuted) hideBubble();
+      refreshQuietMenu();
+      if (!quietMuted) showBubble('我又能说话啦～');
+    }
     else if (act === 'tone') { cycleTone(); }
     else if (act === 'center') { recenterSelf(); }
     else if (act === 'close') api.closePet();
@@ -1570,6 +1614,17 @@ window.__forceHop = () => { try { enterState(B, 'hop'); return true; } catch { r
 
 // 测试用：强制进入打瞌睡 / 注入光标坐标（便于自动化断言姿态，不依赖真实鼠标移动）
 window.__forceDoze = () => { try { enterState(B, 'doze'); return true; } catch { return false; } };
+// 测试用：走一次「被摸头」的完整路径（doPat + 台词），不依赖鼠标事件。
+// 为什么需要：静音开关要验证"摸了也不说话"，得能确定性地触发摸头。
+window.__forcePatForTest = () => {
+  try {
+    doPat(B);
+    handStartAt = performance.now();
+    petStartAt = performance.now();
+    if (pack && pack.bubble && pack.bubble.enabled) talk('pat', { force: true });
+    return true;
+  } catch (err) { return false; }
+};
 // 测试用：临时冻结行为状态机（让 __forceDoze 设定的状态不被下一帧切走）。
 // 为什么需要：多宠物时宠物会因为有同伴而主动切换状态（让路/看对方），
 // 于是"强制打瞌睡"会被状态机立刻切回 walk —— 那不是节流失效，是状态在动。

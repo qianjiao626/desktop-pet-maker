@@ -62,6 +62,49 @@ app.whenReady().then(async () => {
   check('菜单有回到中央', items.includes('center'), items.join(','));
   check('原来的退出仍在', items.includes('close'), items.join(','));
 
+  // ---- 「暂停走动 / 静音气泡」：这两项必须**真的生效**，不只是菜单里有 ----
+  {
+    const items = await px("[...document.querySelectorAll('#menu .mi')].map(m => m.dataset.act)");
+    check('菜单有「暂停走动」', items.includes('toggleMove'), items.join(','));
+    check('菜单有「静音气泡」', items.includes('toggleMute'), items.join(','));
+
+    // 暂停走动：点完水平速度应该趋近 0，并且文案变成「继续走动」
+    await px("document.querySelector('#menu .mi[data-act=\"toggleMove\"]').click()");
+    await sleep(1500);
+    const pausedInfo = await dbg();
+    const speed = Math.abs((pausedInfo.body && pausedInfo.body.vx) || 0);
+    check('点了暂停后水平速度趋近 0', speed < 5, 'vx=' + speed.toFixed(2));
+    const moveLabel = await px("document.querySelector('#miToggleMove').textContent");
+    check('文案变成「继续走动」', moveLabel.includes('继续'), moveLabel);
+
+    // 恢复走动：速度应该能重新起来（给一点时间让状态机接管）
+    await px("document.querySelector('#menu .mi[data-act=\"toggleMove\"]').click()");
+    await sleep(2500);
+    const moveLabel2 = await px("document.querySelector('#miToggleMove').textContent");
+    check('文案变回「暂停走动」', moveLabel2.includes('暂停'), moveLabel2);
+
+    // 静音：点完不该再冒出新的台词
+    await px("document.querySelector('#menu .mi[data-act=\"toggleMute\"]').click()");
+    await sleep(300);
+    const muteLabel = await px("document.querySelector('#miToggleMute').textContent");
+    check('文案变成「打开气泡」', muteLabel.includes('打开'), muteLabel);
+    await px("document.querySelector('#bubbleText').textContent = ''");
+    // 摸头 -> 静音时不该说话
+    await px("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))");   // 先关菜单
+    await sleep(200);
+    const before = await px("document.querySelector('#bubbleText').textContent");
+    await pw.webContents.executeJavaScript("window.__forcePatForTest ? window.__forcePatForTest() : null");
+    await sleep(900);
+    const after = await px("document.querySelector('#bubbleText').textContent");
+    check('静音后摸头不会冒出新的台词', after === before, JSON.stringify({ before, after }));
+
+    // 取消静音 -> 文案变回「静音气泡」
+    await px("document.querySelector('#menu .mi[data-act=\"toggleMute\"]').click()");
+    await sleep(300);
+    const muteLabel2 = await px("document.querySelector('#miToggleMute').textContent");
+    check('取消静音后文案变回「静音气泡」', muteLabel2.includes('静音'), muteLabel2);
+  }
+
   // ---- 放大：尺寸必须真的变大 ----
   const b0 = bounds();
   await px(`document.querySelector('#menu .mi[data-act="bigger"]').click()`);
