@@ -127,6 +127,16 @@ app.whenReady().then(async () => {
   })()`);
   check("搜索能过滤掉不匹配的卡片", filtered === 0, "visible=" + filtered);
 
+  // 清理本套件造的测试宠物：否则会留在用户的宠物库里，
+  // 并且污染后面的套件（实测：e2e-multipet 勾到这些同名副本，断言误判）。
+  try {
+    for (const f of fs.readdirSync(petsDir)) {
+      if (/^e2e站点宠物\d*\.petpack$/i.test(f) || /^e2e同名/.test(f)) {
+        try { fs.unlinkSync(path.join(petsDir, f)); } catch (err) { /* 忽略 */ }
+      }
+    }
+  } catch (err) { /* 忽略 */ }
+
   log("==== SHARE SITE E2E: " + pass + "/" + (pass + fail) + " ====");
   app.exit(fail ? 1 : 0);
 });

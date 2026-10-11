@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('api', {
   installPack: (srcPath) => ipcRenderer.invoke('pet:install', srcPath),
   installAndRun: (srcPath) => ipcRenderer.invoke('pet:installAndRun', srcPath),
   runInstalled: (id) => ipcRenderer.invoke('pet:runInstalled', id),
+  readInstalledPack: (id) => ipcRenderer.invoke('pet:readInstalled', id),
   uninstall: (id) => ipcRenderer.invoke('pet:uninstall', id),
   // 导出 Sprite Sheet（给开发者接自己的引擎用）
   exportSpriteSheet: (frames, cellW, cellH, suggestedName) => ipcRenderer.invoke('export:spriteSheet', { frames, cellW, cellH, suggestedName }),
@@ -105,6 +106,8 @@ contextBridge.exposeInMainWorld('api', {
   quickEnable: (pack, frames) => ipcRenderer.invoke('quick:enable', { pack, frames }),
   quickDisable: () => ipcRenderer.invoke('quick:disable'),
   quickIsEnabled: () => ipcRenderer.invoke('quick:isEnabled'),
+  quickEnableMulti: (pets) => ipcRenderer.invoke('quick:enableMulti', { pets }),
+  petCount: () => ipcRenderer.invoke('pet:count'),
   quickSetWalk: (walking) => ipcRenderer.invoke('quick:setWalk', walking),
   quickSetBugChase: (on) => ipcRenderer.invoke('quick:setBugChase', !!on),
   quickSetHop: (on) => ipcRenderer.invoke('quick:setHop', !!on),

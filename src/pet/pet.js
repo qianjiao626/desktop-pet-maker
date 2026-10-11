@@ -1527,6 +1527,9 @@ window.__petDebug = () => ({
   // 当前对话口吻（来自 pack.behavior.personality）—— 便于端到端验证「性格真的传进来了」
   personality: toneOf(pack && pack.behavior && pack.behavior.personality),
   saidLines: (S.saidLines || []).slice(),
+  // 这只宠物自己加载到的包名 —— 多宠物同屏时用来证明「每只拿的是自己的包」
+  packName: (pack && pack.name) || null,
+  packId: (pack && pack.id) || null,
   loadedFrames: images.length,
   loadedBytes: images.reduce((a, im) => a + im.naturalWidth * im.naturalHeight * 4, 0),
   W, H,

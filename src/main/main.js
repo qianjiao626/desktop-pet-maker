@@ -11,7 +11,7 @@ import { computeLayout } from '../shared/layout.js';
 import { emptyState, normalizeState, toggleFavorite, touchRecent, forgetPet, addGroup, removeGroup, renameGroup, addToGroup, removeFromGroup, pruneGroups } from '../shared/library.js';
 import { MODELS, listModels, downloadModel, deleteModel, isInstalled } from './models.js';
 import { segmentImage, segmentAuto } from './segment.js';
-import { setCurrentPack, getCurrentPack, setPetWindow, getPetWindow, setMakerWindow, getMakerWindow, isPetAlive, setCurrentScale, getCurrentScale } from './state.js';
+import { setCurrentPack, getCurrentPack, setPetWindow, getPetWindow, setMakerWindow, getMakerWindow, isPetAlive, setCurrentScale, getCurrentScale, addPet, removePet, getPet, listPets, petCount, petByWindow, petByWebContentsId, setActivePet, getActivePetId } from './state.js';
 import { buildTrayMenuTemplate, trayTooltip } from './tray.js';
 import { SHORTCUTS, validateShortcuts } from '../shared/shortcuts.js';
 import { startupSwitches, appMenuTemplate } from '../shared/platform.js';
@@ -464,11 +464,24 @@ export function destroyTray() {
   tray = null;
 }
 
-function createPetWindow(pack) {
+function createPetWindow(pack, opt) {
   const { w, h } = initialPetBounds(pack);
   const wa = screen.getPrimaryDisplay().workArea;
   let x = wa.x + wa.width - w - 20;
   let y = wa.y + wa.height - h - 20;
+  // 多宠物同屏时不能都落在右下角（会完全叠住，看起来只有一只）。
+  // 按"当前已有几只"做阶梯错位。
+  const n = (opt && Number.isFinite(opt.offsetIndex)) ? opt.offsetIndex : petCount();
+  if (n > 0) {
+    const stepX = Math.round(w * 0.55) + 24;
+    const stepY = 18;
+    const perRow = Math.max(1, Math.floor((wa.width - w - 40) / stepX) || 1);
+    x -= stepX * (n % perRow);
+    y -= stepY * Math.floor(n / perRow);
+    // 别跑到屏幕外或屏幕顶端之上
+    x = Math.max(wa.x + 8, Math.min(x, wa.x + wa.width - w - 8));
+    y = Math.max(wa.y + 8, Math.min(y, wa.y + wa.height - h - 8));
+  }
   const remembered = getPosition(pack.id);
   if (remembered && pack.behavior.startCorner === 'remember') {
     x = Math.min(Math.max(remembered.x, wa.x), wa.x + wa.width - w);
@@ -1075,6 +1088,18 @@ ipcMain.handle('pet:installAndRun', (e, srcPath) => {
   }
 });
 
+// 读某个已安装宠物的完整数据（pack + frames）。
+// 多宠物同屏要把多只一起启用，就必须先拿到每一只的完整帧 ——
+// listInstalled 只给缩略图，不够用。
+ipcMain.handle('pet:readInstalled', (e, id) => {
+  try {
+    const full = path.join(petsDir(), String(id || ''));
+    if (!fs.existsSync(full)) throw new Error('宠物不存在');
+    const { pack, frames } = readPackFile(full);
+    return { ok: true, pack, frames, name: pack.name || id };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
 ipcMain.handle('pet:runInstalled', (e, id) => {
   try {
     const full = path.join(petsDir(), id);
@@ -1474,14 +1499,29 @@ ipcMain.handle('ai:segmentAuto', async (e, { dataUrl, threshold, feather, hintId
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
 
-ipcMain.handle('pet:getPack', () => {
-  // 快速模式：宠物由制作器「启用」直接创建，包在主进程内存里
+ipcMain.handle('pet:getPack', (e) => {
+  // ★ 多宠物关键：必须按**发问的那个窗口**反查是哪一只。
+  // 以前这里返回"当前包"（全局的），多宠物同屏时每只都会拿到最后启用的那只的数据 ——
+  // 表现为"三只宠物全都变成同一只"。
+  const byWin = (() => {
+    try {
+      // 优先按 webContents.id 反查（最可靠）；对象比对作为兜底
+      const byId = e && e.sender ? petByWebContentsId(e.sender.id) : null;
+      if (byId) return byId;
+      return petByWindow(e && e.sender ? BrowserWindow.fromWebContents(e.sender) : null);
+    } catch (err) { return null; }
+  })();
+  if (byWin && (byWin.pack || byWin.frames)) return { pack: byWin.pack, frames: byWin.frames };
+  // 兼容旧路径：没有登记实例时（比如 --pet= 直接启动）用全局当前包
   const mem = getCurrentPack();
   if (mem) return mem;
   if (!petPath) return null;
   try { return readPackFile(petPath); }
   catch (err) { return { error: String(err.message || err) }; }
 });
+
+// 多宠物：告诉制作器现在有几只在跑
+ipcMain.handle('pet:count', () => ({ ok: true, count: petCount(), activeId: getActivePetId() }));
 
 // ---------- 快速模式：启用 / 停用（同进程，无需重启） ----------
 function ensurePetWindowVisibility() {
@@ -1492,6 +1532,55 @@ function ensurePetWindowVisibility() {
     w.moveTop();
   }
 }
+
+// ---------- 多宠物同屏 ----------
+// 一次性启用多只宠物，各自独立窗口、独立动作、互不影响。
+// 与 quick:enable 的区别：这里**不复用**已有窗口，每只都新建；
+// 并且把每只登记进 state 的多实例表（pet:getPack 就靠这个按窗口反查）。
+ipcMain.handle('quick:enableMulti', async (e, payload) => {
+  try {
+    const items = (payload && Array.isArray(payload.pets)) ? payload.pets : [];
+    if (!items.length) return { ok: false, errors: ['没有要启用的宠物'] };
+    const maxN = 8;   // 上限：再多会明显吃 CPU（每只一个渲染进程）
+    if (items.length > maxN) return { ok: false, errors: ['一次最多同时养 ' + maxN + ' 只（再多会很卡）'] };
+
+    const results = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i] || {};
+      const pack = it.pack, frames = it.frames;
+      if (!pack || !Array.isArray(frames) || !frames.length) { results.push({ ok: false, name: it.name || '', errors: ['缺少宠物数据'] }); continue; }
+      const id = addPet({ pack, frames });        // 先登记（会设为 active）
+      let win = null;
+      try {
+        // 用**循环下标**错位，而不是 petCount()：
+        // 刚 addPet 时窗口还没建，petCount() 不变，会让前两只算到同一个位置（实测叠在一起）。
+        win = createPetWindow(pack, { offsetIndex: i });
+        // 直接把窗口绑到**这只**实例（不能走"绑定到活跃实例"——那样多线程/多次调用会串）。
+        const rec = getPet(id);
+        if (rec) rec.win = win;
+        setActivePet(id);
+      } catch (err) {
+        removePet(id);
+        results.push({ ok: false, name: pack.name || '', errors: [String(err.message || err)] });
+        continue;
+      }
+      win.on('closed', () => {
+        removePet(id);
+        if (petCount() === 0) stopCursorFeed();
+        const mw = getMakerWindow();
+        if (mw && !mw.isDestroyed()) mw.webContents.send('quick:state', { enabled: petCount() > 0, count: petCount() });
+      });
+      results.push({ ok: true, id, name: pack.name || '' });
+    }
+    const okCount = results.filter((r) => r.ok).length;
+    if (okCount > 0) {
+      startCursorFeed();
+      const mw = getMakerWindow();
+      if (mw && !mw.isDestroyed()) mw.webContents.send('quick:state', { enabled: true, count: petCount() });
+    }
+    return { ok: okCount > 0, count: okCount, results };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
 
 ipcMain.handle('quick:enable', (e, payload) => {
   try {

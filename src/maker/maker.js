@@ -1934,17 +1934,20 @@ function renderLibrary() {
   }
 
   renderGroupBar();
+  updateMultiButton();
   grid.innerHTML = '';
   for (const it of list) {
     const el = document.createElement('div');
     el.className = 'lib-item';
+    el.dataset.petId = it.id;   // 按 id 定位（重渲染后位置会变，靠位置点会点错）
     if (it.broken) {
       el.innerHTML = '<div class="nm">⚠ 损坏</div><div class="meta">' + escapeHtml(it.id) + '</div>';
     } else {
       const fav = isFavorite(libPrefs, it.id);
       // 这只宠物已在哪些分组里（卡片上显示小标签，否则用户不知道分过组没）
       const inGroups = groupsOf(libPrefs, it.id);
-      el.innerHTML = '<img src="' + it.thumb + '" alt="" />'
+      el.innerHTML = (libMulti.on ? '<div class="lib-pick' + (libMulti.picked.has(it.id) ? ' on' : '') + '">' + (libMulti.picked.has(it.id) ? '✓' : '') + '</div>' : '')
+        + '<img src="' + it.thumb + '" alt="" />'
         + '<button class="lib-fav' + (fav ? ' on' : '') + '" title="'
         + (fav ? '取消收藏' : '收藏') + '">' + (fav ? '★' : '☆') + '</button>'
         + '<button class="lib-groupbtn" title="加入 / 移出分组">🏷</button>'
@@ -1964,6 +1967,17 @@ function renderLibrary() {
           const saved = await window.api.libraryToggleFav(it.id);
           if (saved) { libPrefs = normalizeState(saved); renderLibrary(); }
         } catch { libPrefs = prev; renderLibrary(); setStatus('收藏保存失败', 'err'); }
+      };
+    }
+    // 多选模式下，点卡片本身 = 勾选 / 取消勾选（而不是启动）
+    if (libMulti.on && !it.broken) {
+      el.classList.toggle('picked', libMulti.picked.has(it.id));
+      el.onclick = (ev) => {
+        // 点收藏/分组/启动按钮时不触发勾选
+        if (ev.target.closest('.lib-fav') || ev.target.closest('.lib-groupbtn') || ev.target.closest('.acts')) return;
+        if (libMulti.picked.has(it.id)) libMulti.picked.delete(it.id);
+        else libMulti.picked.add(it.id);
+        renderLibrary();
       };
     }
     const acts = document.createElement('div');
@@ -2014,6 +2028,9 @@ async function refreshLibrary() {
   renderLibrary();
 }
 
+// 多选模式：勾选多只宠物，一次一起放出来（多宠物同屏）
+const libMulti = { on: false, picked: new Set() };
+
 let libScope = 'all';
 if ($('#libSeg')) {
   $('#libSeg').addEventListener('click', (e) => {
@@ -2043,6 +2060,67 @@ if (typeof window !== 'undefined') {
 }
 
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+
+// ---- 多选模式：勾选多只，一起放到桌面上（多宠物同屏）----
+function updateMultiButton() {
+  const btn = $('#btnLibEnableMulti');
+  if (!btn) return;
+  btn.hidden = !libMulti.on;
+  btn.disabled = libMulti.picked.size === 0;
+  btn.textContent = '▶ 一起放出来（' + libMulti.picked.size + '）';
+}
+
+if ($('#btnLibMulti')) $('#btnLibMulti').onclick = () => {
+  libMulti.on = !libMulti.on;
+  if (!libMulti.on) libMulti.picked.clear();
+  $('#btnLibMulti').classList.toggle('on', libMulti.on);
+  $('#btnLibMulti').textContent = libMulti.on ? '☑ 多选中…' : '☑ 多选';
+  updateMultiButton();
+  renderLibrary();
+};
+
+if ($('#btnLibEnableMulti')) $('#btnLibEnableMulti').onclick = async () => {
+  const btn = $('#btnLibEnableMulti');
+  const ids = [...libMulti.picked];
+  if (!ids.length) return;
+  const picked = libCache.filter((it) => ids.includes(it.id));
+  if (!picked.length) { setStatus('没有可启用的宠物', 'err'); return; }
+  // 每只需要完整的帧数据 —— 从磁盘读包（listInstalled 只给了缩略图）
+  btn.disabled = true;
+  setStatus('正在准备 ' + picked.length + ' 只宠物…');
+  try {
+    const pets = [];
+    for (const it of picked) {
+      // 用与「启动」同一条路径拿包：runInstalled 会自己建窗口，这里要的是数据，
+      // 所以改用 pet:getPack 之外的现成接口 —— 通过 api 读包内容
+      const data = await window.api.readInstalledPack(it.id);
+      if (data && data.ok && data.pack && Array.isArray(data.frames)) {
+        pets.push({ name: it.name, pack: data.pack, frames: data.frames });
+      }
+    }
+    if (!pets.length) { setStatus('读不到宠物数据，无法启用', 'err'); btn.disabled = false; return; }
+    const r = await window.api.quickEnableMulti(pets);
+    if (r && r.ok) {
+      setStatus('✅ 已把 ' + r.count + ' 只宠物一起放到桌面上（若没看到，可能在屏幕另一角）', 'ok');
+      $('#libModal').hidden = true;
+      libMulti.picked.clear();
+      libMulti.on = false;
+      const mb = $('#btnLibMulti');
+      if (mb) { mb.classList.remove('on'); mb.textContent = '☑ 多选'; }
+      updateMultiButton();
+      const cnt = await window.api.petCount();
+      if (cnt && cnt.count) quickSetStatus(true, '桌面上有 ' + cnt.count + ' 只宠物在跑', 3);
+    } else {
+      setStatus('一起放出来失败：' + ((r && r.errors) || []).join('; '), 'err');
+      btn.disabled = false;
+    }
+  } catch (err) {
+    console.warn('[multi] 启用多只失败：' + (err && err.message ? err.message : err));
+    setStatus('一起放出来异常：' + String((err && err.message) || err), 'err');
+    btn.disabled = false;
+  }
+};
 
 $('#btnLibrary').onclick = () => { $('#libModal').hidden = false; refreshLibrary(); };
 $('#btnLibClose').onclick = () => { $('#libModal').hidden = true; };
