@@ -1587,10 +1587,12 @@ ipcMain.handle('pet:getPack', (e) => {
 ipcMain.handle('pet:count', () => ({ ok: true, count: petCount(), activeId: getActivePetId() }));
 
 // 省电节流开关：转发给**每一只**宠物（多宠物时不能只给当前那只）
-ipcMain.on('pet:setPowerSave', (e, on) => {
+ipcMain.handle('pet:setPowerSave', (e, on) => {
+  let n = 0;
   for (const it of listPets()) {
-    try { it.win.webContents.send('pet:powerSave', on !== false); } catch (err) { /* 忽略 */ }
+    try { it.win.webContents.send('pet:powerSave', on !== false); n++; } catch (err) { /* 忽略 */ }
   }
+  return { ok: true, applied: n };
 });
 
 // ---------- 快速模式：启用 / 停用（同进程，无需重启） ----------

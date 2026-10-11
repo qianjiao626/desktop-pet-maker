@@ -468,7 +468,13 @@ function readPack() {
     },
     // personality 供运行时「对话脑」决定口吻（活泼/温顺/贪睡/粘人/静默）。
     // 之前这里没有这个字段 -> 性格模板选了也传不到宠物，对话永远用默认口吻。
-    behavior: { startCorner: $('#corner').value, keepAbove: $('#keepAbove').checked, personality: currentTemplate || 'default' },
+    behavior: {
+      startCorner: $('#corner').value,
+      keepAbove: $('#keepAbove').checked,
+      personality: currentTemplate || 'default',
+      // 省电模式：静止/打瞌睡降帧。默认开；关掉就一律满帧（更顺但更费电）。
+      powerSave: $('#chkPowerSave') ? $('#chkPowerSave').checked : true,
+    },
   };
 }
 
@@ -513,6 +519,7 @@ function applyPack(pack) {
   }
   if (pack.behavior) {
     if (pack.behavior.personality) currentTemplate = pack.behavior.personality;
+    if ($('#chkPowerSave') && pack.behavior.powerSave !== undefined) $('#chkPowerSave').checked = pack.behavior.powerSave !== false;
     $('#corner').value = pack.behavior.startCorner || 'bottom-right';
     $('#keepAbove').checked = pack.behavior.keepAbove !== false;
   }
@@ -2190,6 +2197,20 @@ if ($('#btnLibEnableMulti')) $('#btnLibEnableMulti').onclick = async () => {
   }
 };
 
+// 省电模式开关：改了要**立刻**下发给正在跑的宠物（而不是等下次启用）。
+// 多宠物时主进程会转发给每一只。
+if ($('#chkPowerSave')) {
+  $('#chkPowerSave').onchange = () => {
+    const on = $('#chkPowerSave').checked;
+    try {
+      if (window.api.setPowerSave) window.api.setPowerSave(on);
+      setStatus(on ? '已开启省电模式（静止/打瞌睡时降帧）' : '已关闭省电模式（一直满帧，会更费电）', 'ok');
+    } catch (err) {
+      console.warn('[powersave] 切换失败：' + (err && err.message ? err.message : err));
+    }
+  };
+}
+
 $('#btnLibrary').onclick = () => { $('#libModal').hidden = false; refreshLibrary(); };
 $('#btnLibClose').onclick = () => { $('#libModal').hidden = true; };
 $('#libModal').onclick = (e) => { if (e.target.id === 'libModal') $('#libModal').hidden = true; };
@@ -2481,6 +2502,8 @@ function updateAiUi() {
   }
   $('#btnAiDownload').textContent = (m.installed || m.corrupt) ? '重新下载' : ('下载模型 (' + (m.bytes / 1048576).toFixed(0) + 'MB)');
   $('#btnAiDownload').disabled = AI.busy;
+  // 只有真下载过（且没在损坏状态）才允许删，避免用户对着不存在的文件点
+  if ($('#btnAiDelete')) $('#btnAiDelete').disabled = AI.busy || !(m.installed && !m.corrupt);
   // 自动模式：只要「任意一个」模型已下载就能用（会把它作为提示，但实际跑全部已下载的）
   const anyInstalled = AI.models.some((x) => x.installed);
   const auto = !!($('#chkAiAuto') && $('#chkAiAuto').checked);
@@ -2512,6 +2535,30 @@ $('#aiModel').onchange = () => { AI.current = $('#aiModel').value; updateAiUi();
 if ($('#chkAiAuto')) $('#chkAiAuto').onchange = () => updateAiUi();
 if ($('#chkAiAlwaysFull')) $('#chkAiAlwaysFull').onchange = () => updateAiUi();
 bindRange('aiThresh');
+
+// 删除已下载的模型：给用户一个"下错了/不用了能清掉"的出口。
+// 以前模型只能下载、不能在界面里删，只能自己去文件夹找（见 HANDOFF 第 121 条）。
+if ($('#btnAiDelete')) $('#btnAiDelete').onclick = async () => {
+  const m = currentModel();
+  if (!m || !m.installed) return;
+  const okDel = window.confirm('删除已下载的模型「' + m.name + '」？\n（省出约 ' + (m.bytes / 1048576).toFixed(0) + 'MB 磁盘；以后想用可以再下载）');
+  if (!okDel) return;
+  AI.busy = true; updateAiUi();
+  try {
+    const r = await window.api.deleteModel(m.id);
+    if (r && r.ok) {
+      setStatus('已删除模型「' + m.name + '」', 'ok');
+      await refreshAiModels();
+    } else {
+      setStatus('删除失败：' + ((r && r.errors) || []).join('; '), 'err');
+    }
+  } catch (err) {
+    console.warn('[ai] 删除模型失败：' + (err && err.message ? err.message : err));
+    setStatus('删除异常：' + String((err && err.message) || err), 'err');
+  } finally {
+    AI.busy = false; updateAiUi();
+  }
+};
 
 $('#btnAiDownload').onclick = async () => {
   const m = currentModel();

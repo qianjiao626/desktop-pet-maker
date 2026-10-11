@@ -10,10 +10,10 @@
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.26](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.26/desktop-pet-maker-win32-x64-v0.9.26.zip)**
+**[下载 Windows 免安装版 v0.9.27](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.27/desktop-pet-maker-win32-x64-v0.9.27.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.26）：
+**Linux x64**（v0.9.27）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
@@ -149,6 +149,7 @@ npm start
   - 生成脚本在 `scripts/make-*.mjs`，全部程序化绘制、不依赖外部素材，可随时重跑
   - 原创形象不复制任何第三方 IP 的具体造型；历史 CC0 素材来源与许可见 `THIRD-PARTY.md`
 - **宠物库支持搜索与排序**：按名字过滤、按名字/体积/帧数排序、显示"n / N 只"计数
+- **省电模式开关**：制作器「物理」页可实时开关（关掉就一律满帧，更顺但更费电）
 - **省电节流**：宠物静止 / 打瞌睡时自动降帧（10~20fps），走路 30fps，
   被拖拽 / 有特效时满帧 —— **降帧不改变物理**，走起来不会变慢
 - **宠物之间会互相感知**：养多只时它们能看见彼此 —— 靠近了会转头看、

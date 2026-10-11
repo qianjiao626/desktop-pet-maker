@@ -169,6 +169,7 @@
         <div class="ai-progress" id="aiProgress" hidden><div class="ai-bar" id="aiBar"></div><span id="aiPct">0%</span></div>
         <div class="ai-actions">
           <button id="btnAiDownload" class="ghost">下载模型</button>
+          <button id="btnAiDelete" class="ghost" disabled title="把已下载的模型文件删掉（省磁盘空间）">删除模型</button>
           <button id="btnAiSegment" class="primary" disabled>AI 抠图</button>
         </div>
         <label class="row">AI 阈值 <span class="val" id="aiThreshV">0.50</span>
@@ -289,6 +290,8 @@
       <label class="row">甩出力道 <span class="val" id="throwV">1.0×</span>
         <input type="range" id="throwScale" min="0" max="400" value="100" />
       </label>
+      <label class="chk"><input type="checkbox" id="chkPowerSave" checked /> 省电模式（静止 / 打瞌睡时自动降帧，走路 30fps，拖拽时满帧）</label>
+      <p class="note">关掉它就一直是满帧 —— 画面最顺，但常驻时会明显更费电。</p>
       <p class="note">拖动宠物后松手可以"甩"出去，它会带惯性和重力掉到屏幕底部并弹几下。</p>
     </div>
 

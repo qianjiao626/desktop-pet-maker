@@ -1697,6 +1697,9 @@ window.__petDebug = () => ({
     }
     pack.frames = framesToLoad;
 
+    // 省电模式：以包里的设置为准（制作器「物理」页可改），默认开。
+    // 关掉就一律满帧 —— 画面最顺，但常驻时明显更费电。
+    powerSave = !(pack.behavior && pack.behavior.powerSave === false);
     frameDurs = pack.frames.map((f) => f.durationMs);
     images = await Promise.all(framesToLoad.map((f) => loadImage(f.dataUrl)));
 

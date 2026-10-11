@@ -171,6 +171,24 @@ app.whenReady().then(async () => {
       // 2 秒内 10fps 约 20 帧；给宽松上限（40 = 20fps），只要求"明显不是满帧"
       check("打瞌睡时实际绘制帧数明显更少（省电生效）", dozeFrames <= 40, "2 秒内画了 " + dozeFrames + " 帧");
 
+      // ★ 省电开关的 UI：关掉之后应该一律满帧（打瞌睡也不降）
+      {
+        const hasUi = await js("!!document.querySelector('#chkPowerSave')");
+        check("制作器有省电模式开关", hasUi === true);
+        if (hasUi) {
+          // 关掉省电
+          await js("(() => { const cb = document.querySelector('#chkPowerSave'); cb.checked = false; cb.onchange(); return undefined; })()");
+          await sleep(600);
+          const offInfo = await rec.win.webContents.executeJavaScript("window.__petDebug()");
+          check("关掉省电后打瞌睡也不再降帧（满帧）", offInfo.fpsNow >= 30, "fpsNow=" + offInfo.fpsNow);
+          // 再打开
+          await js("(() => { const cb = document.querySelector('#chkPowerSave'); cb.checked = true; cb.onchange(); return undefined; })()");
+          await sleep(600);
+          const onInfo = await rec.win.webContents.executeJavaScript("window.__petDebug()");
+          check("重新打开省电后又降帧了", onInfo.fpsNow <= 20, "fpsNow=" + onInfo.fpsNow);
+        }
+      }
+
       // ★ 关键：降帧不能改变物理 —— 唤醒后照样正常走动、位移正常
       await rec.win.webContents.executeJavaScript("window.__freezeBehavior && window.__freezeBehavior(false)");
       await rec.win.webContents.executeJavaScript("window.__forceWake && window.__forceWake()");
