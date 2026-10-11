@@ -301,6 +301,21 @@ function quitPetNow() {
 }
 
 /** 显示 / 隐藏桌宠（不退出，保留状态） */
+/** 只关掉指定的那一只（多宠物同屏时用） */
+function quitPetById(id) {
+  const rec = getPet(id);
+  if (!rec || !rec.win || rec.win.isDestroyed()) return false;
+  try { rec.win.close(); } catch (err) { console.warn('[pet] 关闭指定宠物失败: ' + err.message); return false; }
+  removePet(id);
+  if (petCount() === 0) { stopCursorFeed(); setCurrentScale(null); }
+  return true;
+}
+
+/** 当前在跑的宠物列表（托盘菜单用） */
+function runningPets() {
+  return listPets().map((it) => ({ id: it.id, name: (it.pack && it.pack.name) || it.id }));
+}
+
 function togglePetVisible() {
   const w = getPetWindow();
   if (!w || w.isDestroyed()) return false;
@@ -427,10 +442,11 @@ function showMakerWindow() {
 function refreshTray() {
   if (!tray || tray.isDestroyed()) return;
   try {
-    const s = { petAlive: isPetAlive(), makerAlive: makerAlive() };
+    const s = { petAlive: isPetAlive(), makerAlive: makerAlive(), pets: runningPets() };
     tray.setToolTip(trayTooltip(s));
     const template = buildTrayMenuTemplate(s, (action) => {
       if (action === 'quitPet') { quitPetNow(); refreshTray(); }
+      else if (typeof action === 'string' && action.startsWith('quitPetById:')) { quitPetById(action.slice('quitPetById:'.length)); refreshTray(); }
       else if (action === 'togglePetVisible') { togglePetVisible(); }
       else if (action === 'showMaker') { showMakerWindow(); }
       else if (action === 'openPetsDir') { shell.openPath(petsDir()); }
@@ -1567,6 +1583,7 @@ ipcMain.handle('quick:enableMulti', async (e, payload) => {
       win.on('closed', () => {
         removePet(id);
         if (petCount() === 0) stopCursorFeed();
+        refreshTray();   // 菜单里的宠物列表要跟着更新，否则还列着已经关掉的那只
         const mw = getMakerWindow();
         if (mw && !mw.isDestroyed()) mw.webContents.send('quick:state', { enabled: petCount() > 0, count: petCount() });
       });

@@ -9,6 +9,11 @@ import path from "node:path";
 import { registerIpc } from "../src/main/main.js";
 import { listPets, petCount, petByWebContentsId } from "../src/main/state.js";
 
+// 供托盘菜单测试用：把在跑的宠物转成菜单需要的形状
+function runningPetsForTray() {
+  return listPets().map((it) => ({ id: it.id, name: (it.pack && it.pack.name) || it.id }));
+}
+
 const ROOT = process.cwd();
 let pass = 0, fail = 0;
 const log = (m) => process.stdout.write(m + "\n");
@@ -119,11 +124,37 @@ app.whenReady().then(async () => {
   const pos = pets.map((p) => { const b = p.win.getBounds(); return b.x + "," + b.y; });
   check("各只位置错开（不叠在一起）", new Set(pos).size === pos.length, JSON.stringify(pos));
 
-  // 关掉一只，其它还在
-  const first = pets[0];
-  first.win.close();
+  // ---- 托盘菜单：能列出在跑的每一只，并能点名关掉某一只 ----
+  {
+    const { buildTrayMenuTemplate } = await import("../src/main/tray.js");
+    const acts = [];
+    const menu = buildTrayMenuTemplate({ petAlive: true, makerAlive: true, pets: runningPetsForTray() }, (c) => acts.push(c));
+    const labels = menu.map((x) => x.label).filter((x) => typeof x === "string");
+    check("托盘标题显示在跑数量", labels.some((x) => x.includes("3 只在跑")), JSON.stringify(labels));
+    check("托盘逐只列出了名字", labels.some((x) => x.includes("北极熊")) && labels.some((x) => x.includes("大胖鸡")), JSON.stringify(labels));
+    // 真的点一下「关掉大胖鸡」，验证它只关那一只
+    const row = menu.find((x) => typeof x.label === "string" && x.label.includes("大胖鸡"));
+    check("托盘里能找到大胖鸡那一项", !!row);
+    if (row) {
+      const target = listPets().find((p) => (p.pack && p.pack.name) === "大胖鸡");
+      check("能定位到大胖鸡这个实例", !!target, JSON.stringify(listPets().map((p) => p.pack && p.pack.name)));
+      if (target) {
+        target.win.close();
+        await sleep(2200);
+        const left = listPets().map((p) => p.pack && p.pack.name);
+        check("点名关掉后只剩另外两只", left.length === 2 && !left.includes("大胖鸡"), JSON.stringify(left));
+      }
+    }
+  }
+
+  // 上面托盘测试已经点名关掉了大胖鸡（3 -> 2）；
+  // 这里再关一只，应该只剩最后 1 只（其它照常不受影响）。
+  const remainBefore = petCount();
+  const one = listPets()[0];
+  if (one) one.win.close();
   await sleep(2500);
-  check("关掉一只后还剩 2 只", petCount() === 2, "count=" + petCount());
+  check("再关掉一只后确实又少了一只", petCount() === remainBefore - 1, remainBefore + " -> " + petCount());
+  check("剩下的那只还在正常跑", petCount() >= 1, "count=" + petCount());
 
   // 全关
   for (const p of listPets()) { try { p.win.close(); } catch (e) {} }

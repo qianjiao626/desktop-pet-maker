@@ -18,28 +18,50 @@
 export function buildTrayMenuTemplate(s, click) {
   const petAlive = !!s.petAlive;
   const makerAlive = !!s.makerAlive;
-  return [
-    { label: '桌宠制作器', enabled: false },
-    { type: 'separator' },
-    {
+  // 多宠物支持：s.pets 是 [{ id, name }]。传了且不止一只时，逐只列出来，
+  // 用户可以直接点名关掉某一只（多宠物同屏后这是必需的）。
+  const pets = Array.isArray(s.pets) ? s.pets.filter((x) => x && x.id) : [];
+  const n = pets.length;
+
+  const items = [];
+  items.push({ label: n > 1 ? ('桌宠制作器 — ' + n + ' 只在跑') : '桌宠制作器', enabled: false });
+  items.push({ type: 'separator' });
+
+  if (n <= 1) {
+    // 单只（或没传 pets）：保持原来的简单菜单，不为兼容性把常用路径复杂化
+    items.push({
       label: petAlive ? '退出桌宠' : '桌宠未运行',
       enabled: petAlive,
       click: () => click('quitPet'),
-    },
-    {
+    });
+    items.push({
       label: petAlive ? '隐藏 / 显示桌宠' : '（无桌宠可隐藏）',
       enabled: petAlive,
       click: () => click('togglePetVisible'),
-    },
-    { type: 'separator' },
-    {
-      label: makerAlive ? '显示制作器窗口' : '打开制作器',
-      click: () => click('showMaker'),
-    },
-    { label: '宠物库文件夹', click: () => click('openPetsDir') },
-    { type: 'separator' },
-    { label: '退出制作器', click: () => click('quitApp') },
-  ];
+    });
+  } else {
+    items.push({ label: '关掉其中一只：', enabled: false });
+    for (const p of pets) {
+      const nm = String(p.name || p.id);
+      const cps = Array.from(nm);
+      const short = cps.length > 16 ? (cps.slice(0, 16).join('') + '…') : nm;
+      items.push({ label: '　' + short, click: () => click('quitPetById:' + p.id) });
+    }
+    items.push({ type: 'separator' });
+    items.push({ label: '隐藏 / 显示全部', click: () => click('togglePetVisible') });
+    items.push({ label: '全部退出（' + n + ' 只）', click: () => click('quitPet') });
+  }
+
+  items.push({ type: 'separator' });
+  items.push({
+    label: makerAlive ? '显示制作器窗口' : '打开制作器',
+    click: () => click('showMaker'),
+  });
+  items.push({ label: '宠物库文件夹', click: () => click('openPetsDir') });
+  items.push({ type: 'separator' });
+  items.push({ label: '退出制作器', click: () => click('quitApp') });
+
+  return items;
 }
 
 /** 托盘 tooltip 文案（宠物在跑时给出更强提示） */
