@@ -1,3 +1,4 @@
+import { buildGuide } from './pubguide.js';
 /**
  * 静态「在线分享站」生成（零后端 / 零依赖）。
  *
@@ -225,6 +226,8 @@ export function planSiteFiles(pets, pages, opt = {}) {
     { name: 'index.html', data: buildSiteIndex(list, opt) },
     { name: 'manifest.json', data: buildManifest(list, opt) },
     { name: 'README.txt', data: buildReadme(list, opt) },
+    // 导出的文件夹自带一份中文图文发布指南（含三种发布方式与 FAQ）
+    { name: '发布到网上.md', data: buildGuide(opt.siteName) },
   ];
   for (const p of list) {
     if (p && p.file && typeof pageMap[p.file] === 'string') {

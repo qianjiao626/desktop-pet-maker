@@ -4,16 +4,16 @@
 
 > 技术选型参考了这些开源项目：`B666T/DesktopPetGenerator`（上传图→抠图→动画→打包）、
 > `PC2005-cloud/dsh-pet`（宠物包 / 素材链思路）、`ln2146/ai-desktop-pet-generator`（抠图→精灵流水线）。
-> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 2248 项单测 + 40 套 e2e**。
+> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 2264 项单测 + 40 套 e2e**。
 
 ---
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.15](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.15/desktop-pet-maker-win32-x64-v0.9.15.zip)**
+**[下载 Windows 免安装版 v0.9.16](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.16/desktop-pet-maker-win32-x64-v0.9.16.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.15）：
+**Linux x64**（v0.9.16）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
@@ -82,6 +82,9 @@ npm start
 - 五类参数可视化调节：抠图 / 外观 / 动画 / 物理 / 气泡
 - **桌面预览**：一键在真实桌面启动试用
 - 导出为单文件 **`.petpack`** 或文件夹
+- **分享站自带发布指南**：导出的文件夹里有一份中文图文 `发布到网上.md` ——
+  网页手动上传步骤（3 分钟）/ Netlify 等一键拖拽托管 / 局域网给身边人看，
+  还有 FAQ（要不要联网、花不花钱、隐私）。让不熟悉 GitHub 的人也能自己发出去
 - **🎨 角色工坊（捏一只自己的）**：没有素材、也不会画画？在「工坊」页从一堆滑块捏一只 ——
   配色 / 体型 / 耳朵 / 眼睛 / 嘴 / 腮红 / 尾巴 / 手脚，左侧**实时预览**。
   **纯程序化绘制**：零依赖、秒出、不联网、不花钱、原创无版权风险。
@@ -249,7 +252,7 @@ ZIP 内含 `pet.json` + 若干帧图片 + `README.txt`：
 | GIF 处理 | 自研解析器 + 内联 gifuct-js 的 LZW（MIT） |
 | 打包格式 | 自研 ZIP 读写（零第三方依赖） |
 | 交互 | 像素级 alpha 命中测试 + `setIgnoreMouseEvents` 穿透 |
-| 测试 | 自研断言框架：2248 项单测 + 40 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站 / 角色工坊 / 对话） |
+| 测试 | 自研断言框架：2264 项单测 + 40 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站 / 角色工坊 / 对话） |
 
 ## 🧪 测试
 

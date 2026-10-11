@@ -109,8 +109,9 @@ import {
   ok('包含 index.html', names.includes('index.html'), names.join(','));
   ok('包含 manifest.json', names.includes('manifest.json'));
   ok('包含 README.txt', names.includes('README.txt'));
+  ok('包含中文发布指南', names.includes('发布到网上.md'), names.join(','));
   ok('包含每只宠物的页面', names.includes('pet-小猫.html') && names.includes('pet-小狗.html'));
-  ok('文件总数 = 3 + 宠物数', files.length === 5, String(files.length));
+  ok('文件总数 = 4 + 宠物数', files.length === 6, String(files.length));
   ok('页面内容原样带出', files.find(f => f.name === 'pet-小猫.html').data === '<html>cat</html>');
   ok('站点名生效', files.find(f => f.name === 'index.html').data.includes('测试站'));
 }
@@ -118,7 +119,7 @@ import {
   // 缺页面的宠物不应产出空文件（否则站上出现白页）
   const files = planSiteFiles([{ name: 'x', file: 'pet-x.html' }], {});
   ok('缺页面时跳过该页', !files.some(f => f.name === 'pet-x.html'), files.map(f => f.name).join(','));
-  ok('但 index/manifest/readme 仍在', files.length === 3, String(files.length));
+  ok('但 index/manifest/readme/指南 仍在', files.length === 4, String(files.length));
 }
 
 // ---------- 站点文件不能互相覆盖 ----------

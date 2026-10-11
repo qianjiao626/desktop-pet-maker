@@ -88,6 +88,14 @@ app.whenReady().then(async () => {
   check("首页不引用任何外部图片文件", extRefs.length === 0, extRefs.join(","));
 
   // README 要真的告诉用户怎么发布
+  // 导出的文件夹必须自带中文图文发布指南（用户按它就能上公网）
+  check("生成了中文发布指南", files.includes("发布到网上.md"), files.join(","));
+  const guide = fs.readFileSync(path.join(siteDir, "发布到网上.md"), "utf8");
+  check("指南里给了网页上传步骤", guide.includes("New repository") && guide.includes("Pages"));
+  check("指南里给了静态托管选项", guide.includes("Netlify"));
+  check("指南里说明了要联网/免费", guide.includes("联网") && guide.includes("免费"));
+  check("指南不含本机绝对路径", !/[A-Za-z]:\\/.test(guide) && !guide.includes("Users\\"), "leak");
+
   const readme = fs.readFileSync(path.join(siteDir, "README.txt"), "utf8");
   check("README 含 GitHub Pages 步骤", readme.includes("GitHub Pages"));
   check("README 含本地打开方式", readme.includes("双击 index.html"));
