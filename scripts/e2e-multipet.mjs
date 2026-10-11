@@ -124,6 +124,26 @@ app.whenReady().then(async () => {
   const pos = pets.map((p) => { const b = p.win.getBounds(); return b.x + "," + b.y; });
   check("各只位置错开（不叠在一起）", new Set(pos).size === pos.length, JSON.stringify(pos));
 
+  // ---- 多宠物互相感知：每只都应该知道"除了我以外还有同伴" ----
+  {
+    await sleep(600);   // 等主进程推一轮同伴位置
+    let allKnow = true;
+    const detail = [];
+    for (const wcId of ids) {
+      const rec = petByWebContentsId(wcId);
+      if (!rec || !rec.win) { allKnow = false; continue; }
+      const dbg = await rec.win.webContents.executeJavaScript("window.__petDebug()");
+      const n = (dbg && dbg.peerCount) || 0;
+      detail.push(rec.id + ":" + n);
+      if (n !== ids.length - 1) allKnow = false;   // 3 只时每只应看到 2 个同伴
+    }
+    check("每只宠物都看到了其它同伴（不是以为自己独自活着）", allKnow, detail.join(" | "));
+    // 而且不能把自己算进同伴里
+    const rec0 = petByWebContentsId(ids[0]);
+    const dbg0 = await rec0.win.webContents.executeJavaScript("window.__petDebug()");
+    check("同伴列表里不含自己", Array.isArray(dbg0.peerIds) && !dbg0.peerIds.includes(rec0.id), JSON.stringify(dbg0.peerIds));
+  }
+
   // ---- 托盘菜单：能列出在跑的每一只，并能点名关掉某一只 ----
   {
     const { buildTrayMenuTemplate } = await import("../src/main/tray.js");

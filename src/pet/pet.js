@@ -4,6 +4,7 @@ import { pickAreaForBounds, areaChanged } from '../shared/displays.js';
 import { planRuntimeFrames } from '../shared/budget.js';
 import { createBehavior, tickBehavior, enterState, pat as doPat, isWalking, targetVelocityX, stateLabel, hit as doHit, isReacting, hopPose, dozePose, shouldSnore, lookAtPose } from '../shared/behavior.js';
 import { sanitizeSpeech, speechDuration } from '../shared/speech.js';
+import { reactToNeighbor, gazeAt, yieldDirection } from '../shared/companions.js';
 import { EVENTS, pickLine, shouldSpeak, lineDuration, toneOf } from '../shared/dialog.js';
 import { handState, fistState, pettingPose, strugglePose, HAND_DURATION, FIST_DURATION, PETTING_DURATION } from '../shared/effects.js';
 import { computeLayout, computeFramePlacement, OVER, MARGIN } from '../shared/layout.js';
@@ -58,6 +59,9 @@ let hopEnabled = true;        // 可由「活泼跳跃」开关控制
 let snorePending = false;      // 本次睡眠是否该冒一次 Zzz
 let wasDoze = false;           // 上一帧是否在打瞌睡（用于检测睡醒的边沿）
 let cursorScreen = null;      // 屏幕光标坐标（由主进程推送）
+let peers = [];              // 其它宠物在哪（主进程定期推送）—— 多宠物互相感知
+let lastPeerReactAt = 0;     // 上次对同伴起反应的时间（做冷却）
+let peerReact = null;        // 当前正在做的同伴反应（看完就清）
 let lookEnabled = true;       // 「看向鼠标」开关
 
 let hitFx = 0;          // 受击特效强度 0..1（用于抖动/闪烁）
@@ -1006,6 +1010,30 @@ function loop(ts) {
         petOffset += (0 - petOffset) * Math.min(1, dt * 1.5);
         // 行为状态机：决定当前想做什么（爬动会给出目标速度）
         tickBehavior(B, dtMs, { edgeHint: edgeInfo() });
+        // ---- 多宠物互相感知 ----
+        // 这是叠加在现有行为上的"注意力"层：靠近同伴时会看一下 / 让个路 / 一起蹦，
+        // **不接管状态机**（所以不会打乱它本来在做的走路/发呆/打瞌睡）。
+        // 有冷却 + 概率（在 shared/companions.js 里），避免好几只凑一起时屏幕太吵。
+        if (peers.length) {
+          const selfBox = { id: 'me', x: S.body.x, y: S.body.y, w: W, h: H };
+          if (!peerReact) {
+            const r = reactToNeighbor({ self: selfBox, others: peers, now, lastReact: lastPeerReactAt });
+            if (r && !r.none) {
+              lastPeerReactAt = now;
+              // 反应时长：看一眼 1.2s，让路 1.6s，一起蹦 0.9s
+              const dur = r.action === 'pause' ? 1600 : (r.action === 'hop' ? 900 : 1200);
+              peerReact = { action: r.action, until: now + dur, dx: r.dx, dir: yieldDirection(selfBox, peers.find((x) => x.id === r.otherId)) };
+            }
+          }
+          if (peerReact && now >= peerReact.until) peerReact = null;
+          // "让路"：短暂地把走路方向拨开，避开同伴（力度小，看着像自然避让）
+          if (peerReact && peerReact.action === 'pause' && peerReact.dir) {
+            B.walkDir = peerReact.dir;
+            B.remaining = Math.max(B.remaining, 0.05);   // 保持走的状态，但方向朝让开的那边
+          }
+        } else if (peerReact) {
+          peerReact = null;   // 同伴都走了，清掉
+        }
         // 睡着后打呼：只触发一次（shouldSnore 按睡眠进度判定，避免一直冒气泡）
         if (B.state === 'doze') {
           const prog = B.duration > 0 ? 1 - B.remaining / B.duration : 0;
@@ -1383,6 +1411,12 @@ if (api.onCursor) api.onCursor((p) => {
   if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) cursorScreen = p;
 });
 
+if (api.onPeers) api.onPeers((msg) => {
+  // 主进程定期推「其它宠物在哪」。做多宠物互相感知用。
+  const list = msg && Array.isArray(msg.peers) ? msg.peers : [];
+  peers = list.filter((x) => x && x.id && Number.isFinite(x.x) && Number.isFinite(x.y));
+});
+
 if (api.onQuickLook) api.onQuickLook((on) => { lookEnabled = !!on; });
 
 if (api.onQuickHop) api.onQuickHop((on) => {
@@ -1529,6 +1563,10 @@ window.__petDebug = () => ({
   saidLines: (S.saidLines || []).slice(),
   // 这只宠物自己加载到的包名 —— 多宠物同屏时用来证明「每只拿的是自己的包」
   packName: (pack && pack.name) || null,
+  // 多宠物：能看到几只同伴、最近做了什么反应（便于端到端验证）
+  peerCount: peers.length,
+  peerReact: peerReact ? { action: peerReact.action, until: Math.round(peerReact.until) } : null,
+  peerIds: peers.map((x) => x.id),
   packId: (pack && pack.id) || null,
   loadedFrames: images.length,
   loadedBytes: images.reduce((a, im) => a + im.naturalWidth * im.naturalHeight * 4, 0),

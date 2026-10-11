@@ -123,6 +123,7 @@ contextBridge.exposeInMainWorld('api', {
   setScale: (v) => ipcRenderer.send('pet:setScale', v),
   onQuickScale: (cb) => ipcRenderer.on('quick:scale', (e, v) => cb(v)),
   onCursor: (cb) => ipcRenderer.on('pet:cursor', (e, p) => cb(p)),
+  onPeers: (cb) => ipcRenderer.on('pet:peers', (e, p) => cb(p)),
   onQuickPat: (cb) => ipcRenderer.on('quick:pat', () => cb()),
   quickHit: (fromDir) => ipcRenderer.invoke('quick:hit', fromDir),
   quickSay: (text) => ipcRenderer.invoke('quick:say', text),

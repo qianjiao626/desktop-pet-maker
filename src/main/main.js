@@ -390,12 +390,30 @@ let cursorTimer = null;
 function startCursorFeed() {
   if (cursorTimer) return;
   cursorTimer = setInterval(() => {
-    const w = getPetWindow();
-    if (!w || w.isDestroyed()) { stopCursorFeed(); return; }
-    try {
-      const p = screen.getCursorScreenPoint();
-      w.webContents.send('pet:cursor', { x: p.x, y: p.y });
-    } catch { /* 屏幕切换瞬间可能抛，忽略这一帧 */ }
+    const alive = listPets();
+    if (!alive.length) { stopCursorFeed(); return; }
+    let cursor = null;
+    try { cursor = screen.getCursorScreenPoint(); } catch (err) { cursor = null; }   // 屏幕切换瞬间可能抛
+
+    // 每只宠物的位置先收集一次（O(n)），再分发给每只
+    // （它需要知道"除了我以外的其它同伴在哪"）。
+    const all = [];
+    for (const it of alive) {
+      try {
+        const b = it.win.getBounds();
+        all.push({ id: it.id, name: (it.pack && it.pack.name) || '', x: b.x, y: b.y, w: b.width, h: b.height });
+      } catch (err) { /* 窗口正在销毁，跳过 */ }
+    }
+
+    for (const it of alive) {
+      try {
+        if (!it.win || it.win.isDestroyed()) continue;
+        if (cursor) it.win.webContents.send('pet:cursor', { x: cursor.x, y: cursor.y });
+        // 同伴列表：排除自己，省得自己跟自己互动
+        const peers = all.filter((x) => x.id !== it.id);
+        it.win.webContents.send('pet:peers', { peers });
+      } catch (err) { /* 忽略单只失败，不影响其它宠物 */ }
+    }
   }, 120);
 }
 
