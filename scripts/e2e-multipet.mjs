@@ -124,6 +124,54 @@ app.whenReady().then(async () => {
   const pos = pets.map((p) => { const b = p.win.getBounds(); return b.x + "," + b.y; });
   check("各只位置错开（不叠在一起）", new Set(pos).size === pos.length, JSON.stringify(pos));
 
+  // ---- 省电节流：打瞌睡时降帧，但不能因此走得慢 ----
+  {
+    const rec = petByWebContentsId(ids[0]);
+    check("能取到一只宠物做节流测试", !!rec && !!rec.win);
+    if (rec && rec.win) {
+      // 强制进入打瞌睡（降帧档），看渲染帧数涨得是不是明显更慢
+      const t0 = await rec.win.webContents.executeJavaScript("window.__petDebug()");
+      check("初始能读到绘制帧数", typeof t0.drawCount === "number" && t0.drawCount > 0, "drawCount=" + t0.drawCount);
+      check("初始知道自己的目标帧率", typeof t0.fpsNow === "number" && t0.fpsNow > 0, "fpsNow=" + t0.fpsNow);
+
+      // 先冻结行为状态机再强制打瞌睡。
+      // 为什么：多宠物时宠物会因为"看到同伴"主动切换状态（让路/看对方），
+      // 不冻结的话 __forceDoze 会被状态机立刻切回 walk —— 那是状态在动，不是节流失效。
+      // 先清掉可能残留的特效（手/拳/爱心）。
+      // 有特效时 applyThrottle 会刻意走满帧分支（跟手优先）——
+      // 全量跑时前面的套件可能触发过特效，不清掉这里就会看到 60fps（实测踩到）。
+      await rec.win.webContents.executeJavaScript("window.__clearFxForTest && window.__clearFxForTest()");
+      await rec.win.webContents.executeJavaScript("window.__freezeBehavior && window.__freezeBehavior(true)");
+      await rec.win.webContents.executeJavaScript("window.__forceDoze && window.__forceDoze()");
+      await sleep(300);
+      const d1 = await rec.win.webContents.executeJavaScript("window.__petDebug()");
+      await sleep(2000);
+      const d2 = await rec.win.webContents.executeJavaScript("window.__petDebug()");
+      const dozeFrames = d2.drawCount - d1.drawCount;
+      check("确实处于打瞌睡状态（前置条件）", d2.behavior.state === "doze", "state=" + d2.behavior.state);
+      check("打瞌睡时目标帧率被降下来", d2.fpsNow > 0 && d2.fpsNow <= 20, "fpsNow=" + d2.fpsNow + " state=" + d2.behavior.state);
+      // 2 秒内 10fps 约 20 帧；给宽松上限（40 = 20fps），只要求"明显不是满帧"
+      check("打瞌睡时实际绘制帧数明显更少（省电生效）", dozeFrames <= 40, "2 秒内画了 " + dozeFrames + " 帧");
+
+      // ★ 关键：降帧不能改变物理 —— 唤醒后照样正常走动、位移正常
+      await rec.win.webContents.executeJavaScript("window.__freezeBehavior && window.__freezeBehavior(false)");
+      await rec.win.webContents.executeJavaScript("window.__forceWake && window.__forceWake()");
+      await sleep(300);
+      const w1 = await rec.win.webContents.executeJavaScript("window.__petDebug()");
+      await sleep(2500);
+      const w2 = await rec.win.webContents.executeJavaScript("window.__petDebug()");
+      check("唤醒后目标帧率恢复正常（≥20）", w2.fpsNow >= 20, "fpsNow=" + w2.fpsNow);
+      check("唤醒后物理仍在推进（帧数在涨）", w2.drawCount > w1.drawCount, w1.drawCount + " -> " + w2.drawCount);
+      // 断言"物理没有停"，而不是"位置一定变了"：
+      // 宠物可以合法地站着不动（发呆/被边缘挡住），那时位置本来就该不变。
+      // 真正要防的是"降帧导致物理冻结"，用速度或位置任一项在活动即可。
+      const moved = Math.abs(w2.body.x - w1.body.x) > 0.5 || Math.abs(w2.body.y - w1.body.y) > 0.5;
+      const hadSpeed = Math.abs(w1.body.vx) > 1 || Math.abs(w1.body.vy) > 1 || Math.abs(w2.body.vx) > 1 || Math.abs(w2.body.vy) > 1;
+      check("唤醒后物理没有因降帧而冻结（有位移或有速度）", moved || hadSpeed,
+        "dx=" + (w2.body.x - w1.body.x).toFixed(2) + " vx=" + (w2.body.vx || 0).toFixed(2));
+    }
+  }
+
   // ---- 多宠物互相感知：每只都应该知道"除了我以外还有同伴" ----
   {
     await sleep(600);   // 等主进程推一轮同伴位置

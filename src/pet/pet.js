@@ -5,6 +5,7 @@ import { planRuntimeFrames } from '../shared/budget.js';
 import { createBehavior, tickBehavior, enterState, pat as doPat, isWalking, targetVelocityX, stateLabel, hit as doHit, isReacting, hopPose, dozePose, shouldSnore, lookAtPose } from '../shared/behavior.js';
 import { sanitizeSpeech, speechDuration } from '../shared/speech.js';
 import { reactToNeighbor, gazeAt, yieldDirection } from '../shared/companions.js';
+import { applyThrottle, frameGate } from '../shared/throttle.js';
 import { EVENTS, pickLine, shouldSpeak, lineDuration, toneOf } from '../shared/dialog.js';
 import { handState, fistState, pettingPose, strugglePose, HAND_DURATION, FIST_DURATION, PETTING_DURATION } from '../shared/effects.js';
 import { computeLayout, computeFramePlacement, OVER, MARGIN } from '../shared/layout.js';
@@ -60,6 +61,11 @@ let snorePending = false;      // 本次睡眠是否该冒一次 Zzz
 let wasDoze = false;           // 上一帧是否在打瞌睡（用于检测睡醒的边沿）
 let cursorScreen = null;      // 屏幕光标坐标（由主进程推送）
 let peers = [];              // 其它宠物在哪（主进程定期推送）—— 多宠物互相感知
+let powerSave = true;        // 省电节流：静止/打瞌睡时降帧（用户可关）
+let _testFreeze = false;     // 仅测试用：冻结行为状态机（让强制状态不被切走）
+let lastDrawAt = 0;          // 上次**真正绘制**的时间（省电时不是每帧都画）
+let drawCount = 0;           // 真正绘制（推进物理）的帧数
+let lastTargetFps = 0;       // 本帧算出的目标帧率（调试/测试用）
 let lastPeerReactAt = 0;     // 上次对同伴起反应的时间（做冷却）
 let peerReact = null;        // 当前正在做的同伴反应（看完就清）
 let lookEnabled = true;       // 「看向鼠标」开关
@@ -972,7 +978,37 @@ function render(now) {
 // ---------------- 主循环 ----------------
 let lastT = 0;
 function loop(ts) {
-  const dtMs = lastT ? Math.min(50, ts - lastT) : 0;
+  // ---- 省电节流 ----
+  // 宠物是常驻的，而且以前**没有任何帧率上限**：一只静坐的桌宠也会以显示器
+  // 刷新率（60/120/144Hz）全速重绘。养 4 只就是 4 个进程 × 144Hz，
+  // 笔记本掉电很快、风扇也会转。实际上发呆/打瞌睡时画面几秒才变一次。
+  //
+  // 关键：**物理必须和帧率解耦** —— 这里用 frameGate 决定"这一帧要不要真的推进"，
+  // 跳过时 dtMs 不动（下一次真正推进时用累积的真实时间），
+  // 所以降帧不会让宠物走得更慢。
+  requestAnimationFrame(loop);
+  const fps = applyThrottle({
+    enabled: powerSave,
+    state: B.state,
+    dragging: !!S.dragging,
+    hasOverlay: !!(handStartAt || fistStartAt || hitFx || catchCelebrateAt),
+    moving: Math.abs(S.body.vx) > 1 || Math.abs(S.body.vy) > 1,
+    walking: isWalking(B),
+  });
+  // 立刻记下本帧算出的目标帧率 —— 不能等 gate 通过再记：
+  // 降帧时大部分帧都被 gate 挡掉，那样外部读到的永远是上一次的旧值（实测是 60）。
+  lastTargetFps = fps;
+  const gate = frameGate({ now: ts, lastDraw: lastDrawAt, fps });
+  if (!gate.draw) return;      // 这一帧不画也不推进物理
+  lastDrawAt = ts;
+  drawCount++;
+  // dtMs 按"距上次真实绘制"算。
+  // ★ 上限必须放宽到 250ms，不能是 50ms：
+  //   降帧后帧间隔本身就可能到 100ms（10fps 打瞌睡），
+  //   如果还按 50ms 钳，状态机的计时会被**拉慢**——表现为"跳跃/摸头比原来持续更久"，
+  //   甚至让后面的断言读到过期状态（实测：hop 套件因此回归）。
+  //   250ms 是"防止系统挂起后一帧跳太远"的折中。
+  const dtMs = lastT ? Math.min(250, ts - lastT) : 0;
   const dt = dtMs / 1000;
   lastT = ts;
 
@@ -1009,7 +1045,7 @@ function loop(ts) {
         // 没虫子时缓慢归位，避免宠物一直偏在一边
         petOffset += (0 - petOffset) * Math.min(1, dt * 1.5);
         // 行为状态机：决定当前想做什么（爬动会给出目标速度）
-        tickBehavior(B, dtMs, { edgeHint: edgeInfo() });
+        if (!_testFreeze) tickBehavior(B, dtMs, { edgeHint: edgeInfo() });   // _testFreeze：仅测试用
         // ---- 多宠物互相感知 ----
         // 这是叠加在现有行为上的"注意力"层：靠近同伴时会看一下 / 让个路 / 一起蹦，
         // **不接管状态机**（所以不会打乱它本来在做的走路/发呆/打瞌睡）。
@@ -1078,7 +1114,6 @@ function loop(ts) {
     render(ts);
     tickBubble(dt);
   }
-  requestAnimationFrame(loop);
 }
 
 // ---------------- 气泡 ----------------
@@ -1171,6 +1206,11 @@ function tickBubble(dt) {
   if (!pack.bubble.enabled) return;
   if (S.bubbleHideAt && performance.now() > S.bubbleHideAt) { hideBubble(); S.bubbleHideAt = 0; }
   if (S.bubbleHideAt) return;
+  // 用户刚说过话（3 秒内）就别自动插嘴 —— 否则用户发的那句话会被自动轮播顶掉。
+  // 这个问题在**降帧之后变明显了**：dt 变大让 bubbleTimer 掉得更快，
+  // 更容易在用户发言后立刻触发轮播（实测：e2e-quick 的「气泡已显示」偶发失败）。
+  // 与打呼噜那里的处理是同一个道理（见 HANDOFF 第 29 条）。
+  if (userSpokeAt && performance.now() - userSpokeAt < 3000) return;
   S.bubbleTimer -= dt;
   if (S.bubbleTimer <= 0) {
     S.bubbleTimer = pack.bubble.intervalSec;
@@ -1417,6 +1457,11 @@ if (api.onPeers) api.onPeers((msg) => {
   peers = list.filter((x) => x && x.id && Number.isFinite(x.x) && Number.isFinite(x.y));
 });
 
+if (api.onPowerSave) api.onPowerSave((on) => {
+  // 省电节流开关（制作器里可关）。关掉后一律满帧 —— 有人就是想要最顺的画面。
+  powerSave = on !== false;
+});
+
 if (api.onQuickLook) api.onQuickLook((on) => { lookEnabled = !!on; });
 
 if (api.onQuickHop) api.onQuickHop((on) => {
@@ -1503,6 +1548,31 @@ window.__forceHop = () => { try { enterState(B, 'hop'); return true; } catch { r
 
 // 测试用：强制进入打瞌睡 / 注入光标坐标（便于自动化断言姿态，不依赖真实鼠标移动）
 window.__forceDoze = () => { try { enterState(B, 'doze'); return true; } catch { return false; } };
+// 测试用：临时冻结行为状态机（让 __forceDoze 设定的状态不被下一帧切走）。
+// 为什么需要：多宠物时宠物会因为有同伴而主动切换状态（让路/看对方），
+// 于是"强制打瞌睡"会被状态机立刻切回 walk —— 那不是节流失效，是状态在动。
+// 测试用：清掉所有特效状态（手/拳/爱心/受击）。
+// 有特效时省电节流会刻意走满帧分支（跟手优先），
+// 所以测「降帧」之前必须先清干净，否则看到的永远是 60fps。
+window.__clearFxForTest = () => {
+  try {
+    handStartAt = 0; fistStartAt = 0; hitFx = 0; catchCelebrateAt = 0;
+    S.bubbleHideAt = 0;
+    return true;
+  } catch (err) { return false; }
+};
+
+window.__freezeBehavior = (on) => {
+  try {
+    if (on) {
+      B.__frozen = { state: B.state, remaining: B.remaining, duration: B.duration };
+      _testFreeze = true;
+    } else {
+      _testFreeze = false;
+    }
+    return true;
+  } catch (err) { return false; }
+};
 // 测试用：强制醒来（让"注视"断言不受睡眠状态干扰）
 window.__forceWake = () => {
   try {
@@ -1564,6 +1634,10 @@ window.__petDebug = () => ({
   // 这只宠物自己加载到的包名 —— 多宠物同屏时用来证明「每只拿的是自己的包」
   packName: (pack && pack.name) || null,
   // 多宠物：能看到几只同伴、最近做了什么反应（便于端到端验证）
+  // 省电节流的可观测指标（e2e 用）：真实绘制了多少帧、目标帧率是多少
+  drawCount,
+  fpsNow: lastTargetFps,   // 本帧目标帧率
+  powerSave,
   peerCount: peers.length,
   peerReact: peerReact ? { action: peerReact.action, until: Math.round(peerReact.until) } : null,
   peerIds: peers.map((x) => x.id),

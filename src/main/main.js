@@ -1557,6 +1557,13 @@ ipcMain.handle('pet:getPack', (e) => {
 // 多宠物：告诉制作器现在有几只在跑
 ipcMain.handle('pet:count', () => ({ ok: true, count: petCount(), activeId: getActivePetId() }));
 
+// 省电节流开关：转发给**每一只**宠物（多宠物时不能只给当前那只）
+ipcMain.on('pet:setPowerSave', (e, on) => {
+  for (const it of listPets()) {
+    try { it.win.webContents.send('pet:powerSave', on !== false); } catch (err) { /* 忽略 */ }
+  }
+});
+
 // ---------- 快速模式：启用 / 停用（同进程，无需重启） ----------
 function ensurePetWindowVisibility() {
   const w = getPetWindow();
