@@ -161,10 +161,10 @@ app.whenReady().then(async () => {
   const miCount = await js("document.querySelectorAll('#menu .mi').length");
   // 6 项：回到屏幕底部 / 说一句话 / 切换置顶 / 切换鼠标穿透 / 换个动作 / 退出桌宠
   // （「换个动作」只有包里带多段片段时才可见，但 DOM 里始终存在 -> 这里是文档级计数）
-  check('菜单含 6 项', miCount === 6, 'n=' + miCount);
+  check('菜单含 10 项', miCount === 10, 'n=' + miCount);
   check('无片段时「换个动作」是隐藏的', await js(`document.querySelector('#miNextClip').hidden === true`));
 
   log('');
   log('==== PET E2E: ' + pass + '/' + (pass + fail) + ' ====');
-  app.quit();
+  app.exit(fail ? 1 : 0);   // 用 app.exit 才能可靠传退出码（Windows 上实测；别改成 process.exitCode）
 }).catch((e) => { log('FATAL ' + e.message + '\n' + (e.stack || '')); app.quit(); });

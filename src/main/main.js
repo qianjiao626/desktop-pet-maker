@@ -13,6 +13,7 @@ import { MODELS, listModels, downloadModel, deleteModel, isInstalled } from './m
 import { segmentImage, segmentAuto } from './segment.js';
 import { setCurrentPack, getCurrentPack, setPetWindow, getPetWindow, setMakerWindow, getMakerWindow, isPetAlive, setCurrentScale, getCurrentScale } from './state.js';
 import { buildTrayMenuTemplate, trayTooltip } from './tray.js';
+import { SHORTCUTS, validateShortcuts } from '../shared/shortcuts.js';
 import { startupSwitches, appMenuTemplate } from '../shared/platform.js';
 import { buildShareHtml, shareFileName } from '../shared/sharepack.js';
 import { assignSlugs, planSiteFiles } from '../shared/sharesite.js';
@@ -283,7 +284,11 @@ function initialPetBounds(pack) {
 // 背景：桌宠是无边框透明置顶窗 + 像素级鼠标穿透，唯一的退出方式原本是「右键点中它」。
 // 一旦制作器窗口已关闭、或宠物跑到屏幕外，用户可能完全退不出去。
 // 这里注册全局快捷键作为兜底：即使宠物正在鼠标穿透、即使焦点不在宠物上，也能强制退出。
+// 除「强制退出」外，再加几个日常会用到的（显示/隐藏、回中央、说一句话）。
+// 全部从 shared/shortcuts.js 的表里来 —— 表是纯数据、有单测，
+// 避免出现"文档写了 A、代码注册的是 B"。
 const QUIT_PET_ACCELERATOR = 'Control+Alt+Q';
+let petHidden = false;    // 由 Ctrl+Alt+P 切换
 
 function quitPetNow() {
   const w = getPetWindow();
@@ -292,18 +297,69 @@ function quitPetNow() {
   petWindow = null;
   stopCursorFeed();
   setCurrentScale(null);   // 退出后回到默认大小，避免下次启用继承上次的小尺寸
+  petHidden = false;
 }
 
+/** 显示 / 隐藏桌宠（不退出，保留状态） */
+function togglePetVisible() {
+  const w = getPetWindow();
+  if (!w || w.isDestroyed()) return false;
+  petHidden = !petHidden;
+  try {
+    if (petHidden) w.hide();
+    else { w.showInactive(); w.setAlwaysOnTop(true, 'screen-saver'); }
+  } catch (err) { console.warn('[pet] 显示/隐藏失败: ' + err.message); }
+  return true;
+}
+
+/** 把桌宠放回当前显示器的屏幕中央底部（找不到它时的救命键） */
+function centerPetNow() {
+  const w = getPetWindow();
+  if (!w || w.isDestroyed()) return false;
+  try {
+    const b = w.getBounds();
+    const area = screen.getPrimaryDisplay().workArea;
+    const x = Math.round(area.x + (area.width - b.width) / 2);
+    const y = Math.round(area.y + area.height - b.height - 40);
+    // 用 setContentBounds 而非 setPosition：非整数 DPI 下 setPosition 会让窗口逐渐变宽（见 HANDOFF）
+    w.setContentBounds({ x, y, width: b.width, height: b.height });
+    if (petHidden) { petHidden = false; w.showInactive(); }
+  } catch (err) { console.warn('[pet] 回中央失败: ' + err.message); }
+  return true;
+}
+
+/** 让它主动说一句（走渲染进程的气泡） */
+function petSayNow() {
+  const w = getPetWindow();
+  if (!w || w.isDestroyed()) return false;
+  try { w.webContents.send('quick:pat'); } catch (err) { console.warn('[pet] 说话失败: ' + err.message); }
+  return true;
+}
+
+const SHORTCUT_ACTIONS = {
+  toggle: togglePetVisible,
+  center: centerPetNow,
+  say: petSayNow,
+  quit: quitPetNow,
+};
+
 function unregisterQuitShortcut() {
-  try { globalShortcut.unregister(QUIT_PET_ACCELERATOR); } catch {}
+  try { for (const s of SHORTCUTS) globalShortcut.unregister(s.accelerator); } catch {}
 }
 
 function registerQuitShortcut() {
   try {
-    if (globalShortcut.isRegistered(QUIT_PET_ACCELERATOR)) return true;
-    const ok = globalShortcut.register(QUIT_PET_ACCELERATOR, quitPetNow);
-    if (!ok) console.warn('[pet] 全局快捷键 ' + QUIT_PET_ACCELERATOR + ' 注册失败（可能被其他程序占用）');
-    return ok;
+    const v = validateShortcuts(SHORTCUTS);
+    if (!v.ok) console.warn('[pet] 快捷键表有问题: ' + v.errors.join('；'));
+    let allOk = true;
+    for (const s of SHORTCUTS) {
+      const fn = SHORTCUT_ACTIONS[s.id];
+      if (typeof fn !== 'function') { console.warn('[pet] 快捷键 ' + s.id + ' 没有对应动作'); allOk = false; continue; }
+      if (globalShortcut.isRegistered(s.accelerator)) continue;
+      const ok = globalShortcut.register(s.accelerator, fn);
+      if (!ok) { console.warn('[pet] 全局快捷键 ' + s.accelerator + '（' + s.label + '）注册失败，可能被其他程序占用'); allOk = false; }
+    }
+    return allOk;
   } catch (err) {
     console.warn('[pet] 全局快捷键注册异常: ' + err.message);
     return false;
@@ -366,12 +422,6 @@ function showMakerWindow() {
   // 制作器窗口已被关闭：重建一个
   const win = createMakerWindow();
   win.show();
-}
-
-function togglePetVisible() {
-  const w = getPetWindow();
-  if (!w || w.isDestroyed()) return;
-  if (w.isVisible()) w.hide(); else w.showInactive();
 }
 
 function refreshTray() {

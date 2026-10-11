@@ -406,5 +406,5 @@ app.whenReady().then(async () => {
 
   log('');
   log('==== UI E2E: ' + pass + '/' + (pass + fail) + ' ====');
-  app.quit();
+  app.exit(fail ? 1 : 0);   // 用 app.exit 才能可靠传退出码（Windows 上实测；别改成 process.exitCode）
 }).catch((e) => { log('FATAL ' + e.message + '\n' + (e.stack || '')); app.quit(); });
