@@ -464,7 +464,9 @@ function readPack() {
       intervalSec: parseInt($('#interval').value, 10),
       durationSec: parseInt($('#duration').value, 10) / 10,
     },
-    behavior: { startCorner: $('#corner').value, keepAbove: $('#keepAbove').checked },
+    // personality 供运行时「对话脑」决定口吻（活泼/温顺/贪睡/粘人/静默）。
+    // 之前这里没有这个字段 -> 性格模板选了也传不到宠物，对话永远用默认口吻。
+    behavior: { startCorner: $('#corner').value, keepAbove: $('#keepAbove').checked, personality: currentTemplate || 'default' },
   };
 }
 
@@ -508,6 +510,7 @@ function applyPack(pack) {
     $('#duration').value = Math.round((pack.bubble.durationSec ?? 3.2) * 10);
   }
   if (pack.behavior) {
+    if (pack.behavior.personality) currentTemplate = pack.behavior.personality;
     $('#corner').value = pack.behavior.startCorner || 'bottom-right';
     $('#keepAbove').checked = pack.behavior.keepAbove !== false;
   }

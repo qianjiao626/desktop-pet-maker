@@ -4,6 +4,7 @@ import { pickAreaForBounds, areaChanged } from '../shared/displays.js';
 import { planRuntimeFrames } from '../shared/budget.js';
 import { createBehavior, tickBehavior, enterState, pat as doPat, isWalking, targetVelocityX, stateLabel, hit as doHit, isReacting, hopPose, dozePose, shouldSnore, lookAtPose } from '../shared/behavior.js';
 import { sanitizeSpeech, speechDuration } from '../shared/speech.js';
+import { EVENTS, pickLine, shouldSpeak, lineDuration, toneOf } from '../shared/dialog.js';
 import { handState, fistState, pettingPose, strugglePose, HAND_DURATION, FIST_DURATION, PETTING_DURATION } from '../shared/effects.js';
 import { computeLayout, computeFramePlacement, OVER, MARGIN } from '../shared/layout.js';
 import { createBug, stepBug, catchBug, isBugActive, canPounce } from '../shared/bugchase.js';
@@ -54,7 +55,8 @@ const B = createBehavior();
 let behaviorEnabled = true;   // 可由「让他爬动」开关控制
 let walkSpeed = 60;           // px/s
 let hopEnabled = true;        // 可由「活泼跳跃」开关控制
-let snorePending = false;     // 本次睡眠是否该冒一次「Zzz…」
+let snorePending = false;      // 本次睡眠是否该冒一次 Zzz
+let wasDoze = false;           // 上一帧是否在打瞌睡（用于检测睡醒的边沿）
 let cursorScreen = null;      // 屏幕光标坐标（由主进程推送）
 let lookEnabled = true;       // 「看向鼠标」开关
 
@@ -79,6 +81,8 @@ const S = {
   clickP: 0, clickAnim: 'bounce',
   frameIdx: 0, frameT: 0, oneshotDone: false,
   bubbleTimer: 4, bubbleHideAt: 0,
+  lastTalkAt: 0,        // 上次说话的时间（做冷却，避免戳三下说三遍）
+  saidLines: [],        // 最近说过的几句（避免立刻重复同一句）
   scaleMul: 1, scaleTarget: 1,
 };
 
@@ -989,7 +993,7 @@ function loop(ts) {
             // 用户刚说过话就先不抢话（气泡是同一块 UI，会互相顶掉）
             catchCelebrateAt = performance.now();      // 冒爱心庆祝
             const quiet = (performance.now() - userSpokeAt) > 4000;
-            if (pack.bubble.enabled && quiet) { showBubble('抓到啦！'); S.bubbleTimer = pack.bubble.intervalSec; }
+            if (pack.bubble.enabled && quiet) talk('bug');
           }
         } else {
           const step = Math.sign(dx) * 70 * dt;
@@ -1006,8 +1010,12 @@ function loop(ts) {
         if (B.state === 'doze') {
           const prog = B.duration > 0 ? 1 - B.remaining / B.duration : 0;
           if (shouldSnore(prog)) snorePending = true;
+          wasDoze = true;
         } else {
           snorePending = false;
+          // 刚刚睡醒（边沿）：说一句。放在这里而不是在 doze 分支里，
+          // 因为「醒来」这件事只有"从睡到不睡"的那一刻才知道。
+          if (wasDoze) { wasDoze = false; talk('wake'); }
         }
       }
       refreshArea();   // 先按当前位置确定所在显示器，再按该显示器边界积分
@@ -1072,6 +1080,53 @@ function placeBubble() {
   bubbleEl.style.top = "auto";
 }
 
+// ---------------- 对话（本地规则引擎，不联网、不要 API Key） ----------------
+// 宠物在真实事件上说话：被摸、被戳、被拎、放下、睡醒、抓到虫子、刚上桌…
+// 台词按**性格**换口吻（活泼/温顺/贪睡/粘人/静默），并有冷却避免复读。
+// 逻辑都在 shared/dialog.js（有单测），这里只负责挑时机 + 显示。
+const TALK_MIN_GAP_MS = 900;      // 任何两句话之间至少隔这么久
+const TALK_COOLDOWN_MS = 6000;    // 同类事件 6 秒内不重复触发
+
+/**
+ * 让宠物对某个事件说一句话。
+ * @param event 事件名（见 shared/dialog.js 的 EVENTS）
+ * @param opt.force 忽略冷却（用户主动点的，必须立刻有反应）
+ * @param opt.durationMs 指定显示时长（不给就按字数算）
+ * @returns 说出来的那句话（没说返回空串）
+ */
+function talk(event, opt = {}) {
+  try {
+    if (!pack || !pack.bubble || !pack.bubble.enabled) return '';
+    const now = performance.now();
+    if (!opt.force) {
+      const gate = shouldSpeak({
+        event, now, lastTalkAt: S.lastTalkAt,
+        minGapMs: TALK_MIN_GAP_MS, cooldownMs: TALK_COOLDOWN_MS,
+        silent: false,
+      });
+      if (!gate.ok) return '';
+      // 正在显示别的气泡时不要打断（否则用户看不清任何一句）
+      if (S.bubbleHideAt && now < S.bubbleHideAt) return '';
+    }
+    const tone = toneOf(pack.behavior && pack.behavior.personality);
+    const line = pickLine({ event, tone, custom: pack.bubble.lines, avoid: S.saidLines });
+    if (!line) return '';
+    S.lastTalkAt = now;
+    S.saidLines = (S.saidLines || []).concat([line]).slice(-6);
+    bubbleText.textContent = line;
+    bubbleEl.hidden = false;
+    placeBubble();
+    requestAnimationFrame(() => bubbleEl.classList.add('show'));
+    S.bubbleHideAt = now + (opt.durationMs || lineDuration(line) * 1000);
+    S.bubbleTimer = pack.bubble.intervalSec;   // 说过话了，把定时轮播往后推
+    return line;
+  } catch (err) {
+    // 绝不静默吞异常：对话失败不应该影响宠物本身的运行
+    console.warn('[dialog] 说话失败：' + (err && err.message ? err.message : err));
+    return '';
+  }
+}
+
 function showBubble(text) {
   if (!text) return;
   bubbleText.textContent = text;
@@ -1089,7 +1144,12 @@ function tickBubble(dt) {
   if (S.bubbleHideAt && performance.now() > S.bubbleHideAt) { hideBubble(); S.bubbleHideAt = 0; }
   if (S.bubbleHideAt) return;
   S.bubbleTimer -= dt;
-  if (S.bubbleTimer <= 0) { S.bubbleTimer = pack.bubble.intervalSec; showBubble(randomLine()); }
+  if (S.bubbleTimer <= 0) {
+    S.bubbleTimer = pack.bubble.intervalSec;
+    // 自动轮播也走对话引擎：会按性格换口吻、并且不会连着说同一句。
+    // 用户自定义台词优先级最高（在 pickLine 里），所以他写的话一定会被说到。
+    if (!talk('idle')) showBubble(randomLine());   // 兜底：对话引擎拒绝时仍然要有话说
+  }
 }
 
 // ---------------- 拖拽 ----------------
@@ -1108,7 +1168,7 @@ canvas.addEventListener('mousedown', (e) => {
         bugCatchCount++;
         catchCelebrateAt = performance.now();
         const quiet = (performance.now() - userSpokeAt) > 4000;
-        if (pack.bubble.enabled && quiet) { showBubble('抓到啦！'); S.bubbleTimer = pack.bubble.intervalSec; }
+        if (pack.bubble.enabled && quiet) talk('bug', { force: true });
       }
       return;
     }
@@ -1117,6 +1177,8 @@ canvas.addEventListener('mousedown', (e) => {
   downAt = performance.now(); moved = false;
   S.dragging = true;
   drag = { startSX: e.screenX, startSY: e.screenY, startX: S.body.x, startY: S.body.y, samples: [{ t: performance.now(), x: S.body.x, y: S.body.y }] };
+  // 「被拎起来」是宠物最强烈的体验之一 —— 之前完全没反应，现在会说一句
+  talk('grab', { force: true });
   if (S.ignoreMouse) { S.ignoreMouse = false; api.setIgnoreMouse(false); }
 });
 
@@ -1148,13 +1210,14 @@ window.addEventListener('mouseup', (e) => {
     const k = pack.physics.throwScale;
     S.body.vx = v.vx * k; S.body.vy = v.vy * k;
     S.body.onGround = false; S.body.roamTimer = 1.5;
+    talk('drop', { force: true });
   } else if (performance.now() - downAt < 400) {
     // 单击 = 摸头：进入 pat 反应状态 + 动画反馈
     S.clickP = 1; S.clickAnim = pack.animation.click;
     if (behaviorEnabled) doPat(B);
   handStartAt = performance.now();
     petStartAt = performance.now();
-    if (pack.bubble.enabled) { showBubble(randomLine()); S.bubbleTimer = pack.bubble.intervalSec; }
+    if (pack.bubble.enabled) talk('pat', { force: true });
   }
 });
 
@@ -1204,7 +1267,7 @@ menuEl.querySelectorAll('.mi').forEach((mi) => {
     return;
   }
   if (act === 'bottom') { refreshArea(true); S.body.y = area.y + area.height - H - 40; S.body.vy = 0; S.body.onGround = false; S.body.roamTimer = 1; }
-    else if (act === 'bubble') { showBubble(randomLine()); S.bubbleTimer = pack.bubble.intervalSec; }
+    else if (act === 'bubble') { talk('poke', { force: true }); }
     else if (act === 'top') { S.topmost = !S.topmost; api.setAlwaysOnTop(S.topmost); }
     else if (act === 'clickthrough') { S.ignoreMouse = !S.ignoreMouse; api.setIgnoreMouse(S.ignoreMouse); }
     else if (act === 'close') api.closePet();
@@ -1287,12 +1350,18 @@ if (api.onQuickPat) api.onQuickPat(() => {
   petStartAt = performance.now();
   S.clickP = 1; S.clickAnim = pack && pack.animation ? pack.animation.click : 'bounce';
   // 用户主动摸头：强制给反馈
-  const line = (pack && pack.bubble.lines && pack.bubble.lines.length) ? randomLine() : '好舒服～';
-  bubbleText.textContent = line;
-  bubbleEl.hidden = false;
-  placeBubble();
-  requestAnimationFrame(() => bubbleEl.classList.add('show'));
-  S.bubbleHideAt = performance.now() + 1800;
+  // 尊重用户的设置：关了气泡就真的不说话（"静默摆件"模板正是如此）。
+  // 曾经无论开关都硬塞一句"好舒服～"，把静默性格变成了一句台词。
+  if (pack && pack.bubble && pack.bubble.enabled) {
+    const line = talk('pat', { force: true }) || '好舒服～';
+    if (line) {
+      bubbleText.textContent = line;
+      bubbleEl.hidden = false;
+      placeBubble();
+      requestAnimationFrame(() => bubbleEl.classList.add('show'));
+      S.bubbleHideAt = performance.now() + 1800;
+    }
+  }
 });
 if (api.onQuickHit) api.onQuickHit((fromDir) => {
   const dir = doHit(B, typeof fromDir === 'number' ? fromDir : 0);
@@ -1301,8 +1370,10 @@ if (api.onQuickHit) api.onQuickHit((fromDir) => {
   // 拳头从攻击来向的对面视觉上飞来（与击退方向相反）
   fistStartAt = performance.now();
   fistDir = -dir;
-  // 用户主动出拳：无论是否开启自动气泡，都要给反馈
-  bubbleText.textContent = '呜哇！';
+  // 出拳的**动画**反馈照旧（那是视觉，不是气泡）；但说不说话要看用户的设置。
+  const hitLine = (pack && pack.bubble && pack.bubble.enabled) ? (talk('poke', { force: true }) || '呜哇！') : '';
+  if (!hitLine) return;
+  bubbleText.textContent = hitLine;
   bubbleEl.hidden = false;
   placeBubble();
   requestAnimationFrame(() => bubbleEl.classList.add('show'));
@@ -1396,6 +1467,9 @@ window.__petDebug = () => ({
   bug: bug ? { x: Math.round(bug.x), state: bug.state, alive: bug.alive } : null,
   bugCatchCount,
   bugChaseEnabled,
+  // 当前对话口吻（来自 pack.behavior.personality）—— 便于端到端验证「性格真的传进来了」
+  personality: toneOf(pack && pack.behavior && pack.behavior.personality),
+  saidLines: (S.saidLines || []).slice(),
   loadedFrames: images.length,
   loadedBytes: images.reduce((a, im) => a + im.naturalWidth * im.naturalHeight * 4, 0),
   W, H,
