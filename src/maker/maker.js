@@ -202,6 +202,7 @@ function updateButtons() {
   $('#btnClearFrames').disabled = !has;
   if ($('#btnSaveTpl')) $('#btnSaveTpl').disabled = !has;
   if ($('#btnExportShare')) $('#btnExportShare').disabled = !has;
+  if ($('#btnExportGif')) $('#btnExportGif').disabled = !has;
   if (typeof poseUpdateButtons === 'function') poseUpdateButtons();
   const multi = state.frames.length > 1;
   $('#btnPrevFrame').disabled = !multi;
@@ -864,6 +865,31 @@ $('#btnExportShare').onclick = async () => {
   if (!r.ok) { setStatus('导出失败：' + (r.errors || []).join(';'), 'err'); return; }
   setStatus('✅ 分享页已导出（' + Math.round(r.bytes / 1024) + ' KB）：' + r.path, 'ok');
   showShareHint(r.path, $('#petName').value || '我的桌宠');
+};
+
+// 导出 GIF 动图：把当前帧序列编码成一张 GIF（对方不装工具也能看，可直接发表情包）
+if ($('#btnExportGif')) $('#btnExportGif').onclick = async () => {
+  if (!state.frames.length) { setStatus('请先导入图片', 'err'); return; }
+  const btn = $('#btnExportGif');
+  btn.disabled = true;
+  setStatus('正在编码 GIF…');
+  try {
+    // 每帧延迟优先用 GIF 原始延迟（若当前是导入的 GIF），否则用帧率换算
+    const useRaw = !!($('#chkGifDelay') && $('#chkGifDelay').checked);
+    const fpsDelay = Math.round(1000 / parseInt($('#fps').value, 10));
+    const frames = state.frames.map((f, i) => ({
+      dataUrl: imageDataToDataURL(f.current),
+      durationMs: (useRaw && f.durationMs) ? f.durationMs : fpsDelay,   // GIF 拆帧时把原始延迟存在 durationMs 上
+    }));
+    const r = await window.api.exportGif(frames, 0, 0, parseInt($('#fps').value, 10), $('#petName').value || 'pet');
+    btn.disabled = false;
+    if (r.canceled) { setStatus('已取消'); return; }
+    if (!r.ok) { setStatus('导出 GIF 失败：' + (r.errors || []).join(';'), 'err'); return; }
+    setStatus('✅ GIF 已导出（' + r.frames + ' 帧 · ' + r.width + '×' + r.height + ' · ' + (r.bytes / 1024).toFixed(0) + ' KB）：' + r.path, 'ok');
+  } catch (err) {
+    btn.disabled = false;
+    setStatus('导出 GIF 异常：' + String(err.message || err), 'err');
+  }
 };
 
 $('#btnExportFolder').onclick = async () => {
