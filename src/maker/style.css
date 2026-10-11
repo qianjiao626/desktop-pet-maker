@@ -296,3 +296,9 @@ button.block{width:100%}
   position: absolute; right: 3px; bottom: 2px; font-size: 10px; line-height: 1;
   padding: 2px 4px; border-radius: 6px; background: rgba(0, 0, 0, 0.6); color: #dfe7f5;
 }
+/* 拖文件到缩略图上替换该帧：给一个明显的目标提示 */
+.fs-cell.drop-target {
+  border-color: #7bd88f;
+  box-shadow: 0 0 0 2px rgba(123, 216, 143, 0.3);
+  background: rgba(123, 216, 143, 0.12);
+}

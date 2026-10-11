@@ -15,6 +15,7 @@ import { applyCustomTemplate, matchCustomTemplate } from '../shared/mytemplates.
 import { renderLimbFrames } from './limbrender.js';
 import { createHistory, estimateSnapshotBytes } from '../shared/history.js';
 import { removeFrame, duplicateFrame, shiftFrame, moveFrame, uniqueFrameName } from '../shared/frames.js';
+import { fitIntoCanvas, replaceFrameAt, canReplaceFrame } from '../shared/framereplace.js';
 import { visibleWindow, thumbSize, dropTarget, insertIndexAt, stripLabel } from '../shared/filmstrip.js';
 import { planSheet, sheetSummary } from '../shared/spritesheet.js';
 
@@ -298,6 +299,63 @@ function autoCutIfNeeded(frame, name) {
   } catch (err) {
     console.warn('[autoCut] 跳过：' + (err && err.message ? err.message : err));
     return frame;
+  }
+}
+
+/**
+ * 把一张新图规整成"目标画布尺寸"的 ImageData：等比缩放后居中放置。
+ * 单帧替换必须做这一步 —— 新图尺寸通常和原帧不同，直接换会让整段动画忽大忽小（抖动）。
+ */
+async function frameDataFromImage(dataUrl, cw, ch) {
+  const img = await loadImage(dataUrl);
+  const fit = fitIntoCanvas(img.naturalWidth, img.naturalHeight, cw, ch);
+  const cv = document.createElement('canvas');
+  cv.width = cw; cv.height = ch;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, fit.x, fit.y, fit.w, fit.h);
+  return ctx.getImageData(0, 0, cw, ch);
+}
+
+/**
+ * 单帧替换：把一张新图拖到缩略图上，只替换那一帧。
+ * 关键点：
+ *   1) 画布尺寸沿用原帧 -> 播放不抖动；
+ *   2) 只动这一帧 -> 其它帧引用原样保留；
+ *   3) 替换前 recordUndo() -> 可撤销。
+ */
+async function replaceFrameWithFile(index, file) {
+  const check = canReplaceFrame(state.frames, index, file);
+  if (!check.ok) { setStatus('无法替换：' + check.reason, 'err'); return; }
+  const target = state.frames[index];
+  const cw = target.current.width, ch = target.current.height;
+  setStatus('正在替换第 ' + (index + 1) + ' 帧…');
+  try {
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = () => rej(new Error('读取文件失败'));
+      r.readAsDataURL(file);
+    });
+    const d = await frameDataFromImage(dataUrl, cw, ch);
+    const f = { original: d, current: d, name: file.name || ('frame' + (index + 1) + '.png') };
+    // 与导入路径一致：检测到纯色/渐变背景就自动抠一次
+    const cut = autoCutIfNeeded(f, file.name);
+    if (cut && cut.__autoCut) { f.current = cut.current; f.__autoCut = true; }
+    const r = replaceFrameAt(state.frames, index, f);
+    if (!r.replaced) { setStatus('替换失败：目标帧不存在', 'err'); return; }
+    recordUndo();                 // 必须在改动 state.frames 之前记录
+    state.frames = r.frames;
+    FS.thumbCache.clear();        // 帧对象换了，旧缩略图缓存作废
+    state.activeIdx = r.activeIdx;
+    syncFrameMeta();
+    renderPreview();
+    updateButtons();
+    setStatus('✅ 已替换第 ' + (index + 1) + ' 帧（画布保持 ' + cw + '×' + ch + '，不会抖动）', 'ok');
+  } catch (err) {
+    // 绝不静默吞异常（历史教训：空 catch 藏过 ReferenceError，白查几十分钟）
+    console.warn('[frameReplace] 失败：' + (err && err.message ? err.message : err));
+    setStatus('替换失败：' + String((err && err.message) || err), 'err');
   }
 }
 
@@ -977,8 +1035,12 @@ stage.addEventListener('dragleave', () => stage.classList.remove('dragover'));
 // —— 收到宠物包的人最自然的动作就是「把它拖进窗口」，这条路径必须能用。
 document.addEventListener('dragover', (e) => { if (e.dataTransfer && e.dataTransfer.types) e.preventDefault(); });
 document.addEventListener('drop', async (e) => {
-  // 图片区的 drop 已处理过就跳过（避免同一文件被处理两次）
-  if (e.defaultPrevented && e.target && e.target.closest && e.target.closest('#stage')) return;
+  // 已经被更具体的处理器处理过的 drop 要跳过（避免同一文件被处理两次）。
+  // 注意：不能只判断 #stage —— 帧缩略图条（#filmstrip）在 stage 外面，
+  // 它自己处理「拖文件替换某帧」时，如果不在这里一并跳过，
+  // 同一次 drop 会既替换那一帧、又被这里当成「新图导入」追加一帧（实测：3 帧变 4 帧）。
+  if (e.defaultPrevented && e.target && e.target.closest
+      && (e.target.closest('#stage') || e.target.closest('#filmstrip'))) return;
   e.preventDefault();
   stage.classList.remove('dragover');
   const files = [...((e.dataTransfer && e.dataTransfer.files) || [])];
@@ -1131,9 +1193,26 @@ function bindFilmstripEvents() {
       try { e.dataTransfer.setData('text/plain', String(FS.dragFrom)); e.dataTransfer.effectAllowed = 'move'; } catch {}
     };
     el.ondragend = () => { el.classList.remove('dragging'); FS.dragFrom = -1; };
-    el.ondragover = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; };
-    el.ondrop = (e) => {
+    el.ondragover = (e) => {
       e.preventDefault();
+      // 拖文件进来给「复制」光标（内部排序才是「移动」），让用户分清两种拖拽
+      const hasFiles = e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+      e.dataTransfer.dropEffect = hasFiles ? 'copy' : 'move';
+      el.classList.toggle('drop-target', !!hasFiles);
+    };
+    el.ondragleave = () => el.classList.remove('drop-target');
+    el.ondrop = async (e) => {
+      e.preventDefault();
+      // 双保险：别让事件冒泡到 document 的处理（否则会被当成「导入新图」再追加一帧）
+      e.stopPropagation();
+      el.classList.remove('drop-target');
+      const files = [...((e.dataTransfer && e.dataTransfer.files) || [])];
+      const idx = parseInt(el.dataset.idx, 10);
+      // 拖进来的是**文件** -> 替换这一帧（而不是排序）
+      if (files.length) {
+        const cls = classifyDroppedFiles(files);
+        if (cls.images.length) { await replaceFrameWithFile(idx, cls.images[0]); return; }
+      }
       const from = FS.dragFrom;
       if (!Number.isFinite(from) || from < 0) return;
       // 用鼠标位置算插入点（而不是"落在哪一格"，避免只能整格跳）

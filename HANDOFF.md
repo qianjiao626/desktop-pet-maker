@@ -1,6 +1,6 @@
 # 桌宠制作器 — 交接文档
 
-> 生成时间：2026-10-10　｜　交接版本：**v0.9.11**
+> 生成时间：2026-10-11　｜　交接版本：**v0.9.12**
 > 用途：在新对话中无缝接手本项目。**先读「二、硬约束」和「五、已知坑」，能省掉大量返工。**
 
 ---
@@ -46,16 +46,16 @@ Windows 桌面宠物制作器（Electron）。核心定位由用户原话确定�
 
 ---
 
-## 三、当前状态（v0.9.11，已交付）
+## 三、当前状态（v0.9.12，已交付）
 
 | 项 | 值 |
 |---|---|
-| 版本 | 0.9.11 |
+| 版本 | 0.9.12 |
 | 远端 main | `28c9da9`（整树 152/152 逐字节一致） |
 | Releases | v0.8.0 ~ v0.8.16（每版含 Windows + Linux，均已实测可下载） |
-| 单测 | **1692/1692** ✅ |
-| e2e | **36/36 套件** ✅（见下） |
-| 打包产物 | Windows 325MB/144.0MB zip · Linux 321MB/136.2MB zip |
+| 单测 | **1724/1724** ✅ |
+| e2e | **37/37 套件** ✅（见下） |
+| 打包产物 | Windows 325.4MB/144.1MB zip · Linux 321.4MB/136.2MB zip |
 | 打包自检 | `--selftest-ai` → PASS |
 | 远端一致性 | 用 git Trees API 推送后，整树逐文件 sha 必须零差异 |
 | 工作区 | 干净 |
@@ -81,6 +81,8 @@ SHARE 17 · SHARE-DROP 10 · DOWNLOAD-ROBUST 13 · PACKAGE 22
 8. **内置 22 只原创宠物**：小蓝机器人（12 帧）等，全部程序化绘制
 9. **全局快捷键** `Ctrl+Alt+Q` 强制退出桌宠（兜底）
 10. **AI 抠图**（本地 ONNX，纯 CPU）
+11. **单帧替换**：把新图拖到缩略图上只替换那一帧（画布不变、可撤销）
+12. **撤销 / 重做**：抠图/裁边/翻转/生成动画/自动适配/帧编辑全部可回退
 
 ---
 
@@ -101,9 +103,9 @@ src/
              bugchase.js · gif.js · png.js · zip.js · safeid.js
              segmentation.js
   preload/   preload.cjs
-scripts/     pack.mjs（打包+裁剪GPU组件）· e2e-*.mjs（22个套件）
+scripts/     pack.mjs（打包+裁剪GPU组件）· e2e-*.mjs（37个套件）
              make-*.mjs（生成内置宠物/图标）
-tests/       27 个 *.test.mjs，入口 tests/run.mjs
+tests/       28 个 *.test.mjs，入口 tests/run.mjs
 examples/    22 个内置 .petpack
 ci/          GitHub Actions（暂存，待 workflow 权限）
 ```
@@ -279,6 +281,25 @@ ci/          GitHub Actions（暂存，待 workflow 权限）
     「根目录 GPU 组件必须已裁掉」与「LICENSES.chromium.html 必须保留」。
     教训：瘦身要先**盘点产物实际内容**（按体积排序看最大的 20 个文件），
     而不是照着已知清单删。
+
+---
+### 50：v0.9.12「单帧替换」踩的坑（**最贵的一次：只写了调用、没写实现**）
+50. **函数只写调用、没写定义 -> ReferenceError 被 async 事件处理器吞掉**。
+    `el.ondrop` 是 `async` 箭头函数，里面 `await replaceFrameWithFile(...)`。
+    但 `replaceFrameWithFile` / `frameDataFromImage` 两个函数和对应的 import **根本没写进文件**，
+    于是每次拖图都抛 ReferenceError —— 事件处理器里的 rejection 不冒泡到任何地方，
+    表现为「帧数没变（说明 stopPropagation 生效了）、但那一帧颜色没变、撤销按钮也是灰的」。
+    → 三条铁律：
+      1) 改完写**集成层**（事件处理器）后，先 `node --check` 再**真跑一次 e2e**，不要只看单测绿；
+      2) async 事件处理器里必须 `try/catch` 并 `console.warn`，否则异常无声无息；
+      3) e2e 的断言要能区分「操作被接受」和「操作真的生效」——
+         这次「帧数不变」是 PASS 的（因为 stopPropagation 生效），只有「颜色变了」才抓出真 bug。
+51. **同一次 drop 会被两处处理**：`#filmstrip` 在 `#stage` 之外，而 document 级 drop
+    处理器只跳过 `#stage` -> 拖图到缩略图既被替换又被当成新图**追加**（实测 3 帧变 4 帧）。
+    → 具体处理器里 `e.stopPropagation()` 之外，document 兜底也要按**选择器集合**跳过；
+      新增可放置区域时必须同步更新这个集合。
+52. **单帧替换必须把新图规整到原帧画布**：新图尺寸往往不同，直接换会让整段动画忽大忽小。
+    逻辑抽到 `src/shared/framereplace.js`（纯函数 + 32 项单测），UI 只管接线。
 
 ---
 ## 六、交付流程（每轮收尾照做）

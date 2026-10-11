@@ -4,16 +4,16 @@
 
 > 技术选型参考了这些开源项目：`B666T/DesktopPetGenerator`（上传图→抠图→动画→打包）、
 > `PC2005-cloud/dsh-pet`（宠物包 / 素材链思路）、`ln2146/ai-desktop-pet-generator`（抠图→精灵流水线）。
-> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 545 项单测 + 12 套 e2e**。
+> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 1724 项单测 + 37 套 e2e**。
 
 ---
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.11](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.11/desktop-pet-maker-win32-x64-v0.9.11.zip)**
+**[下载 Windows 免安装版 v0.9.12](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.12/desktop-pet-maker-win32-x64-v0.9.12.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.11）：
+**Linux x64**（v0.9.12）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
@@ -74,6 +74,11 @@ npm start
   - 运行时：加载他人分享的 `.petpack` 时自动**均匀抽稀**（保留首末帧，动画仍连贯）并提示，
     即使收到 240 帧 × 1600×1600 的膨胀包也不会崩溃
 - 帧序列可视化：上一帧 / 下一帧 / 播放动画预览
+- **帧缩略图条**：整段动画可视化成一条缩略图，点哪帧切哪帧、拖动可排序；
+  **把一张新图拖到某一格上，就只替换那一帧**（新图自动等比缩放并居中到原帧画布，
+  整段动画不会忽大忽小地抖动），改坏了随时 `Ctrl+Z` 撤销
+- **撤销 / 重做**：抠图、裁边、翻转、生成动画、自动适配、帧编辑都可逐步回退
+- 帧序列编辑：删除 / 复制 / 上移 / 下移，复制帧自动深拷贝像素、帧名自动去重
 - 五类参数可视化调节：抠图 / 外观 / 动画 / 物理 / 气泡
 - **桌面预览**：一键在真实桌面启动试用
 - 导出为单文件 **`.petpack`** 或文件夹
@@ -236,7 +241,7 @@ ZIP 内含 `pet.json` + 若干帧图片 + `README.txt`：
 | GIF 处理 | 自研解析器 + 内联 gifuct-js 的 LZW（MIT） |
 | 打包格式 | 自研 ZIP 读写（零第三方依赖） |
 | 交互 | 像素级 alpha 命中测试 + `setIgnoreMouseEvents` 穿透 |
-| 测试 | 自研断言框架：277 项单测 + 11 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包） |
+| 测试 | 自研断言框架：1724 项单测 + 37 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包） |
 
 ## 🧪 测试
 
