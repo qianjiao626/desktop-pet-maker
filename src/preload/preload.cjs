@@ -34,6 +34,9 @@ contextBridge.exposeInMainWorld('api', {
   installAndRun: (srcPath) => ipcRenderer.invoke('pet:installAndRun', srcPath),
   runInstalled: (id) => ipcRenderer.invoke('pet:runInstalled', id),
   uninstall: (id) => ipcRenderer.invoke('pet:uninstall', id),
+  // 导出 Sprite Sheet（给开发者接自己的引擎用）
+  exportSpriteSheet: (frames, cellW, cellH, suggestedName) => ipcRenderer.invoke('export:spriteSheet', { frames, cellW, cellH, suggestedName }),
+
   // 导出 GIF 动图（发社交平台 / 当表情包）
   exportGif: (frames, width, height, fps, suggestedName) => ipcRenderer.invoke('export:gif', { frames, width, height, fps, suggestedName }),
 
