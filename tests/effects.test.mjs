@@ -108,6 +108,47 @@ ok('拳: 时长为正', FIST_DURATION > 0);
   ok('通用 import 守护已扫描 shared 导出', checked > 0, '检查了 ' + checked + ' 个被使用的导出');
 }
 
+// ============ 静态守护：main.js 用到的 shared 导出必须已 import ============
+// 背景：v0.9.26 我给主进程加位置保存时，用了 positionstore.js 的 shouldSave 却没 import，
+// 而且那条通道是 ipcMain.on + ipcRenderer.send（send 不管返回值），
+// 于是 ReferenceError 被静默吞掉 —— 表现为「调用之后一直没反应」（我以为是死锁，查了很久）。
+// → 主进程也必须静态兜住；顺便：能用 invoke 就别用 send（send 的错误无处可去）。
+{
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync('src/main/main.js', 'utf8');
+  const imported = new Set();
+  for (const m of src.matchAll(/import \{([^}]+)\} from '\.\.\/shared\/[^']+'/g)) {
+    for (const name of m[1].split(',')) imported.add(name.trim().split(/\s+as\s+/)[0]);
+  }
+  const localNames = new Set();
+  for (const m of src.matchAll(/(?:^|\n)\s*(?:async\s+)?function\s+(\w+)/g)) localNames.add(m[1]);
+  for (const m of src.matchAll(/(?:^|\n)\s*(?:const|let|var)\s+(\w+)\s*=/g)) localNames.add(m[1]);
+  const body = src
+    .replace(/^import[\s\S]*?;$/gm, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+  // 这些名字在 main.js 里只出现在字符串 / 动态 import 中，不算漏 import：
+  //   pat / hit   -> 是 IPC 通道名（'quick:pat'）
+  //   encodePNG   -> 是 const { encodePNG } = await import(...) 动态导入的
+  const IGNORE = new Set(['pat', 'hit', 'encodePNG']);
+  // 判据：名字后面跟 ( 才算「调用」；只出现在字符串里（'quick:pat'）不算。
+  const isCalled = (nm) => new RegExp('(^|[^\\w.])' + nm + '\\s*\\(').test(body);
+  const files = readFileSync ? (await import('node:fs')).readdirSync('src/shared').filter((f) => f.endsWith('.js')) : [];
+  let checked = 0;
+  const missing = [];
+  for (const f of files) {
+    const mod = readFileSync('src/shared/' + f, 'utf8');
+    for (const m of mod.matchAll(/export (?:function|const|let|class)\s+(\w+)/g)) {
+      const name = m[1];
+      if (IGNORE.has(name) || !isCalled(name)) continue;
+      checked++;
+      if (!imported.has(name) && !localNames.has(name)) missing.push(name + ' (from ' + f + ')');
+    }
+  }
+  ok('main.js 用到的 shared 导出都已 import', missing.length === 0, missing.join(', '));
+  ok('main import 守护已扫描到导出', checked > 0, '检查了 ' + checked + ' 个');
+}
+
 // ============ 静态守护：maker.js 用到的 shared 导出必须已 import ============
 // 背景：v0.9.17 我给宠物库加分组时，用了 groupsOf 却没 import，
 // 结果 renderLibrary 抛 ReferenceError，整个宠物库列表渲染不出来（界面全空）。

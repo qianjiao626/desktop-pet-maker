@@ -975,6 +975,27 @@ function render(now) {
   drawFist(now, petRect);
 }
 
+// 位置上报：让主进程记住"这只宠物最后停在哪"（配合 pack.behavior.startCorner === 'remember'）。
+// 以前这条链路是断的（savePos 没人调用），导致「记住上次位置」选了也没用。
+// 这里在渲染侧先做一层粗节流（比主进程更早挡掉），避免 IPC 被高频位置更新刷爆。
+let lastReportedX = NaN, lastReportedY = NaN, lastReportAt = 0;
+function reportPosIfNeeded() {
+  if (!pack || !pack.id) return;
+  if (!(pack.behavior && pack.behavior.startCorner === 'remember')) return;   // 没选就不上报
+  const now = performance.now();
+  const moved = Math.abs(S.body.x - lastReportedX) >= 6 || Math.abs(S.body.y - lastReportedY) >= 6;
+  if (!moved && now - lastReportAt < 4000) return;
+  lastReportedX = S.body.x; lastReportedY = S.body.y; lastReportAt = now;
+  try { api.savePos(pack.id, Math.round(S.body.x), Math.round(S.body.y)); } catch (err) { /* 忽略 */ }
+}
+
+// 关窗前再报一次最终位置（否则最后几步移动会丢）
+window.addEventListener('beforeunload', () => {
+  if (!pack || !pack.id) return;
+  if (!(pack.behavior && pack.behavior.startCorner === 'remember')) return;
+  try { api.savePos(pack.id, Math.round(S.body.x), Math.round(S.body.y)); } catch (err) { /* 忽略 */ }
+});
+
 // ---------------- 主循环 ----------------
 let lastT = 0;
 function loop(ts) {
@@ -1108,6 +1129,7 @@ function loop(ts) {
         roamSpeed: pack.physics.roamSpeed, win: { w: W, h: H }, area,
       });
       api.setPos(Math.round(S.body.x), Math.round(S.body.y));
+      reportPosIfNeeded();
     }
     // 平滑缩放（点击成长/缩小反馈预留）
     S.scaleMul += (S.scaleTarget - S.scaleMul) * Math.min(1, dt * 10);

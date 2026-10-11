@@ -242,6 +242,32 @@ app.whenReady().then(async () => {
   check("再关掉一只后确实又少了一只", petCount() === remainBefore - 1, remainBefore + " -> " + petCount());
   check("剩下的那只还在正常跑", petCount() >= 1, "count=" + petCount());
 
+  // ---- 位置记忆：选了"记住上次位置"的宠物，位置要真的被记下来 ----
+  // 这条链路以前是断的（savePos 通道暴露了却没人调用），选了这个选项等于没生效。
+  // 这里不做"重启宠物"（那要重传整个 pack，又慢又容易卡），
+  // 直接验证**核心契约**：上报的位置被主进程记住，并且下次能读回来。
+  {
+    const alive = listPets();
+    check("位置记忆测试前还有宠物在跑", alive.length > 0, "n=" + alive.length);
+    const rec0 = alive.find((x) => x.pack && x.pack.id) || alive[0];
+    const packId = rec0 && rec0.pack && rec0.pack.id;
+    check("宠物包有 id（位置记忆要用它当键）", !!packId, String(packId));
+    if (packId) {
+      const targetX = 111, targetY = 222;
+      // 模拟渲染侧上报（真实路径就是 pet:savePos）
+      await js("window.api.savePos(" + JSON.stringify(packId) + ", " + targetX + ", " + targetY + ")");
+      await sleep(700);
+      // 直接读磁盘上的 positions.json —— 这是"记住"的最终证据
+      const fsMod = await import("node:fs");
+      const pathMod = await import("node:path");
+      const file = pathMod.join(app.getPath("userData"), "positions.json");
+      let saved = null;
+      try { saved = JSON.parse(fsMod.readFileSync(file, "utf8")); } catch (e) { saved = null; }
+      check("位置已写入 positions.json", !!(saved && saved[packId]), JSON.stringify(saved && Object.keys(saved).slice(0, 3)));
+      check("记住的坐标正确", !!(saved && saved[packId] && saved[packId].x === targetX && saved[packId].y === targetY),
+        JSON.stringify(saved && saved[packId]));
+    }
+  }
   // 全关
   for (const p of listPets()) { try { p.win.close(); } catch (e) {} }
   await sleep(2500);

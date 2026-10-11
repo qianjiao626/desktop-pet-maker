@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld('api', {
   getBounds: () => ipcRenderer.invoke('pet:getBounds'),
   workArea: () => ipcRenderer.invoke('screen:workArea'),
   allWorkAreas: () => ipcRenderer.invoke('screen:allWorkAreas'),
-  savePos: (id, x, y) => ipcRenderer.send('pet:savePos', { id, x, y }),
+  savePos: (id, x, y) => ipcRenderer.invoke('pet:savePos', { id, x, y }),
   setIgnoreMouse: (flag) => ipcRenderer.send('pet:setIgnoreMouse', flag),
   setAlwaysOnTop: (flag) => ipcRenderer.send('pet:setAlwaysOnTop', flag),
   closePet: () => ipcRenderer.send('pet:close'),

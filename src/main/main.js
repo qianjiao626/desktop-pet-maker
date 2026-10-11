@@ -17,6 +17,7 @@ import { SHORTCUTS, validateShortcuts } from '../shared/shortcuts.js';
 import { startupSwitches, appMenuTemplate } from '../shared/platform.js';
 import { buildShareHtml, shareFileName } from '../shared/sharepack.js';
 import { assignSlugs, planSiteFiles } from '../shared/sharesite.js';
+import { shouldSave, sanitizePos, prunePositions } from '../shared/positionstore.js';
 import { normalizeTemplateList, addTemplate, removeTemplate, renameTemplate, templateFromPack, normalizeTemplate, templateFileName, TEMPLATE_SCHEMA } from '../shared/mytemplates.js';
 import { planBatch, batchPackFor, summarizeBatch } from '../shared/batch.js';
 import { estimatePose, isPoseModelInstalled } from './pose.js';
@@ -110,13 +111,38 @@ function seedBuiltinPets() {
 // 旧的简易实现已由 shared/safeid.js 的 safeFileName 取代（处理保留名/限长/路径穿越）
 
 // ---------- 位置记忆 ----------
+// 「记住上次位置」这个 UI 选项以前是**坏的** —— savePos 通道暴露了却从没人调用，
+// 选了它等于没生效（实测发现）。这里补上真正的保存，并做了三件事：
+//   1) 内存缓存：不再每存一次就把整个 JSON 读一遍再写一遍；
+//   2) 节流：宠物一直在走，不能每帧写盘（见 shared/positionstore.js 的 shouldSave）；
+//   3) 原子写：先写 .tmp 再 rename，避免写到一半断电留下半个坏 JSON。
 function positionsFile() { return path.join(app.getPath('userData'), 'positions.json'); }
-function loadPositions() { try { return JSON.parse(fs.readFileSync(positionsFile(), 'utf8')); } catch { return {}; } }
+let positionsCache = null;
+function loadPositions() {
+  if (positionsCache) return positionsCache;
+  try { positionsCache = JSON.parse(fs.readFileSync(positionsFile(), 'utf8')) || {}; }
+  catch (err) { positionsCache = {}; }
+  return positionsCache;
+}
+function flushPositions() {
+  if (!positionsCache) return;
+  const file = positionsFile();
+  const tmp = file + '.tmp';
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(prunePositions(positionsCache), null, 2));
+    fs.renameSync(tmp, file);   // 原子替换：要么是完整的旧文件，要么是完整的新文件
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch (e2) { /* 忽略 */ }
+    if (DEBUG) console.warn('[pos] 写位置失败: ' + (err && err.message));
+  }
+}
 function savePosition(id, x, y) {
   if (!id) return;
+  const pt = sanitizePos(x, y);
+  if (!pt) return;
   const p = loadPositions();
-  p[id] = { x: Math.round(x), y: Math.round(y) };
-  try { fs.writeFileSync(positionsFile(), JSON.stringify(p, null, 2)); } catch {}
+  p[id] = pt;
+  flushPositions();
 }
 function getPosition(id) { const p = loadPositions(); return (id && p[id]) || null; }
 
@@ -1130,6 +1156,9 @@ ipcMain.handle('pet:readInstalled', (e, id) => {
     const full = path.join(petsDir(), String(id || ''));
     if (!fs.existsSync(full)) throw new Error('宠物不存在');
     const { pack, frames } = readPackFile(full);
+    // 保证 pack.id 一定有值：位置记忆、包标识都以它为键。
+    // 有些包（尤其是老包/手写的包）可能没写 id，这里用文件名兜底。
+    if (pack && !pack.id) pack.id = String(id);
     return { ok: true, pack, frames, name: pack.name || id };
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
@@ -1602,6 +1631,8 @@ ipcMain.handle('quick:enableMulti', async (e, payload) => {
         sendLaunchProgress(e, { done: results.length, total: items.length, name: it.name || '', ok: false });
         continue;
       }
+      // 兜底补 id：位置记忆等功能都以 pack.id 为键，缺了就不生效
+      if (pack && !pack.id) pack.id = String(it.fileName || it.id || ('pet-' + (i + 1)));
       const id = addPet({ pack, frames });        // 先登记（会设为 active）
       let win = null;
       try {
@@ -1773,7 +1804,18 @@ ipcMain.handle('pet:getBounds', () => (petWindow && !petWindow.isDestroyed()) ? 
 ipcMain.handle('screen:workArea', () => screen.getPrimaryDisplay().workArea);
 ipcMain.handle('screen:allWorkAreas', () => screen.getAllDisplays().map((d) => d.workArea));
 ipcMain.on('pet:setAlwaysOnTop', (e, flag) => { if (petWindow && !petWindow.isDestroyed()) petWindow.setAlwaysOnTop(!!flag, 'screen-saver'); });
-ipcMain.on('pet:savePos', (e, { id, x, y }) => savePosition(id, x, y));
+// 位置保存（节流）：宠物走动时会频繁发这个，不能每次都写盘。
+// 每个宠物各自记「上次真正保存的时间/坐标」，只有间隔到了或移动够大才落盘。
+const posSaveState = new Map();   // packId -> { lastSaveAt, lastX, lastY }
+ipcMain.handle('pet:savePos', (e, { id, x, y } = {}) => {
+  if (!id) return { ok: false, errors: ['缺少宠物 id'] };
+  const st = posSaveState.get(id) || { lastSaveAt: 0, lastX: NaN, lastY: NaN };
+  const dec = shouldSave({ now: Date.now(), lastSaveAt: st.lastSaveAt, lastX: st.lastX, lastY: st.lastY, x, y });
+  if (!dec.save) return { ok: true, skipped: true, reason: dec.reason };
+  savePosition(id, x, y);
+  posSaveState.set(id, { lastSaveAt: Date.now(), lastX: x, lastY: y });
+  return { ok: true, saved: true, x, y };
+});
 ipcMain.on('pet:setIgnoreMouse', (e, flag) => { if (petWindow && !petWindow.isDestroyed()) petWindow.setIgnoreMouseEvents(!!flag, { forward: true }); });
 ipcMain.on('pet:close', () => {
   if (petWindow && !petWindow.isDestroyed()) {

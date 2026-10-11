@@ -4,16 +4,16 @@
 
 > 技术选型参考了这些开源项目：`B666T/DesktopPetGenerator`（上传图→抠图→动画→打包）、
 > `PC2005-cloud/dsh-pet`（宠物包 / 素材链思路）、`ln2146/ai-desktop-pet-generator`（抠图→精灵流水线）。
-> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 2613 项单测 + 43 套 e2e**。
+> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 2636 项单测 + 43 套 e2e**。
 
 ---
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.25](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.25/desktop-pet-maker-win32-x64-v0.9.25.zip)**
+**[下载 Windows 免安装版 v0.9.26](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.26/desktop-pet-maker-win32-x64-v0.9.26.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.25）：
+**Linux x64**（v0.9.26）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
@@ -116,6 +116,8 @@ npm start
   **放大一点 / 缩小一点 / 换个性格（运行时换对话口吻）/ 回到屏幕中央** / 退出桌宠
 - **全局快捷键**（桌宠在跑时随时可用）：`Ctrl+Alt+P` 显示/隐藏、`Ctrl+Alt+R` 放回屏幕中央、
   `Ctrl+Alt+S` 让它说一句、`Ctrl+Alt+Q` 强制退出
+- **记住上次位置**：行为选「记住上次位置」后，宠物挪到哪里、下次就还在哪里
+  （这条以前是坏的 —— 位置从来没被保存过）
 - **系统托盘常驻**：任务栏右下角托盘图标 → 右键可「退出桌宠 / 隐藏显示桌宠 /
   重开制作器 / 打开宠物库文件夹 / 退出制作器」。关掉制作器窗口后托盘仍在，不会"找不回来"
 - **全局快捷键 `Ctrl+Alt+Q` 强制退出**：即使桌宠正在鼠标穿透、制作器窗口已关闭、
@@ -270,7 +272,7 @@ ZIP 内含 `pet.json` + 若干帧图片 + `README.txt`：
 | GIF 处理 | 自研解析器 + 内联 gifuct-js 的 LZW（MIT） |
 | 打包格式 | 自研 ZIP 读写（零第三方依赖） |
 | 交互 | 像素级 alpha 命中测试 + `setIgnoreMouseEvents` 穿透 |
-| 测试 | 自研断言框架：2613 项单测 + 43 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站 / 角色工坊 / 对话） |
+| 测试 | 自研断言框架：2636 项单测 + 43 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站 / 角色工坊 / 对话） |
 
 ## 🧪 测试
 
