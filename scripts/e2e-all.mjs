@@ -85,11 +85,17 @@ for (const [file, args] of suites) {
   console.log('\n########## ' + file + ' ##########');
   const r = spawnSync(electron, [path.join('scripts', file), ...args], {
     cwd: ROOT, stdio: 'inherit',
+    // 超时保护：某个套件如果因为异常/未捕获的 promise rejection 挂住不退出，
+    // 整轮 e2e 会无限等下去（实测踩到过：跑了 20 分钟还没结束）。
+    // 5 分钟对单套件足够（最慢的也就 1 分多钟）；超时即判失败并继续下一套。
+    timeout: 5 * 60 * 1000,
+    killSignal: 'SIGKILL',
     // PETMAKER_NO_LAUNCH=1：禁止真的拉起宠物子进程，否则会留下 --pet= 孤儿进程，
     // 让后续套件连不上/挂起（pet:runInstalled / pet:launch 都受此开关保护）。
     env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: '1', PETMAKER_NO_LAUNCH: '1' },
   });
-  if (r.status !== 0) { failed++; console.log('!! ' + file + ' 退出码 ' + r.status); }
+  if (r.error && r.error.code === 'ETIMEDOUT') { failed++; console.log('!! ' + file + ' 超时（5 分钟未结束，已强制结束）'); }
+  else if (r.status !== 0) { failed++; console.log('!! ' + file + ' 退出码 ' + r.status); }
 }
 console.log('\n==== e2e 汇总: ' + (suites.length - failed) + '/' + suites.length + ' 套件通过 ====');
 process.exit(failed ? 1 : 0);

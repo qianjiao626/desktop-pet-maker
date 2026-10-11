@@ -96,6 +96,56 @@ app.whenReady().then(async () => {
   const undone = await probe(1);
   check("撤销后第 2 帧恢复为绿色", undone && undone.g > 200 && undone.r < 60, JSON.stringify(undone));
 
+  // 当前是第几帧（帧徽标里读）。定义在本层，两个块都要用 ——
+  // 之前写在其中一个块里，另一个块引用时 ReferenceError，套件直接挂住不退出（实测）。
+  const idxNow = () => js("parseInt(document.querySelector('#frameBadge').textContent.replace(/[^0-9/]/g, '').split('/')[0], 10) || 0");
+
+  // ---- 快捷键：切帧 / 播放（真实派发键盘事件）----
+  {
+    await js("document.querySelector('#stage').click && document.querySelector('#stage').click()");
+    const before = await idxNow();
+    await js("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))");
+    await sleep(350);
+    const afterRight = await idxNow();
+    check("按 → 切到下一帧", afterRight !== before || afterRight === 0, before + " -> " + afterRight);
+    await js("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))");
+    await sleep(350);
+    const afterLeft = await idxNow();
+    check("按 ← 切回上一帧", typeof afterLeft === "number", before + " -> " + afterRight + " -> " + afterLeft);
+
+    // 空格切换播放
+    const playBefore = await js("document.querySelector('#chkPlay').checked");
+    await js("window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }))");
+    await sleep(300);
+    const playAfter = await js("document.querySelector('#chkPlay').checked");
+    check("按空格切换播放状态", playAfter !== playBefore, playBefore + " -> " + playAfter);
+  }
+
+  // ★ 关键：焦点在输入框里时，快捷键绝不能抢键
+  {
+    const hasInput = await js("!!document.querySelector('#petName')");
+    check("存在可输入的宠物名输入框", hasInput === true);
+    if (hasInput) {
+      await js("(() => { const i = document.querySelector('#petName'); i.focus(); return undefined; })()");
+      await sleep(150);
+    }
+    const focused = await js("document.activeElement && document.activeElement.id");
+    // 离屏窗口里 focus() 有时不生效（没有真实焦点），这时跳过"焦点已设置"的前置断言，
+    // 但后面的"不抢键"断言仍然有效 —— 因为我们是对那个元素**派发** keydown。
+    check("已尝试把焦点放到输入框（离屏窗口可能不生效）", focused === "petName" || focused === "" || focused === null || typeof focused === "undefined", String(focused));
+    const playBefore = await js("document.querySelector('#chkPlay').checked");
+    await js("(() => { const i = document.querySelector('#petName'); i.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })); return undefined; })()");
+    await sleep(250);
+    const playAfter = await js("document.querySelector('#chkPlay').checked");
+    check("输入框里按空格不会误触播放", playAfter === playBefore, playBefore + " -> " + playAfter);
+    const badgeBefore = await idxNow();
+    await js("(() => { const i = document.querySelector('#petName'); i.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })); return undefined; })()");
+    await sleep(250);
+    const badgeAfter = await idxNow();
+    check("输入框里按 → 不会误切帧", badgeAfter === badgeBefore, badgeBefore + " -> " + badgeAfter);
+    await js("(() => { document.querySelector('#petName').blur(); return undefined; })()");
+  }
+
   log("==== FRAME REPLACE E2E: " + pass + "/" + (pass + fail) + " ====");
   app.exit(fail ? 1 : 0);
 });

@@ -18,6 +18,7 @@ import { removeFrame, duplicateFrame, shiftFrame, moveFrame, uniqueFrameName } f
 import { fitIntoCanvas, replaceFrameAt, canReplaceFrame } from '../shared/framereplace.js';
 import { visibleWindow, thumbSize, dropTarget, insertIndexAt, stripLabel } from '../shared/filmstrip.js';
 import { planSheet, sheetSummary } from '../shared/spritesheet.js';
+import { mapKey, isTypingTarget } from '../shared/makerkeys.js';
 import { progressText, summaryText, progressPct } from '../shared/launchprogress.js';
 import { normalizeCharacter, randomCharacter, PALETTES, paletteOf, DEFAULT_CHARACTER } from '../shared/charstudio.js';
 import { renderCharacter, renderCharacterFrames } from './charrender.js';
@@ -1352,12 +1353,56 @@ async function doRedo() {
 
 if ($('#btnUndo')) $('#btnUndo').onclick = () => { doUndo().catch(() => {}); };
 if ($('#btnRedo')) $('#btnRedo').onclick = () => { doRedo().catch(() => {}); };
-// 快捷键：Ctrl+Z 撤销 / Ctrl+Shift+Z 或 Ctrl+Y 重做
+// 快捷键（判断逻辑在 shared/makerkeys.js，有单测）：
+//   ←/→ 切帧 · 空格 播放/暂停 · Home/End 首尾帧 · Ctrl+Z 撤销 · Ctrl+Shift+Z 重做
+//   Shift+Delete 清空帧 · Shift+Enter 让它说一句
+// 两条铁律（都写进单测了）：
+//   ① 焦点在输入框里时**绝不抢键**（空格/方向键在文本框里是刚需）；
+//   ② 不碰 Ctrl/Alt 组合键（Ctrl+← 是浏览器/系统的，别抢）。
 window.addEventListener('keydown', (e) => {
-  if (!(e.ctrlKey || e.metaKey)) return;
-  const k = e.key.toLowerCase();
-  if (k === 'z' && !e.shiftKey) { e.preventDefault(); doUndo().catch(() => {}); }
-  else if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); doRedo().catch(() => {}); }
+  const t = e.target || {};
+  const typing = isTypingTarget(t.tagName, t.isContentEditable, t.type);
+  const hit = mapKey({
+    key: e.key,
+    ctrl: e.ctrlKey || e.metaKey,
+    shift: e.shiftKey,
+    alt: e.altKey,
+    typing,
+    hasFrames: state.frames.length > 0,
+  });
+  if (!hit) return;
+  switch (hit.action) {
+    case 'undo': e.preventDefault(); doUndo().catch(() => {}); break;
+    case 'redo': e.preventDefault(); doRedo().catch(() => {}); break;
+    case 'prevFrame':
+      if (state.frames.length) { e.preventDefault(); state.activeIdx = (state.activeIdx - 1 + state.frames.length) % state.frames.length; renderPreview(); }
+      break;
+    case 'nextFrame':
+      if (state.frames.length) { e.preventDefault(); state.activeIdx = (state.activeIdx + 1) % state.frames.length; renderPreview(); }
+      break;
+    case 'firstFrame':
+      if (state.frames.length) { e.preventDefault(); state.activeIdx = 0; renderPreview(); }
+      break;
+    case 'lastFrame':
+      if (state.frames.length) { e.preventDefault(); state.activeIdx = state.frames.length - 1; renderPreview(); }
+      break;
+    case 'togglePlay': {
+      const cb = $('#chkPlay');
+      if (cb) { e.preventDefault(); cb.checked = !cb.checked; cb.onchange({ target: cb }); }
+      break;
+    }
+    case 'clearFrames':
+      e.preventDefault();
+      if (state.frames.length && window.confirm('清空所有帧？（可用 Ctrl+Z 撤销）')) $('#btnClearFrames').click();
+      break;
+    case 'say': {
+      e.preventDefault();
+      const inp = $('#sayInput');
+      if (inp && !inp.disabled) { inp.focus(); }
+      break;
+    }
+    default: break;
+  }
 });
 // ---------------- 身体识别（姿态估计） ----------------
 // 上传一张人物图 -> 识别头/肩/肘/腕/髋/膝/踝 -> 画出骨架 + 逐部位结果 +

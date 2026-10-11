@@ -55,6 +55,7 @@ await import('./state.test.mjs');
 await import('./companions.test.mjs');
 await import('./throttle.test.mjs');
 await import('./launchprogress.test.mjs');
+await import('./makerkeys.test.mjs');
 await import('./tray.test.mjs');
 await import('./ipc.test.mjs');
 const { pass, total } = report('桌宠制作器 单元测试');
