@@ -36,6 +36,7 @@ const suites = [
   ['e2e-spritesheet.mjs', []],
   ['e2e-sharesite.mjs', []],
   ['e2e-charstudio.mjs', []],
+  ['e2e-dialog.mjs', []],
   ['e2e-framereplace.mjs', []],
   ['e2e-tray.mjs', []],
   ['e2e-library-prefs.mjs', []],
