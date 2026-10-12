@@ -893,8 +893,11 @@ ipcMain.handle('share:readHtml', (e, htmlPath) => {
     const tmp = path.join(app.getPath('userData'), 'preview', 'from-share-' + Date.now() + '.petpack');
     fs.mkdirSync(path.dirname(tmp), { recursive: true });
     fs.writeFileSync(tmp, buf);
-    const { pack, frames } = readPackFile(tmp);   // 校验可解析
-    return { ok: true, pack, frames, path: tmp };
+    // ★ 必须把 clips 也带上：readPackFile 已经把片段帧解成 dataUrl 了，
+    //   这里若只返回 pack/frames，分享页里那几段动作就会**静默丢掉**
+    //   （用户从分享页载入后，动作列表是空的）。
+    const { pack, frames, clips } = readPackFile(tmp);   // 校验可解析
+    return { ok: true, pack, frames, clips, path: tmp };
   } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
 

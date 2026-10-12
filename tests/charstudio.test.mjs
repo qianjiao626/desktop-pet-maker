@@ -661,3 +661,35 @@ import {
   ok('预览动画速度也跟着倍率走（否则调了看不出变化）',
     /ST\.animT = \(ST\.animT \+ 0\.02 \* \(Number\(cfg\.danceSpeed\)/.test(maker), 'preview');
 }
+
+// ---------- ★ 载入宠物包 / 分享页必须恢复动作片段 ----------
+// 背景（v0.9.51 发现）：applyPack 以前只恢复参数、**完全不恢复 pack.clips** ——
+// 于是"打开一个带多段动作的宠物包"时那些动作**直接丢了**（片段列表空着，
+// 用户既看不到、也再导出不出去）。静默丢失，最难查。
+{
+  const maker = readFileSync('src/maker/maker.js', 'utf8');
+  // applyPack 现在是 async（片段帧是 dataUrl，要解码成 ImageData）
+  const fn = maker.match(/async function applyPack\(pack, clips\) \{[\s\S]*?\n\}/);
+  ok('applyPack 接收 clips 参数（且是 async，因为要解码图片）', !!fn, 'signature');
+  ok('applyPack 会恢复 state.clips', !!fn && /state\.clips\.push\(/.test(fn[0]), 'restore');
+  ok('恢复前**显式清空**（否则上一个包的片段会串味）',
+    !!fn && /state\.clips = \[\];/.test(fn[0]), 'clear');
+  ok('恢复后刷新片段列表', !!fn && /renderClipList\(\)/.test(fn[0]), 'render');
+  // ★ 关键：读包给的是 dataUrl，内部表示是 ImageData —— 必须真的解码
+  ok('会把片段的 dataUrl 解码成 ImageData（否则一个都恢复不出来）',
+    !!fn && /await loadImage\(f\.dataUrl\)/.test(fn[0]) && /drawToImageData\(img\)/.test(fn[0]), 'decode');
+  ok('解码失败的帧被跳过（不留半截动作）',
+    !!fn && /catch \(err\)/.test(fn[0]), 'catch');
+  ok('没有可用帧的片段整段丢弃',
+    !!fn && /if \(!frames\.length\) continue;/.test(fn[0]), 'drop-empty');
+
+  // 两个载入入口都必须把 clips 传下去
+  ok('「打开宠物包」把 clips 传进 applyPack',
+    /applyPack\(r\.pack, r\.clips\)/.test(maker), 'openPack');
+  const main = readFileSync('src/main/main.js', 'utf8');
+  const share = main.match(/ipcMain\.handle\('share:readHtml'[\s\S]*?\n\}\);/);
+  ok('找到 share:readHtml 处理块', !!share, 'missing');
+  ok('分享页载入返回 clips（否则从分享页载入会丢动作）',
+    !!share && /const \{ pack, frames, clips \} = readPackFile/.test(share[0])
+    && /clips, path: tmp/.test(share[0]), 'share-clips');
+}

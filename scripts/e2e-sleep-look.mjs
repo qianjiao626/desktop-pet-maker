@@ -68,8 +68,13 @@ app.whenReady().then(async () => {
   // 关键：doze 状态下注视被主动跳过（睡着了不理你）——这是设计，不是缺陷。
   // 但采样若撞上 doze，断言就会得到 rot=0（偶发假失败）。
   // 所以断言前先确保宠物处于「醒着且非跳跃」的状态。
+  // 把宠物从"睡着/跳跃"拉回可注视状态。
+  // ★ 轮询次数要够：满负载跑全量 e2e 时渲染与状态机都被拖慢，
+  //   原先只试 25 次（约 2 秒）会偶发失败（实测全量跑时报 null/walk/walk）。
+  //   单独跑必过、全量跑偶发 —— 典型的"赌时间"型脆弱断言。
+  //   这里放宽到 120 次（约 10 秒），并且**接受 walk**（走路本来就是可注视状态）。
   const ensureAwake = async () => {
-    for (let i = 0; i < 25; i++) {
+    for (let i = 0; i < 120; i++) {
       await pw.webContents.executeJavaScript('window.__forceWake && window.__forceWake()');
       const d = await dbg();
       if (d.behavior.state !== 'doze' && d.behavior.state !== 'hop') return d.behavior.state;

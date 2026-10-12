@@ -500,7 +500,16 @@ function currentClipImages() {
   return out;
 }
 
-function applyPack(pack) {
+/**
+ * 把宠物包的参数写回界面。
+ * @param pack  已归一化的宠物包
+ * @param clips 可选：读包时解出来的片段（**带图片数据**）
+ *
+ * ★ 为什么必须传 clips：以前这里只恢复参数、**完全不恢复片段** ——
+ *   于是"打开一个带多段动作的宠物包"时，那些动作**直接丢了**：
+ *   片段列表空着，用户既看不到、也再导出不出去（静默丢失，最难查）。
+ */
+async function applyPack(pack, clips) {
   $('#petName').value = pack.name || '我的桌宠';
   $('#petAuthor').value = pack.author || '';
   if (pack.render) $('#scale').value = Math.round((pack.render.scale ?? 0.3) * 100);
@@ -533,6 +542,42 @@ function applyPack(pack) {
     $('#corner').value = pack.behavior.startCorner || 'bottom-right';
     $('#keepAbove').checked = pack.behavior.keepAbove !== false;
   }
+  // 恢复动作片段；没传就按"这个包没有片段"处理，清空旧片段。
+  // 注意必须**显式清空**：否则打开一个没有片段的包时，
+  // 上一个包的片段会残留下来、被带进新包（串味）。
+  //
+  // ★ 读包给的是 **dataUrl**（图片编码），而内部表示是 **data（ImageData）** ——
+  //   早先直接取 f.data 会全被过滤掉，表现就是"片段一个都没恢复"（往返测试抓到）。
+  //   所以这里必须真的解码。解码失败的帧**整段丢弃**，不留半截动作。
+  state.clips = [];
+  if (Array.isArray(clips)) {
+    for (const c of clips) {
+      const src = Array.isArray(c && c.frames) ? c.frames : [];
+      const frames = [];
+      for (const f of src) {
+        if (!f) continue;
+        const dur = Math.max(16, Math.round(Number(f.durationMs) || 110));
+        try {
+          if (f.data && f.data.width) {
+            frames.push({ data: f.data, durationMs: dur });
+          } else if (f.dataUrl) {
+            const img = await loadImage(f.dataUrl);
+            frames.push({ data: drawToImageData(img), durationMs: dur });
+          }
+        } catch (err) {
+          console.warn('[pack] 片段帧解码失败，已跳过该帧: ' + (err && err.message));
+        }
+      }
+      if (!frames.length) continue;
+      state.clips.push({
+        id: String(c.id || ('clip' + Math.random().toString(36).slice(2, 8))),
+        name: String(c.name || c.id || '片段'),
+        weight: Number(c.weight) > 0 ? Number(c.weight) : 1,
+        frames,
+      });
+    }
+  }
+  renderClipList();
   syncLabels();
 }
 
@@ -1035,9 +1080,10 @@ $('#btnOpenPack').onclick = async () => {
   state.frames = [];
   for (const f of r.frames) await addFrameFromDataUrl(f.dataUrl, f.file);
   state.activeIdx = 0;
-  applyPack(r.pack);
+  await applyPack(r.pack, r.clips);
   await rebuildAll();
-  setStatus('已载入宠物包：' + r.pack.name, 'ok');
+  setStatus('已载入宠物包：' + r.pack.name
+    + (state.clips.length ? '（含 ' + state.clips.length + ' 段动作）' : ''), 'ok');
 };
 
 // 使用说明：文案在 shared/help.js（纯函数 + 单测锁住"必须提到每一类能力"）。
@@ -1081,9 +1127,10 @@ async function handleDroppedShares(files) {
     state.frames = [];
     for (const fr of r.frames) await addFrameFromDataUrl(fr.dataUrl, fr.file);
     state.activeIdx = 0;
-    applyPack(r.pack);
+    await applyPack(r.pack, r.clips);
     await rebuildAll();
-    setStatus('已从这个分享页载入「' + r.pack.name + '」', 'ok');
+    setStatus('已从这个分享页载入「' + r.pack.name + '」'
+      + (state.clips.length ? '（含 ' + state.clips.length + ' 段动作）' : ''), 'ok');
     return;
   }
 }

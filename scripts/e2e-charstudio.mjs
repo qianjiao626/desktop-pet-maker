@@ -5,6 +5,8 @@
 // 3) 「替换当前帧」只换那一帧，帧数不变
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
+import fs from "node:fs";
+import os from "node:os";
 import { registerIpc } from "../src/main/main.js";
 
 const ROOT = process.cwd();
@@ -649,6 +651,94 @@ app.whenReady().then(async () => {
 
   // 撤销要能恢复
   check("生成/替换后可撤销", (await js(`document.querySelector('#btnUndo').disabled`)) === false);
+
+  // ★ 往返验证放在最后：它会把内容换成「只有 1 帧的包」，
+  //   放在前面会破坏后面需要 8 帧 / fsTrack 格子的断言。
+  {
+    // ★ 往返验证：真走一遍「打开宠物包」-> 片段必须还在。
+    //   背景：applyPack 以前只恢复参数、**完全不恢复 pack.clips** ——
+    //   打开带多段动作的包时那些动作直接丢了（片段列表空着，用户既看不到也导不出去）。
+    //   这里在主进程拦 pack:open，喂一个**真实的、带片段的包**，
+    //   然后点「打开宠物包」，最后检查界面上的片段列表。
+    // 先把界面上的片段清空，确保后面看到的是"从包里恢复出来的"
+    await js(`(() => { for (const b of document.querySelectorAll('#clipList .clip-del')) b.click(); return undefined; })()`);
+    await sleep(400);
+    check("往返前：片段列表已清空", (await js(`document.querySelectorAll('#clipList .clip-chip').length`)) === 0);
+
+    // 在主进程拦 pack:open，喂一个真实构造的、带片段的包
+    ipcMain.removeHandler('pack:open');
+    ipcMain.handle('pack:open', async () => {
+      const cs = await import('../src/shared/charstudio.js');
+      const { zipCreate } = await import('../src/shared/zip.js');
+      const { normalizePack } = await import('../src/shared/petpack.js');
+      const cfg = cs.normalizeCharacter({ figureType: 'human', dance: 'party', size: 0.8 });
+      const specs = cs.characterFrames(cfg, 4);
+      // 用纯色小图当帧（这里只验"片段能不能恢复"，不验画面质量）
+      const { encodePNG } = await import('../src/shared/png.js');
+      const solid = (r, g, b) => {
+        const px = new Uint8ClampedArray(32 * 32 * 4);
+        for (let i = 0; i < 32 * 32; i++) { px[i*4] = r; px[i*4+1] = g; px[i*4+2] = b; px[i*4+3] = 255; }
+        return encodePNG(32, 32, Buffer.from(px));
+      };
+      const mainPng = solid(200, 200, 200);
+      const clipPng = [solid(255, 60, 60), solid(60, 60, 255)];
+      const pack = normalizePack({
+        schema: 2, id: 'rt', name: '往返测试',
+        frames: [{ file: 'frame_000.png', durationMs: 90 }],
+        clips: [{ id: 'cRT', name: '狂欢', weight: 1.5,
+          frames: clipPng.map((_, i) => ({ file: 'clip_cRT_00' + i + '.png', durationMs: 90 })) }],
+        canvas: { width: 32, height: 32 }, render: { scale: 0.5 },
+        animation: { idle: 'play', fps: 10, click: 'bounce', hover: 'grow' },
+        physics: { gravity: 1.2, bounce: 0.5, roam: false, roamSpeed: 0 },
+        bubble: { enabled: false, lines: [] },
+        behavior: { startCorner: 'bottom-right', keepAbove: true },
+      });
+      const tmp = path.join(os.tmpdir(), 'e2e-roundtrip-' + Date.now() + '.petpack');
+      fs.writeFileSync(tmp, zipCreate([
+        { name: 'pet.json', data: JSON.stringify(pack, null, 2) },
+        { name: 'frame_000.png', data: mainPng },
+        { name: 'clip_cRT_000.png', data: clipPng[0] },
+        { name: 'clip_cRT_001.png', data: clipPng[1] },
+      ]));
+      // main.js 没导出 readPackFile，这里按它的同一条规则把图片解成 dataUrl
+      // （结构必须一致：clips[].frames[].dataUrl）
+      const frames = [{ file: 'frame_000.png', dataUrl: 'data:image/png;base64,' + mainPng.toString('base64'), durationMs: 90 }];
+      const clips = [{
+        id: 'cRT', name: '狂欢', weight: 1.5,
+        frames: clipPng.map((b, i) => ({
+          file: 'clip_cRT_00' + i + '.png',
+          dataUrl: 'data:image/png;base64,' + b.toString('base64'),
+          durationMs: 90,
+        })),
+      }];
+      return { pack, frames, clips, file: tmp };
+    });
+
+    await js(`document.querySelector('#btnOpenPack').click()`);
+    await sleep(2500);
+    const afterOpen = await js(`(() => {
+      const chips = [...document.querySelectorAll('#clipList .clip-chip')];
+      return {
+        count: chips.length,
+        names: chips.map((c) => c.textContent.trim()),
+        status: (document.querySelector('#status') || {}).textContent || '',
+      };
+    })()`);
+    check("往返：打开包后片段被恢复（不是丢掉）", afterOpen.count === 1, JSON.stringify(afterOpen));
+    check("往返：恢复出来的片段名正确", afterOpen.names.join('|').includes('狂欢'), JSON.stringify(afterOpen.names));
+    check("往返：状态栏提示了含几段动作", /含 1 段动作/.test(afterOpen.status), afterOpen.status.slice(0, 80));
+
+    // 恢复出来的片段必须能再导出（带图片数据，不是空壳）
+    let recaptured = null;
+    ipcMain.removeHandler('pack:save');
+    ipcMain.handle('pack:save', async (e, args) => { recaptured = args; return { ok: true, path: 'X:/rt.petpack' }; });
+    await js(`document.querySelector('#btnExport').click()`);
+    await sleep(1500);
+    check("往返：恢复的片段能再次导出（帧数据还在）",
+      !!(recaptured && recaptured.pack.clips && recaptured.pack.clips.length === 1
+        && Object.keys(recaptured.clipImages || {}).length === 1),
+      JSON.stringify(recaptured && { clips: recaptured.pack.clips.length, imgs: Object.keys(recaptured.clipImages || {}).length }));
+  }
 
   log("==== CHAR STUDIO E2E: " + pass + "/" + (pass + fail) + " ====");
   app.exit(fail ? 1 : 0);
