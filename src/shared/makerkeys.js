@@ -9,6 +9,8 @@
 export const ACTIONS = [
   'undo', 'redo', 'prevFrame', 'nextFrame', 'togglePlay',
   'firstFrame', 'lastFrame', 'clearFrames', 'say',
+  // 帧排序（键盘可访问：不用鼠标拖也能调整顺序）
+  'moveFrameLeft', 'moveFrameRight',
 ];
 
 /**
@@ -54,6 +56,15 @@ export function mapKey(opt = {}) {
   if (ctrl && !alt && k === 'z' && !shift) return typing ? null : { action: 'undo' };
   if (ctrl && !alt && ((k === 'z' && shift) || k === 'y')) return typing ? null : { action: 'redo' };
 
+  // 帧排序：Ctrl+←/→（不在输入框里时）。
+  // 为什么可以占用这个组合：在浏览器里它是"按词移动光标"，
+  // 只在文本框里有意义 —— 而上面已经挡掉了输入框场景；
+  // 不在输入框时它没有别的用途，拿来排序刚好补上"键盘也能调顺序"。
+  if (ctrl && !alt && !typing && hasFrames) {
+    if (key === 'ArrowLeft') return { action: 'moveFrameLeft' };
+    if (key === 'ArrowRight') return { action: 'moveFrameRight' };
+  }
+
   // 其余动作：一律要求"不在输入框"且"没有 Ctrl/Alt 组合键"
   // （空格/方向键在输入框里是刚需，绝不能抢）
   if (typing || ctrl || alt) return null;
@@ -75,6 +86,7 @@ export const SHORTCUT_HINTS = [
   { keys: '← →', desc: '上一帧 / 下一帧' },
   { keys: '空格', desc: '播放 / 暂停' },
   { keys: 'Home / End', desc: '跳到第一帧 / 最后一帧' },
+  { keys: 'Ctrl+← / Ctrl+→', desc: '把当前帧往前 / 往后挪' },
   { keys: 'Ctrl+Z', desc: '撤销' },
   { keys: 'Ctrl+Shift+Z', desc: '重做' },
   { keys: 'Shift+Delete', desc: '清空所有帧' },

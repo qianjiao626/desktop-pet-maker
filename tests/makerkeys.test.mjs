@@ -59,12 +59,33 @@ import { ACTIONS, isTypingTarget, mapKey, SHORTCUT_HINTS } from '../src/shared/m
 
 // ---------- 与系统/浏览器组合键不打架 ----------
 {
-  ok('Ctrl+← 不切帧', mapKey({ key: 'ArrowLeft', ctrl: true }) === null);
-  ok('Ctrl+→ 不切帧', mapKey({ key: 'ArrowRight', ctrl: true }) === null);
+  // ★ Ctrl+←/→ 不再是"切帧"，而是"移动当前帧"（键盘可访问的排序）
+  ok('Ctrl+← 是移帧不是切帧', mapKey({ key: 'ArrowLeft', ctrl: true }).action === 'moveFrameLeft', JSON.stringify(mapKey({ key: 'ArrowLeft', ctrl: true })));
+  ok('Ctrl+→ 是移帧不是切帧', mapKey({ key: 'ArrowRight', ctrl: true }).action === 'moveFrameRight', JSON.stringify(mapKey({ key: 'ArrowRight', ctrl: true })));
+  ok('Ctrl+← 不会退化成 prevFrame', mapKey({ key: 'ArrowLeft', ctrl: true }).action !== 'prevFrame');
   ok('Alt+← 不切帧（浏览器后退）', mapKey({ key: 'ArrowLeft', alt: true }) === null);
   ok('Ctrl+空格 不播放', mapKey({ key: ' ', ctrl: true }) === null);
   ok('Alt+空格 不播放（系统窗口菜单）', mapKey({ key: ' ', alt: true }) === null);
   ok('Ctrl+Home 不跳帧', mapKey({ key: 'Home', ctrl: true }) === null);
+}
+
+// ---------- ★ 帧排序：Ctrl+←/→（键盘可访问） ----------
+{
+  ok('Ctrl+← -> 当前帧往前挪', mapKey({ key: 'ArrowLeft', ctrl: true }).action === 'moveFrameLeft');
+  ok('Ctrl+→ -> 当前帧往后挪', mapKey({ key: 'ArrowRight', ctrl: true }).action === 'moveFrameRight');
+  // metaKey（macOS 的 Cmd）走的是同一个 ctrl 参数，由调用方 || 合并；这里确认参数语义
+  ok('带 shift 的 Ctrl+← 仍是移帧（不因 shift 变成别的）', mapKey({ key: 'ArrowLeft', ctrl: true, shift: true }).action === 'moveFrameLeft');
+  ok('Alt+← 不是移帧（浏览器后退，必须让开）', mapKey({ key: 'ArrowLeft', alt: true }) === null);
+  ok('Ctrl+Alt+← 不是移帧', mapKey({ key: 'ArrowLeft', ctrl: true, alt: true }) === null);
+  // 输入框里绝不能抢：Ctrl+← 在文本框里是"按词移动光标"
+  ok('输入框里 Ctrl+← 不移帧', mapKey({ key: 'ArrowLeft', ctrl: true, typing: true }) === null);
+  ok('输入框里 Ctrl+→ 不移帧', mapKey({ key: 'ArrowRight', ctrl: true, typing: true }) === null);
+  // 没帧时没什么可挪的
+  ok('没帧时 Ctrl+← 不移帧', mapKey({ key: 'ArrowLeft', ctrl: true, hasFrames: false }) === null);
+  ok('没帧时 Ctrl+→ 不移帧', mapKey({ key: 'ArrowRight', ctrl: true, hasFrames: false }) === null);
+  // 上下方向键不参与（别顺手把浏览器滚动/其它快捷键抢了）
+  ok('Ctrl+↑ 不产生动作', mapKey({ key: 'ArrowUp', ctrl: true }) === null);
+  ok('Ctrl+↓ 不产生动作', mapKey({ key: 'ArrowDown', ctrl: true }) === null);
 }
 
 // ---------- 没有帧时不该有动作 ----------
@@ -92,4 +113,14 @@ import { ACTIONS, isTypingTarget, mapKey, SHORTCUT_HINTS } from '../src/shared/m
   const hintText = SHORTCUT_HINTS.map((h) => h.keys + h.desc).join(' ');
   ok('提示文本提到方向键切帧', hintText.includes('上一帧'), hintText);
   ok('提示文本提到播放', hintText.includes('播放'), hintText);
+  ok('提示文本提到帧排序（Ctrl+←/→）', hintText.includes('Ctrl+←') && hintText.includes('Ctrl+→'), hintText);
+  // 新增动作必须同时出现在 ACTIONS 与提示里，防止"实现了但用户不知道"
+  ok('ACTIONS 里有 moveFrameLeft/Right', ACTIONS.includes('moveFrameLeft') && ACTIONS.includes('moveFrameRight'), JSON.stringify(ACTIONS));
+  ok('每个 ACTIONS 动作都能被某个按键映射出来（防写了动作没人触发）',
+    ACTIONS.every((a) => [
+      { key: 'z', ctrl: true }, { key: 'z', ctrl: true, shift: true },
+      { key: 'ArrowLeft' }, { key: 'ArrowRight' }, { key: ' ' },
+      { key: 'Home' }, { key: 'End' }, { key: 'Delete', shift: true }, { key: 'Enter', shift: true },
+      { key: 'ArrowLeft', ctrl: true }, { key: 'ArrowRight', ctrl: true },
+    ].some((k) => (mapKey(k) || {}).action === a)), JSON.stringify(ACTIONS));
 }

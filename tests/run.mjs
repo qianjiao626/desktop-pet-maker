@@ -35,6 +35,7 @@ await import('./limb.test.mjs');
 await import('./groundcontact.test.mjs');
 await import('./clips.test.mjs');
 await import('./history.test.mjs');
+await import('./undosnapshot.test.mjs');
 await import('./frames.test.mjs');
 await import('./filmstrip.test.mjs');
 await import('./bulkexport.test.mjs');

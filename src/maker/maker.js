@@ -358,6 +358,7 @@ async function replaceFrameWithFile(index, file) {
     syncFrameMeta();
     renderPreview();
     updateButtons();
+    recordUndoAfter();
     setStatus('✅ 已替换第 ' + (index + 1) + ' 帧（画布保持 ' + cw + '×' + ch + '，不会抖动）', 'ok');
   } catch (err) {
     // 绝不静默吞异常（历史教训：空 catch 藏过 ReferenceError，白查几十分钟）
@@ -573,7 +574,10 @@ $('#btnClearFrames').onclick = () => {
   recordUndo();
   state.frames = []; state.activeIdx = 0;
   $('#stageEmpty').hidden = false; $('#stageView').hidden = true; $('#frameBadge').hidden = true;
-  updateButtons(); setStatus('已清空');
+  renderFilmstrip();
+  updateButtons();
+  recordUndoAfter();   // 不记的话：能撤销，但重做回不来
+  setStatus('已清空');
 };
 $('#btnCut').onclick = () => { recordUndo(); rebuildAll(); };
 $('#btnTrim').onclick = async () => {
@@ -583,7 +587,9 @@ $('#btnTrim').onclick = async () => {
     const b = trimBounds(f.current.data, f.current.width, f.current.height, { pad: 2 });
     if (b.w !== f.current.width || b.h !== f.current.height) f.current = toImageData(cropData(f.current.data, f.current.width, f.current.height, b));
   }
-  renderPreview(); setStatus('已裁边', 'ok');
+  renderPreview();
+  recordUndoAfter();
+  setStatus('已裁边', 'ok');
 };
 $('#btnReset').onclick = async () => {
   recordUndo();
@@ -594,6 +600,7 @@ $('#btnReset').onclick = async () => {
     state.activeIdx = 0;
     renderPreview();
     updateButtons();
+    recordUndoAfter();
     setStatus('已恢复到生成动画前的原图', 'ok');
     return;
   }
@@ -623,6 +630,8 @@ function applyFrameOp(op) {
   syncFrameMeta();
   renderPreview();
   updateButtons();
+  // 帧操作也必须记「操作后」，否则重做会跳到错误状态（实测：Ctrl+← 排序后重做回不去）
+  recordUndoAfter();
 }
 
 /** 帧名要保证唯一：包内是按文件名寻址的，重名会静默丢帧 */
@@ -1319,7 +1328,8 @@ let suppressHistory = false;   // 撤销/重做期间不记录，否则会把「
  */
 function recordUndoAfter() {
   if (suppressHistory) return;
-  if (!state.frames.length) return;
+  // 例外：允许把"空帧"状态也压栈 —— 否则「清空所有帧」能撤销、却永远重做不回来。
+  if (!state.frames.length && !history.size()) return;
   history.push(snapshotState());
   updateUndoButtons();
 }
@@ -1375,10 +1385,10 @@ if ($('#btnUndo')) $('#btnUndo').onclick = () => { doUndo().catch(() => {}); };
 if ($('#btnRedo')) $('#btnRedo').onclick = () => { doRedo().catch(() => {}); };
 // 快捷键（判断逻辑在 shared/makerkeys.js，有单测）：
 //   ←/→ 切帧 · 空格 播放/暂停 · Home/End 首尾帧 · Ctrl+Z 撤销 · Ctrl+Shift+Z 重做
-//   Shift+Delete 清空帧 · Shift+Enter 让它说一句
+//   Ctrl+←/Ctrl+→ 把当前帧往前/往后挪 · Shift+Delete 清空帧 · Shift+Enter 让它说一句
 // 两条铁律（都写进单测了）：
-//   ① 焦点在输入框里时**绝不抢键**（空格/方向键在文本框里是刚需）；
-//   ② 不碰 Ctrl/Alt 组合键（Ctrl+← 是浏览器/系统的，别抢）。
+//   ① 焦点在输入框里时**绝不抢键**（空格/方向键/按词移动光标在文本框里是刚需）；
+//   ② 除 Ctrl+←/→（输入框外没有别的用途，用来排序）外，不碰 Ctrl/Alt 组合键。
 window.addEventListener('keydown', (e) => {
   const t = e.target || {};
   const typing = isTypingTarget(t.tagName, t.isContentEditable, t.type);
@@ -1414,6 +1424,20 @@ window.addEventListener('keydown', (e) => {
     case 'clearFrames':
       e.preventDefault();
       if (state.frames.length && window.confirm('清空所有帧？（可用 Ctrl+Z 撤销）')) $('#btnClearFrames').click();
+      break;
+    // 帧排序：键盘也能调顺序（不用鼠标拖），对应缩略图条上的拖动排序
+    case 'moveFrameLeft':
+      // 已经在第一帧就别记一次没用的撤销快照（免得 Ctrl+Z 看起来"没反应"）
+      if (state.frames.length > 1 && state.activeIdx > 0) {
+        e.preventDefault();
+        applyFrameOp(() => shiftFrame(state.frames, state.activeIdx, state.activeIdx, -1));
+      }
+      break;
+    case 'moveFrameRight':
+      if (state.frames.length > 1 && state.activeIdx < state.frames.length - 1) {
+        e.preventDefault();
+        applyFrameOp(() => shiftFrame(state.frames, state.activeIdx, state.activeIdx, 1));
+      }
       break;
     case 'say': {
       e.preventDefault();
@@ -1604,6 +1628,7 @@ $('#btnPoseFit').onclick = async () => {
     syncLabels();
     if (needsFrameNormalize()) unifyAllFrames();
     renderPreview();
+    recordUndoAfter();
     setStatus('✅ 已按身体适配：' + r.reason + '（缩放 ' + pct + '%，按' + (r.anchor === 'feet' ? '脚' : '腰') + '对齐）', 'ok');
     if (window.api.quickIsEnabled) {
       try { const r0 = await window.api.quickIsEnabled(); if (r0 && r0.enabled) await window.api.quickEnable(quickPack(), quickFrames()); } catch {}
@@ -1629,9 +1654,11 @@ function renderClipList() {
     b.onclick = (ev) => {
       ev.stopPropagation();
       const id = ev.target.closest('.clip-chip').dataset.clip;
+      recordUndo();
       state.clips = state.clips.filter((x) => x.id !== id);
       renderClipList();
-      setStatus('已移除片段', 'ok');
+      recordUndoAfter();
+      setStatus('已移除片段（可 Ctrl+Z 撤销）', 'ok');
     };
   }
 }
@@ -2587,6 +2614,7 @@ $('#btnGenMotion') && ($('#btnGenMotion').onclick = () => {
     // 合成后已统一尺寸，保持对齐开关不再二次处理
     renderPreview();
     updateButtons();
+    recordUndoAfter();
     const used = fitFrameLimit(res.canvas.width, res.canvas.height, res.frames.length).bytes;
     setStatus('✅ 已生成 ' + res.frames.length + ' 帧（' + motion + '，' + res.canvas.width + '×' + res.canvas.height
       + '，约 ' + fmtBytes(used) + '）', 'ok');
@@ -2769,6 +2797,7 @@ $('#btnAiSegment').onclick = async () => {
   // AI 抠图会保留各帧原始尺寸，多帧时需重新统一并对齐
   if (needsFrameNormalize()) unifyAllFrames();
   renderPreview();
+  recordUndoAfter();
   AI.busy = false;
   updateAiUi();
   const norm = needsFrameNormalize() ? '（已归一画布/对齐）' : '';
@@ -3130,6 +3159,7 @@ function stBind() {
     renderPreview();
     updateButtons();
     if (wasEmpty && state.frames.length) establishUndoBaseline();
+    else recordUndoAfter();
     if ($('#petName')) $('#petName').value = cfg.name;
     // 生成的帧已经是抠好的（本身就是透明背景）-> 关掉抠图，别把它当照片抠
     if ($('#cutMode')) $('#cutMode').value = 'none';
@@ -3150,6 +3180,7 @@ function stBind() {
     syncFrameMeta();
     renderPreview();
     updateButtons();
+    recordUndoAfter();
     setStatus('✅ 已用「' + cfg.name + '」替换第 ' + (r.activeIdx + 1) + ' 帧（可 Ctrl+Z 撤销）', 'ok');
   };
 
