@@ -4,6 +4,8 @@
 import { app, BrowserWindow, dialog } from "electron";
 import path from "node:path"; import fs from "node:fs";
 import { registerIpc } from "../src/main/main.js";
+import { zipRead, zipCreate } from "../src/shared/zip.js";
+import { encodePNG } from "../src/shared/png.js";
 
 const ROOT = process.cwd();
 let pass = 0, fail = 0;
@@ -33,6 +35,33 @@ app.whenReady().then(async () => {
     // 故意造一对**同名**宠物：验证 slug 去重（否则两个页面会互相覆盖）
     fs.copyFileSync(path.join(builtinDir, srcs[0]), path.join(petsDir, "e2e同名.petpack"));
     fs.copyFileSync(path.join(builtinDir, srcs[1]), path.join(petsDir, "e2e同名 (1).petpack"));
+  }
+
+  // ★ 再造一只**带两段动作片段**的宠物：内置宠物都没有 clips，
+  //   但"作者在工坊存了好几段舞步"正是这次要验证的场景 ——
+  //   分享出去别人必须能看到它在**换动作**，而不是只重复主帧。
+  {
+    const src = path.join(builtinDir, srcs[0]);
+    const entries = zipRead(fs.readFileSync(src));
+    const mani = JSON.parse(entries.find((e) => e.name === "pet.json").data.toString("utf8"));
+    const size = 32;
+    const mk = (r, g, b) => {
+      const px = new Uint8ClampedArray(size * size * 4);
+      for (let i = 0; i < size * size; i++) { px[i*4] = r; px[i*4+1] = g; px[i*4+2] = b; px[i*4+3] = 255; }
+      return encodePNG(size, size, Buffer.from(px));
+    };
+    const clipA = "clip_cA_000.png", clipB = "clip_cB_000.png";
+    mani.name = "e2e带片段";
+    mani.clips = [
+      { id: "cA", name: "狂欢", weight: 1, frames: [{ file: clipA, durationMs: 90 }] },
+      { id: "cB", name: "招手", weight: 1, frames: [{ file: clipB, durationMs: 90 }] },
+    ];
+    const out = entries.map((e) => (e.name === "pet.json"
+      ? { name: "pet.json", data: Buffer.from(JSON.stringify(mani, null, 2), "utf8") }
+      : e));
+    out.push({ name: clipA, data: mk(255, 60, 60) });
+    out.push({ name: clipB, data: mk(60, 60, 255) });
+    fs.writeFileSync(path.join(petsDir, "e2e带片段.petpack"), zipCreate(out));
   }
 
   const outRoot = path.join(app.getPath("temp"), "sharesite-e2e");
@@ -82,6 +111,38 @@ app.whenReady().then(async () => {
   }
   check("每只宠物的页面都是完整 HTML", allFull);
   check("每只宠物的页面都内嵌了图片（自己就能跑，不依赖外部文件）", allHasData);
+
+  // ★ 多动作片段：作者存了好几段舞步，分享出去别人也该**看得到跳舞**，
+  //   而不是只看到"一直在呼吸"。这里验证导出的页面确实带上了片段切换能力。
+  //   实现说明：payload 里的 clips 是大数组，用括号配对来取，比正则可靠
+  //   （踩过：正则要求后面跟 ,"petpack"，但 clips 其实是 payload 最后一个字段）。
+  let anyClips = false, allSwapOk = true;
+  const clipProbe = [];
+  for (const f of linked) {
+    const h = fs.readFileSync(path.join(siteDir, f), "utf8");
+    const keyAt = h.indexOf('"clips":');
+    let count = -1;
+    if (keyAt >= 0) {
+      const i = h.indexOf('[', keyAt);
+      let depth = 0, end = -1;
+      for (let k = i; k >= 0 && k < h.length; k++) {
+        const ch = h[k];
+        if (ch === '[') depth++;
+        else if (ch === ']') { depth--; if (depth === 0) { end = k + 1; break; } }
+      }
+      if (end > i) {
+        try { count = JSON.parse(h.slice(i, end)).length; } catch (e) { count = -2; }
+      }
+    }
+    clipProbe.push(f + '=' + count);
+    if (count > 0) {
+      anyClips = true;
+      // 有片段就必须同时带切换逻辑，否则片段只是躺着没用
+      if (!h.includes('pickClip') || !h.includes('nextSwapAt')) allSwapOk = false;
+    }
+  }
+  check("分享页带上了动作片段（那只带 2 段动作的宠物）", anyClips === true, clipProbe.join(", "));
+  check("带片段的页面同时有随机切换逻辑（片段不是躺着没用）", allSwapOk === true, String(allSwapOk));
 
   // 缩略图必须是 dataURL，站点里不能引用站外图片
   const extRefs = [...index.matchAll(/src="(?!data:)([^"]+)"/g)].map((m) => m[1]);

@@ -690,10 +690,17 @@ ipcMain.handle('share:exportHtml', async (e, { pack, images, clipImages }) => {
       { name: 'pet.json', data: JSON.stringify(p, null, 2) },
       ...files,
     ]);
+    // 把动作片段也传给分享页：否则别人打开只看到"一直在呼吸"，看不到跳舞。
+    // clipImages 的结构是 { clipId: [{dataUrl, durationMs}] }，要按 p.clips 的顺序对齐。
+    const shareClips = (Array.isArray(p.clips) ? p.clips : []).map((c) => ({
+      id: c.id, name: c.name, weight: c.weight,
+      frames: (clipImages && clipImages[c.id]) ? clipImages[c.id] : [],
+    })).filter((c) => c.frames.length);
     const html = buildShareHtml(p, images, {
       title: p.name,
       petpackBase64: petpackBuf.toString('base64'),
       petpackName: petPackFileName(p.name),
+      clips: shareClips,
     });
     const r = await dialog.showSaveDialog({
       title: '导出分享页（单个 HTML 文件）',
@@ -747,10 +754,15 @@ ipcMain.handle('share:exportSite', async (e, opt) => {
       for (const c of (it.clips || [])) clipImages[c.id] = c.frames;
       const { pack: p, files } = buildPackAndEntries(it.pack, it.frames, clipImages);
       const petpackBuf = zipCreate([{ name: 'pet.json', data: JSON.stringify(p, null, 2) }, ...files]);
+      const shareClips = (Array.isArray(p.clips) ? p.clips : []).map((c) => ({
+        id: c.id, name: c.name, weight: c.weight,
+        frames: (clipImages && clipImages[c.id]) ? clipImages[c.id] : [],
+      })).filter((c) => c.frames.length);
       const html = buildShareHtml(p, it.frames, {
         title: it.name,
         petpackBase64: petpackBuf.toString('base64'),
         petpackName: petPackFileName(it.name),
+        clips: shareClips,
       });
       pages[sl.fileName] = html;
       petMeta.push({

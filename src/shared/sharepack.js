@@ -73,6 +73,17 @@ export function buildShareHtml(pack, frames, opt = {}) {
     })),
     petpack: opt.petpackBase64 ? String(opt.petpackBase64) : '',
     petpackName: opt.petpackName ? String(opt.petpackName) : '',
+    // 多动作片段（可选的舞步）：带上之后分享页也能随机切换动作，
+    // 而不是只重复主帧那一段（否则别人打开只看到"一直在呼吸"）。
+    clips: (Array.isArray(opt.clips) ? opt.clips : []).map((c) => ({
+      id: String((c && c.id) || ''),
+      name: String((c && c.name) || ''),
+      weight: Math.max(0.01, Number(c && c.weight) || 1),
+      frames: (Array.isArray(c && c.frames) ? c.frames : []).map((f) => ({
+        url: String((f && f.dataUrl) || ''),
+        ms: Math.max(16, Math.round((f && f.durationMs) || 120)),
+      })).filter((f) => f.url),
+    })).filter((c) => c.frames.length),
   };
 
   return `<!DOCTYPE html>
@@ -144,13 +155,39 @@ export function buildShareHtml(pack, frames, opt = {}) {
   if (!frames.length) { el.alt = '这个分享包里没有图片'; return; }
   el.src = frames[0].url;
 
+  // ---- 多动作片段：每隔几秒随机换一段（与桌宠运行时同一个思路） ----
+  // 只有一段片段时等价于"一直播那一段"，老分享页（没有 clips）行为完全不变。
+  var clips = DATA.clips || [];
+  var active = null;          // 当前片段（null = 用主帧）
+  var activeIdx = 0;
+  var nextSwapAt = 0;
+  var SWAP_MS = 6000;         // 每 6 秒换一次：太短显得烦躁，太长像没在动
+
+  function pickClip(avoidId) {
+    if (clips.length <= 1) return clips[0] || null;
+    var pool = clips.filter(function (c) { return c.id !== avoidId; });
+    if (!pool.length) pool = clips;
+    var total = 0;
+    for (var i = 0; i < pool.length; i++) total += pool[i].weight;
+    var r = Math.random() * total;
+    for (var j = 0; j < pool.length; j++) { r -= pool[j].weight; if (r <= 0) return pool[j]; }
+    return pool[pool.length - 1];
+  }
+
   // ---- 帧动画：按每帧原始延迟播放 ----
   var idx = 0, last = 0, raf = 0;
   function tick(ts) {
     raf = requestAnimationFrame(tick);
-    if (frames.length < 2) return;
+    // 到点换一段动作
+    if (clips.length && ts >= nextSwapAt) {
+      var c = pickClip(active ? active.id : null);
+      if (c) { active = c; activeIdx = 0; idx = 0; last = 0; el.src = c.frames[0].url; }
+      nextSwapAt = ts + SWAP_MS;
+    }
+    var list = active ? active.frames : frames;
+    if (list.length < 2) return;
     if (!last) { last = ts; return; }
-    if (ts - last >= frames[idx].ms) { last = ts; idx = (idx + 1) % frames.length; el.src = frames[idx].url; }
+    if (ts - last >= list[idx].ms) { last = ts; idx = (idx + 1) % list.length; el.src = list[idx].url; }
   }
   raf = requestAnimationFrame(tick);
 

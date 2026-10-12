@@ -48,3 +48,52 @@ ok('没有裸 </script> 注入点', html.split('</script>').length === 2, 'scrip
 ok('空 frames 安全', buildShareHtml({ name: 'x' }, [], {}).includes('<!DOCTYPE html>'));
 ok('null frames 安全', typeof buildShareHtml({ name: 'x' }, null, {}) === 'string');
 ok('气泡关闭时不带台词行为标记', buildShareHtml({ name: 'x', bubble: { enabled: false, lines: ['a'] } }, frames, {}).includes('"bubble":false'));
+
+// ============ 多动作片段也要带进分享页（v0.9.44）============
+// 背景：分享页此前只播主帧 —— 作者在工坊存了好几段舞步，
+// 分享出去别人**看不到跳舞**，只看到"一直在呼吸"。这是真缺口。
+// 规则：老分享页（没有 clips）行为必须完全不变（向后兼容）。
+{
+  const pack = { name: '跳舞的小人', author: '小明', bubble: { enabled: true, lines: ['嗨'] } };
+  const frames = [
+    { dataUrl: 'data:image/png;base64,AA', durationMs: 100 },
+    { dataUrl: 'data:image/png;base64,BB', durationMs: 100 },
+  ];
+  const clips = [
+    { id: 'c1', name: '狂欢', weight: 1, frames: [{ dataUrl: 'data:image/png;base64,CC', durationMs: 90 }] },
+    { id: 'c2', name: '招手', weight: 1, frames: [{ dataUrl: 'data:image/png;base64,DD', durationMs: 90 }, { dataUrl: 'data:image/png;base64,EE', durationMs: 90 }] },
+  ];
+  const html = buildShareHtml(pack, frames, { clips });
+  ok('分享页里带上了片段数据', html.includes('CC') && html.includes('DD') && html.includes('EE'), 'clips-in-html');
+  ok('分享页运行时有多片段切换逻辑', html.includes('pickClip') && html.includes('nextSwapAt'), 'swap-logic');
+  ok('片段名也带过去了（便于以后显示）', html.includes('狂欢') || html.includes('招手'), 'names');
+}
+
+// ---------- 没有片段时：行为与老版本一致 ----------
+{
+  const pack = { name: '普通宠物', bubble: { enabled: false, lines: [] } };
+  const frames = [{ dataUrl: 'data:image/png;base64,AA', durationMs: 100 }];
+  const html = buildShareHtml(pack, frames, {});
+  ok('没有片段时不报错、照常出页面', html.includes('<!DOCTYPE html>'), 'ok');
+  ok('没有片段时 clips 是空数组（不会凭空造片段）', /"clips":\[\]/.test(html), 'empty');
+}
+
+// ---------- 容错：脏片段数据不能让分享页崩 ----------
+{
+  const pack = { name: 'x', bubble: { enabled: false, lines: [] } };
+  const frames = [{ dataUrl: 'data:image/png;base64,AA', durationMs: 100 }];
+  const dirty = [
+    null,
+    { id: 'a' },                                   // 没有 frames
+    { id: 'b', frames: [] },                       // 空 frames
+    { id: 'c', frames: [{ durationMs: 90 }] },     // 帧没有 dataUrl
+    { id: 'd', frames: [{ dataUrl: 'data:image/png;base64,ZZ', durationMs: 0 }], weight: -5 },
+  ];
+  let html = '';
+  let threw = false;
+  try { html = buildShareHtml(pack, frames, { clips: dirty }); } catch (e) { threw = true; }
+  ok('脏片段数据不抛异常', !threw, 'no-throw');
+  ok('脏片段被过滤掉（只留下真正可用的）', !html.includes('"id":"a"') && !html.includes('"id":"b"') && !html.includes('"id":"c"'), 'filtered');
+  ok('唯一可用片段被保留', html.includes('"id":"d"'), 'kept-d');
+  ok('负权重被修正为正数（否则选取会退化）', /"weight":1/.test(html) || /"weight":0\.01/.test(html), 'weight');
+}
