@@ -48,6 +48,7 @@ await import('./pubguide.test.mjs');
 await import('./shortcuts.test.mjs');
 await import('./charstudio.test.mjs');
 await import('./posetochar.test.mjs');
+await import('./colors.test.mjs');
 await import('./dialog.test.mjs');
 await import('./autofit.test.mjs');
 await import('./dnd.test.mjs');

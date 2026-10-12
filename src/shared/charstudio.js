@@ -66,6 +66,22 @@ export const DEFAULT_CHARACTER = Object.freeze({
  * 从照片推出来的比例可能离谱（识别抖动），这里统一 clamp 到"人样"的范围 ——
  * 宁可不太像，也绝不能画成怪物。
  */
+/**
+ * 归一化「自定义配色」（来自"照照片捏小人"取到的主色）。
+ * 只接受合法的 #rrggbb；任何一项不合法就整套作废（宁可回退到预设，也不要半套脏色）。
+ */
+export function normCustomPalette(input) {
+  const o = (input && typeof input === 'object') ? input : null;
+  if (!o) return null;
+  const hex = (v) => {
+    const t = String(v == null ? '' : v).trim().toLowerCase();
+    return /^#[0-9a-f]{6}$/.test(t) ? t : null;
+  };
+  const body = hex(o.body), belly = hex(o.belly), accent = hex(o.accent);
+  if (!body || !belly || !accent) return null;
+  return { body, belly, accent, source: String(o.source || 'custom').slice(0, 20) };
+}
+
 export function normProportions(input) {
   const o = (input && typeof input === 'object') ? input : {};
   const d = { head: 0.28, torso: 0.38, leg: 0.24, arm: 0.42 };
@@ -125,12 +141,25 @@ export function normalizeCharacter(input) {
     // 由「照照片捏小人」写入的比例与基础姿势（可选；不填就用默认比例）
     proportions: normProportions(o.proportions),
     basePose: normBasePose(o.basePose),
+    customPalette: normCustomPalette(o.customPalette),
   };
 }
 
 /** 取调色板（永远返回一个有效对象） */
 export function paletteOf(id) {
   return PALETTES.find((p) => p.id === id) || PALETTES[0];
+}
+
+/**
+ * 取"最终要用的调色板"：有自定义配色就用它，否则用预设。
+ * 单独抽出来是因为调用点很多，规则必须只有一份。
+ * @param cfg 角色配置（或已归一化的 cfg）
+ */
+export function effectivePalette(cfg) {
+  const c = (cfg && typeof cfg === 'object') ? cfg : {};
+  const custom = normCustomPalette(c.customPalette);
+  if (custom) return { id: 'custom', name: '照片取色', body: custom.body, belly: custom.belly, accent: custom.accent };
+  return paletteOf(c.paletteId);
 }
 
 /**
@@ -301,7 +330,7 @@ export function characterPlan(cfg, box = {}) {
   const c = normalizeCharacter(cfg);
   const W = Math.max(16, Math.round(Number(box.width) || 256));
   const H = Math.max(16, Math.round(Number(box.height) || 256));
-  const pal = paletteOf(c.paletteId);
+  const pal = effectivePalette(c);
 
   // 主体占据画布：size 决定"身体宽度占画布的百分比"
   // 尺寸要按"身体 + 四肢"的整体来定，而不是只看身体 ——

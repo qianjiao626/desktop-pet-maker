@@ -505,11 +505,12 @@ import {
   const maker = readFileSync('src/maker/maker.js', 'utf8');
   const fn = maker.match(/function stReadCfg\(\) \{[\s\S]*?\n\}/);
   ok('找到 stReadCfg', !!fn, 'missing');
-  for (const field of ['paletteId', 'proportions', 'basePose']) {
+  for (const field of ['paletteId', 'proportions', 'basePose', 'customPalette']) {
     ok(`stReadCfg 从 ST.cfg 带出没有控件的字段：${field}`,
       !!fn && new RegExp('ST\\.cfg\\.' + field).test(fn[0]), field);
   }
   // 反向：这几个字段不该被写成"从 DOM 读"（那会读成 undefined）
   ok('proportions 不是从 DOM 控件读的', !!fn && !/proportions:\s*\$\('#/.test(fn[0]), 'dom');
   ok('basePose 不是从 DOM 控件读的', !!fn && !/basePose:\s*\$\('#/.test(fn[0]), 'dom');
+  ok('customPalette 不是从 DOM 控件读的', !!fn && !/customPalette:\s*\$\('#/.test(fn[0]), 'dom');
 }

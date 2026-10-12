@@ -25,6 +25,8 @@ import { progressText, summaryText, progressPct } from '../shared/launchprogress
 import { helpText } from '../shared/help.js';
 import { normalizeCharacter, randomCharacter, PALETTES, paletteOf, DEFAULT_CHARACTER, characterFrames, DANCES } from '../shared/charstudio.js';
 import { poseToCharacter, applyPoseToCharacter } from '../shared/posetochar.js';
+import { colorsFromImageData } from '../shared/colors.js';
+import { effectivePalette } from '../shared/charstudio.js';
 import { renderCharacter, renderCharacterFrames } from './charrender.js';
 
 const $ = (s) => document.querySelector(s);
@@ -1671,8 +1673,12 @@ $('#btnPoseToChar') && ($('#btnPoseToChar').onclick = async () => {
       setStatus('没识别到可靠的躯干（肩+髋），换一张正面站好的照片试试', 'err');
       return;
     }
-    // 把比例与站姿套到当前工坊外观上（配色/五官等保持用户已选的）
-    const cfg = normalizeCharacter(applyPoseToCharacter(stReadCfg(), derived));
+    // 顺便从照片里取主色：让捏出来的小人**颜色也像他本人**，
+    // 而不是顶着预设的蓝色。取不到就保留用户当前配色（不硬塞）。
+    const pal = colorsFromImageData(src.data, { step: 4 });
+    // 把比例与站姿套到当前工坊外观上（五官等保持用户已选的）
+    let cfg = normalizeCharacter(applyPoseToCharacter(stReadCfg(), derived));
+    if (pal) cfg = normalizeCharacter({ ...cfg, customPalette: pal, paletteId: cfg.paletteId });
     stWriteCfg(cfg);
     // 切到工坊页，让用户当场看到"照着他捏出来的小人"
     const tab = document.querySelector('.tab[data-tab="studio"]');
@@ -1680,6 +1686,7 @@ $('#btnPoseToChar') && ($('#btnPoseToChar').onclick = async () => {
     const pct = (v) => Math.round(v * 100) + '%';
     setStatus('✅ 已照着他捏出一个小人：头 ' + pct(cfg.proportions.head)
       + ' · 躯干 ' + pct(cfg.proportions.torso) + ' · 腿 ' + pct(cfg.proportions.leg)
+      + (pal ? ' · 配色取自照片 ' + pal.dominantHex : '')
       + (derived.notes.length ? '（' + derived.notes.join('；') + '）' : '')
       + '。选个舞步再点「生成动画帧」就能跳起来', 'ok');
   } catch (err) {
@@ -3087,6 +3094,7 @@ function stReadCfg() {
     // 否则每次读配置都会退回默认比例 —— 白名单式归一化把新字段静默丢掉（踩过）。
     proportions: ST.cfg.proportions,
     basePose: ST.cfg.basePose,
+    customPalette: ST.cfg.customPalette,
     size: $('#stSize') ? parseInt($('#stSize').value, 10) / 100 : 0.7,
     eyeGap: $('#stGap') ? parseInt($('#stGap').value, 10) / 100 : 0.5,
     eyeSize: $('#stEyeSize') ? parseInt($('#stEyeSize').value, 10) / 100 : 0.5,
@@ -3139,12 +3147,39 @@ function stRenderPalettes() {
     box.onclick = (e) => {
       const b = e.target.closest('.st-pal');
       if (!b) return;
-      ST.cfg = normalizeCharacter({ ...stReadCfg(), paletteId: b.dataset.pal });
+      // 选预设 = 明确放弃照片取色（否则自定义色会一直盖住预设，点了像没反应）
+      ST.cfg = normalizeCharacter({ ...stReadCfg(), paletteId: b.dataset.pal, customPalette: null });
       stRenderPalettes();
       stPreview();
     };
   }
-  for (const b of box.querySelectorAll('.st-pal')) b.classList.toggle('on', b.dataset.pal === ST.cfg.paletteId);
+  const custom = ST.cfg.customPalette;
+  // 自定义配色时**不高亮任何预设**（否则用户会以为还是那个预设色），
+  // 并把「照片取色」那一格高亮出来。
+  for (const b of box.querySelectorAll('.st-pal')) {
+    b.classList.toggle('on', !custom && b.dataset.pal === ST.cfg.paletteId);
+  }
+  let cbtn = box.querySelector('.st-pal-custom');
+  if (custom) {
+    if (!cbtn) {
+      cbtn = document.createElement('button');
+      cbtn.type = 'button';
+      cbtn.className = 'st-pal st-pal-custom';
+      cbtn.title = '照片取色（来自你上传的照片）';
+      cbtn.onclick = () => {
+        // 点一下就退回预设配色（给用户一条"我不想用它"的出路）
+        ST.cfg = normalizeCharacter({ ...stReadCfg(), customPalette: null });
+        stRenderPalettes();
+        stPreview();
+        setStatus('已改回预设配色', 'ok');
+      };
+      box.appendChild(cbtn);
+    }
+    cbtn.style.background = custom.body;
+    cbtn.classList.add('on');
+  } else if (cbtn) {
+    cbtn.remove();
+  }
 }
 
 /** 按某个时间点画一帧预览（静态预览与动画循环共用同一条路径） */

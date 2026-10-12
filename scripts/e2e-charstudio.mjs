@@ -293,6 +293,23 @@ app.whenReady().then(async () => {
     await js(`document.querySelector('#btnStAdd').click()`);
     await sleep(1500);
 
+    // 把当前帧换成"橙色为主"的图，让取色有明确预期。
+    // 做法：直接在渲染层造一张橙底 + 白边的图并塞进 state（走真实导入路径太绕）。
+    await js(`(async () => {
+      const cv = document.createElement('canvas'); cv.width = 64; cv.height = 64;
+      const c = cv.getContext('2d');
+      c.fillStyle = 'rgb(235,140,60)'; c.fillRect(0, 0, 64, 64);   // 主体橙
+      c.fillStyle = 'rgb(255,255,255)'; c.fillRect(0, 0, 64, 8);     // 一点白墙（应被排除）
+      const d = c.getImageData(0, 0, 64, 64);
+      // 通过公开路径导入（拖入 drop）
+      const blob = await new Promise((r) => cv.toBlob(r, 'image/png'));
+      const dt = new DataTransfer();
+      dt.items.add(new File([blob], 'orange.png', { type: 'image/png' }));
+      document.querySelector('#stage').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      return true;
+    })()`);
+    await sleep(1500);
+
     const beforePlan = await js(`(async () => {
       const cs = await import('../shared/charstudio.js');
       const cv = document.querySelector('#studioCanvas');
@@ -320,6 +337,34 @@ app.whenReady().then(async () => {
       beforePlan.opaque + ' -> ' + afterPlan.opaque);
     check('形体被切成小人', (await js(`document.querySelector('#stFigure').value`)) === 'human',
       await js(`document.querySelector('#stFigure').value`));
+
+    // ★ 配色也要取自照片：状态栏应该报出主色，画面上应该出现"照片取色"色块
+    const statusText = await js(`document.querySelector('#status').textContent`);
+    check('状态栏报出了从照片取到的主色', /配色取自照片\s*#[0-9a-f]{6}/i.test(String(statusText)),
+      String(statusText).slice(0, 120));
+    check('调色板里出现「照片取色」那一格',
+      (await js(`!!document.querySelector('#stPalettes .st-pal-custom')`)) === true);
+
+    // 取到的颜色必须真的画进预览（不是只显示在状态栏）
+    const drawnColor = await js(`(() => {
+      const cv = document.querySelector('#studioCanvas');
+      const c = cv.getContext('2d');
+      const d = c.getImageData(0, 0, cv.width, cv.height).data;
+      // 取所有不透明像素的平均色：橙色调 => 红 > 蓝
+      let n = 0, sr = 0, sg = 0, sb = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i+3] > 200) { n++; sr += d[i]; sg += d[i+1]; sb += d[i+2]; }
+      }
+      return n ? { r: Math.round(sr/n), g: Math.round(sg/n), b: Math.round(sb/n) } : null;
+    })()`);
+    check('预览的主色调确实是照片的橙色（红 > 蓝）',
+      !!drawnColor && drawnColor.r > drawnColor.b + 20, JSON.stringify(drawnColor));
+
+    // 点预设配色要能放弃照片取色（否则点了像没反应）
+    await js(`(() => { const b = document.querySelector('#stPalettes .st-pal[data-pal="coal"]'); if (b) b.click(); return undefined; })()`);
+    await sleep(400);
+    check('点预设配色后「照片取色」色块消失',
+      (await js(`!!document.querySelector('#stPalettes .st-pal-custom')`)) === false);
   }
 
   // ★ 工坊也能存「动作片段」：多存几段不同舞步，桌宠上桌后会随机切换。
