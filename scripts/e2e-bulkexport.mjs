@@ -105,6 +105,31 @@ app.whenReady().then(async () => {
   try { fs.unlinkSync(out); } catch {}
   try { fs.unlinkSync(path.join(petsDir, "我的测试宠物.petpack")); } catch {}
 
+  // ---- 命名模板：批量导出时用户能自定义文件名（含去重） ----
+  {
+    const { planExport } = await import("../src/shared/bulkexport.js");
+    const { unknownPlaceholders, templateHelp } = await import("../src/shared/nametemplate.js");
+    const items = [
+      { id: 'a.petpack', name: '小蓝机器人', author: '阿梁', size: 1000 },
+      { id: 'b.petpack', name: '橘猫', author: '阿梁', size: 1000 },
+      { id: 'c.petpack', name: '小蓝机器人', author: '阿梁', size: 1000 },
+    ];
+    const def = planExport(items, {});
+    check('不传模板时沿用原来的命名', def.entries.every((e) => e.outName.endsWith('.petpack')), JSON.stringify(def.entries.map((e) => e.outName)));
+    const tpl = '{n:02}_{name}';
+    const withTpl = planExport(items, { nameTemplate: tpl, date: '2026-10-12' });
+    const names = withTpl.entries.map((e) => e.outName);
+    check('模板生效（序号 + 名字）', names[0] === '01_小蓝机器人.petpack' && names[1] === '02_橘猫.petpack', JSON.stringify(names));
+    check('模板导出的文件名都合法（无禁用字符）', names.every((n) => !/[<>:"/\\|?*]/.test(n)), JSON.stringify(names));
+    check('模板下重名会被去重', new Set(names.map((n) => n.toLowerCase())).size === 3, JSON.stringify(names));
+    const dated = planExport(items, { nameTemplate: '{date}_{name}', date: '2026-10-12' });
+    check('日期占位符生效', dated.entries[0].outName === '2026-10-12_小蓝机器人.petpack', dated.entries[0].outName);
+    check('模板说明列出占位符', templateHelp().includes('{name}') && templateHelp().includes('{n:03}'), templateHelp());
+    check('能识别写错的占位符', unknownPlaceholders('{nmae}').includes('nmae'), JSON.stringify(unknownPlaceholders('{nmae}')));
+    check('正确的占位符不报警', unknownPlaceholders('{name}_{n:02}_{date}').length === 0, 'ok');
+    check('宠物库有批量导出入口', await js("!!document.querySelector('#btnLibExport')"));
+  }
+
   log("==== BULK EXPORT E2E: " + pass + "/" + (pass + fail) + " ====");
   app.exit(fail ? 1 : 0);
 });

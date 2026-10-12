@@ -1339,7 +1339,15 @@ ipcMain.handle('pet:exportAll', async (e, opt) => {
       items.push({ id: f, name, size, builtin: builtinNames.has(f), broken });
     }
 
-    const plan = planExport(items, { includeBuiltin: !!o.includeBuiltin });
+    // 命名模板（可选）：用户想给导出的文件加日期/序号时用。
+    // 不传就沿用原来的"宠物名.petpack"，行为不变。
+    const now = new Date();
+    const plan = planExport(items, {
+      includeBuiltin: !!o.includeBuiltin,
+      nameTemplate: o.nameTemplate || '',
+      date: now.toISOString().slice(0, 10),
+      time: now.toISOString().slice(11, 16).replace(':', '-'),
+    });
     if (!plan.ok) return { ok: false, errors: [plan.reason], skipped: plan.skipped };
 
     const r = await dialog.showSaveDialog({

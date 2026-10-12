@@ -10,10 +10,10 @@
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.34](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.34/desktop-pet-maker-win32-x64-v0.9.34.zip)**
+**[下载 Windows 免安装版 v0.9.35](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.35/desktop-pet-maker-win32-x64-v0.9.35.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.34）：
+**Linux x64**（v0.9.35）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
@@ -149,6 +149,8 @@ npm start
   - 生成脚本在 `scripts/make-*.mjs`，全部程序化绘制、不依赖外部素材，可随时重跑
   - 原创形象不复制任何第三方 IP 的具体造型；历史 CC0 素材来源与许可见 `THIRD-PARTY.md`
 - **宠物库支持搜索与排序**：按名字过滤、按名字/体积/帧数排序、显示"n / N 只"计数
+- **导出命名模板**：批量导出时可选命名规则（`{name}` `{n:03}` `{date}` `{time}` `{author}` `{ext}`），
+  导出前会**用真实宠物名预览**一个文件名；写错占位符会提示；同名自动去重
 - **宠物详情面板**：库卡片点 ⓘ 看完整信息（作者 / 帧数 / 动作片段数 / 画布 /
   体积 / 版本 / 分组 / 来源 / 文件位置），可直接启动、在文件夹里显示、复制路径
 - **宠物包一键更新**：作者重新导出同一个包后，接收方拖进来时会**先告诉你是新版还是旧版**，

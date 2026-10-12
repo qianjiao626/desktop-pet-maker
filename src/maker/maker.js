@@ -10,6 +10,7 @@ import { fitFrameLimit, fmtBytes } from '../shared/budget.js';
 import { sanitizeSpeech, isSpeakable, pushSpeech } from '../shared/speech.js';
 import { emptyState, normalizeState, isFavorite, toggleFavorite, filterLibrary, groupsOf } from '../shared/library.js';
 import { detailRows, detailSummary, humanBytes } from '../shared/petdetail.js';
+import { expandTemplate, unknownPlaceholders, templateHelp } from '../shared/nametemplate.js';
 import { classifyDroppedFiles, isShareFile } from '../shared/dnd.js';
 import { PERSONALITY_TEMPLATES, applyTemplate, templateFlags, matchTemplate } from '../shared/templates.js';
 import { applyCustomTemplate, matchCustomTemplate } from '../shared/mytemplates.js';
@@ -2425,10 +2426,33 @@ if ($('#btnLibExport')) $('#btnLibExport').onclick = async () => {
     setStatus('宠物库里还没有你自己的宠物（只有内置的）。想导出内置宠物请在上一步点确定', 'err');
     return;
   }
+  // 命名模板（可选）：留空就用「宠物名.petpack」。
+  // 批量导出十几只时，很多人想加日期或序号 —— 以前只能导完手动改。
+  const tpl = window.prompt(
+    '导出文件的命名规则（留空 = 用宠物名）\n\n' + templateHelp() + '\n\n例如：{date}_{name}  或  {n:02}_{name}',
+    ''
+  );
+  if (tpl === null) { setStatus('已取消'); return; }
+  const unknown = unknownPlaceholders(tpl);
+  if (unknown.length) {
+    setStatus('⚠ 模板里有不认识的占位符：' + unknown.map((x) => '{' + x + '}').join('、') + '（会原样保留）', 'err');
+  }
+  // 用**真实的第一只宠物**预览一下模板效果 —— 用户能立刻看到自己写的规则对不对，
+  // 而不是等导完 20 个文件才发现写错了（expandTemplate 就是干这个的）。
+  if (tpl && libCache.length) {
+    const first = libCache[0];
+    const d = new Date();
+    const preview = expandTemplate(tpl, {
+      name: String(first.name || first.id), author: String(first.author || ''),
+      n: 1, date: d.toISOString().slice(0, 10), time: d.toISOString().slice(11, 16).replace(':', '-'),
+      ext: 'petpack',
+    });
+    setStatus('命名预览：' + preview + '（导出 ' + libCache.length + ' 只）');
+  }
   btn.disabled = true;
   setStatus('正在打包宠物库…');
   try {
-    const r = await window.api.exportAll({ includeBuiltin });
+    const r = await window.api.exportAll({ includeBuiltin, nameTemplate: tpl });
     btn.disabled = false;
     if (r.canceled) { setStatus('已取消'); return; }
     if (!r.ok) { setStatus('导出失败：' + (r.errors || []).join(';'), 'err'); return; }

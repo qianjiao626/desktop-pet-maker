@@ -10,6 +10,7 @@
 //   - 纯逻辑（可单测）：文件命名去重、清单生成
 
 import { safeFileName } from './safeid.js';
+import { expandTemplate } from './nametemplate.js';
 
 /** 单个 zip 的安全上限（超过就提示用户分批）。1GB 对普通用户足够，也能避免 OOM */
 export const BULK_LIMIT_BYTES = 1024 * 1024 * 1024;
@@ -34,11 +35,27 @@ export function planExport(items, opt = {}) {
     if (it.builtin && !includeBuiltin) { skipped.push({ id: it.id, reason: '内置宠物（默认不导出）' }); continue; }
     if (it.broken) { skipped.push({ id: it.id, reason: '文件损坏，已跳过' }); continue; }
 
-    // zip 内文件名去重：不同目录下可能有同名宠物
-    const base = safeFileName(String(it.name || it.id), { maxLen: 60, fallback: 'pet' });
-    let name = base + '.petpack';
+    // zip 内文件名去重：不同目录下可能有同名宠物。
+    // 如果用户给了命名模板（如 "{date}_{name}_{n:03}"），优先用它展开；
+    // 没给就沿用原来的"宠物名.petpack"（向后兼容，行为不变）。
+    const tpl = String(opt.nameTemplate || '').trim();
+    const base = tpl
+      ? expandTemplate(tpl, {
+          name: String(it.name || it.id),
+          author: String(it.author || ''),
+          n: entries.length + 1,
+          date: opt.date || '', time: opt.time || '', ext: 'petpack',
+        })
+      : (safeFileName(String(it.name || it.id), { maxLen: 60, fallback: 'pet' }) + '.petpack');
+    let name = base;
     let n = 1;
-    while (used.has(name)) { n++; name = base + '_' + n + '.petpack'; }
+    while (used.has(name)) {
+      n++;
+      const dot = base.lastIndexOf('.');
+      const main = dot > 0 ? base.slice(0, dot) : base;
+      const tail = dot > 0 ? base.slice(dot) : '';
+      name = main + '_' + n + tail;
+    }
     used.add(name);
 
     entries.push({
