@@ -4,16 +4,16 @@
 
 > 技术选型参考了这些开源项目：`B666T/DesktopPetGenerator`（上传图→抠图→动画→打包）、
 > `PC2005-cloud/dsh-pet`（宠物包 / 素材链思路）、`ln2146/ai-desktop-pet-generator`（抠图→精灵流水线）。
-> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 2985 项单测 + 44 套 e2e**。
+> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 3118 项单测 + 44 套 e2e**。
 
 ---
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.36](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.36/desktop-pet-maker-win32-x64-v0.9.36.zip)**
+**[下载 Windows 免安装版 v0.9.37](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.37/desktop-pet-maker-win32-x64-v0.9.37.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.36）：
+**Linux x64**（v0.9.37）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
@@ -95,6 +95,12 @@ npm start
   **纯程序化绘制**：零依赖、秒出、不联网、不花钱、原创无版权风险。
   一键生成 4–24 帧的上下浮动动画，直接进制作器当桌宠，也可以只替换当前帧。
   捏好的配置能存成 `.petchar.json` 备份 / 发给朋友
+- **💃 让他跳舞（4 种舞步）**：蹦蹦 / 招手 / 扭扭 / 狂欢 —— 手绕肩、脚绕髋真的摆起来，
+  工坊预览里**当场就能看到在跳**（不用先导出再猜）。
+  ⚠️ 为什么只有「捏的小人」能跳舞：静态照片没有背面、没有关节内侧、没有被遮挡的肢体像素，
+  任何"搬运像素"都补不出来（三条渲染路线都实测失败）；而绘制小人的像素是**我们自己画的**，
+  抬手后腋下是什么颜色我们**知道**，重画一遍即可 —— 这是它和照片的本质区别。
+  另外会按体型算出**安全抬起上限**，所以举手永远不会伸出画布被裁掉
 - **在线分享站（零后端）**：把整个宠物库一键导成一个**静态网站** ——
   `index.html`（卡片网格 + 搜索）+ 每只宠物一个自包含分享页 + `manifest.json` + 发布说明。
   整个文件夹传上 **GitHub Pages / Netlify / Cloudflare Pages** 就能给人逛，不需要服务器、不需要数据库
@@ -288,7 +294,7 @@ ZIP 内含 `pet.json` + 若干帧图片 + `README.txt`：
 | GIF 处理 | 自研解析器 + 内联 gifuct-js 的 LZW（MIT） |
 | 打包格式 | 自研 ZIP 读写（零第三方依赖） |
 | 交互 | 像素级 alpha 命中测试 + `setIgnoreMouseEvents` 穿透 |
-| 测试 | 自研断言框架：2985 项单测 + 44 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站 / 角色工坊 / 对话） |
+| 测试 | 自研断言框架：3118 项单测 + 44 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站 / 角色工坊 / 对话） |
 
 ## 🧪 测试
 

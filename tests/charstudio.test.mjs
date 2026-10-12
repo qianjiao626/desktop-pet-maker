@@ -1,7 +1,9 @@
 import { ok } from './_harness.mjs';
+import { readFileSync } from 'node:fs';
 import {
   DEFAULT_CHARACTER, BODY_SHAPES, EAR_TYPES, EYE_TYPES, MOUTH_TYPES, PALETTES,
   normalizeCharacter, paletteOf, characterPlan, characterFrames, randomCharacter,
+  DANCES, DANCE_IDS, danceOf, dancePose, rotatePoint, maxSafeAngle,
 } from '../src/shared/charstudio.js';
 
 // ---------- normalizeCharacter：用户输入什么都不能画出畸形角色 ----------
@@ -149,4 +151,201 @@ import {
 {
   const c = randomCharacter(null);
   ok('rng 传 null 也能用（退回 Math.random）', BODY_SHAPES.includes(c.bodyShape), c.bodyShape);
+}
+
+// ============ 跳舞（v0.9.37）============
+// ★ 这个功能成立的**唯一理由**（必须锁死，别哪天被"优化"掉）：
+//   静态照片没有背面/关节内侧/被遮挡肢体的像素，任何"搬运像素"都补不出来
+//   （HANDOFF 已知坑第 23 条，三条路线实测全败）。
+//   而**程序化绘制的小人**里，像素是我们自己画的 —— 抬手后腋下是什么颜色、
+//   肩膀内侧长什么样，我们**知道**，重新画一遍即可，不存在信息缺失。
+//   所以"操控他跳舞"只对绘制角色成立，对照片不成立。
+{
+  ok('舞蹈列表非空', DANCES.length >= 4, String(DANCES.length));
+  ok('舞蹈 id 与 DANCE_IDS 一致', DANCES.map((d) => d.id).join(',') === DANCE_IDS.join(','), DANCES.map((d) => d.id).join(','));
+  ok('每个舞蹈都有 name/emoji/desc', DANCES.every((d) => d.name && d.emoji && d.desc), 'ok');
+  ok('第一个是"不跳"（默认不能一上来就蹦迪）', DANCES[0].id === 'none', DANCES[0].id);
+  ok('未知 id 退回"不跳"（不返回 undefined）', danceOf('nope').id === 'none', danceOf('nope').id);
+  ok('none 的姿态是全零', JSON.stringify(dancePose('none', 0.3)) === JSON.stringify({ offsetY: 0, rotate: 0, scaleX: 1, scaleY: 1, armL: 0, armR: 0, legL: 0, legR: 0 }), JSON.stringify(dancePose('none', 0.3)));
+}
+
+// ---------- 每个舞蹈都必须"真的在动"，而且要动得能被看见 ----------
+{
+  const SAMPLES = 24;
+  for (const d of DANCES) {
+    if (d.id === 'none') continue;
+    const poses = [];
+    for (let i = 0; i < SAMPLES; i++) poses.push(dancePose(d.id, i / SAMPLES));
+
+    // ① 手臂或身体必须真的摆起来（否则叫"跳舞"却纹丝不动）
+    const armSpread = Math.max(...poses.map((p) => Math.abs(p.armL))) ;
+    ok(`${d.name}：手臂真的摆起来了`, armSpread > 0.5, 'armL max=' + armSpread.toFixed(3));
+    // ② 至少有一项在变（不是恒定姿态）
+    const vary = (k) => Math.max(...poses.map((p) => p[k])) - Math.min(...poses.map((p) => p[k]));
+    const total = vary('armL') + vary('armR') + vary('rotate') + vary('offsetY') + vary('legL') + vary('legR');
+    ok(`${d.name}：姿态确实在变化（不是恒定姿势）`, total > 0.3, 'total=' + total.toFixed(3));
+
+    // ③ 幅度必须被 clamp 住（防以后写错数值画出畸形/穿帮）。
+    //    聚合成一条断言：逐采样点断言会把测试数量灌成几百条，噪音大。
+    const bad = poses.filter((p) => Math.abs(p.offsetY) > 0.12 || Math.abs(p.rotate) > 0.45
+      || Math.abs(p.armL) > 1.85 || Math.abs(p.armR) > 1.85
+      || Math.abs(p.legL) > 0.75 || Math.abs(p.legR) > 0.75
+      || p.scaleX < 0.85 || p.scaleX > 1.15 || p.scaleY < 0.85 || p.scaleY > 1.15);
+    ok(`${d.name}：全程幅度都被 clamp 住（不穿帮）`, bad.length === 0, bad.length + ' 帧越界，例如 ' + JSON.stringify(bad[0]));
+  }
+}
+
+// ---------- 无缝循环：t=0 与 t->1 必须接得上（不然动画会"跳一下"） ----------
+{
+  for (const d of DANCES) {
+    if (d.id === 'none') continue;
+    const a = dancePose(d.id, 0);
+    const b = dancePose(d.id, 1);
+    const close = (x, y) => Math.abs(x - y) < 1e-6;
+    ok(`${d.name}：首尾姿态接得上（无缝循环）`,
+      close(a.armL, b.armL) && close(a.armR, b.armR) && close(a.offsetY, b.offsetY) && close(a.rotate, b.rotate),
+      JSON.stringify(a) + ' vs ' + JSON.stringify(b));
+  }
+}
+
+// ---------- 非法输入不能画出畸形角色 ----------
+{
+  ok('t 是 NaN 不崩', Number.isFinite(dancePose('bounce', NaN).armL), String(dancePose('bounce', NaN).armL));
+  ok('t 超范围也返回有限值', Number.isFinite(dancePose('bounce', 99).armL), String(dancePose('bounce', 99).armL));
+  ok('dancePose 传空不崩', Number.isFinite(dancePose().offsetY), 'ok');
+  // 人为塞一个坏 pose，验证兜底 clamp 真的在起作用
+  const bad = DANCES.find((d) => d.id === 'bounce');
+  const orig = bad.pose;
+  bad.pose = () => ({ armL: 99, armR: -99, offsetY: 50, rotate: 9, scaleX: 99, legL: 99 });
+  const p = dancePose('bounce', 0.25);
+  bad.pose = orig;
+  ok('坏数值被 clamp 住（手臂）', Math.abs(p.armL) <= 1.85 && Math.abs(p.armR) <= 1.85, `${p.armL}/${p.armR}`);
+  ok('坏数值被 clamp 住（位移/旋转/缩放/腿）',
+    Math.abs(p.offsetY) <= 0.12 && Math.abs(p.rotate) <= 0.45 && p.scaleX <= 1.15 && Math.abs(p.legL) <= 0.75,
+    JSON.stringify(p));
+}
+
+// ---------- dance 必须存进配置并往返（否则存盘/载入会静默丢掉它） ----------
+{
+  ok('默认不跳舞', DEFAULT_CHARACTER.dance === 'none', DEFAULT_CHARACTER.dance);
+  const c = normalizeCharacter({ dance: 'party' });
+  ok('dance 被保留', c.dance === 'party', c.dance);
+  ok('非法 dance 退回默认', normalizeCharacter({ dance: 'moonwalk' }).dance === 'none', normalizeCharacter({ dance: 'moonwalk' }).dance);
+  ok('再归一化不变（稳定）', JSON.stringify(normalizeCharacter(c)) === JSON.stringify(c), 'stable');
+  ok('随机角色也带合法 dance', DANCE_IDS.includes(randomCharacter(() => 0.9).dance), randomCharacter(() => 0.9).dance);
+}
+
+// ---------- characterFrames 必须把舞蹈采样进去 ----------
+{
+  const still = characterFrames({ dance: 'none' }, 8);
+  ok('不跳舞时 rotate/arm 全为 0（外观与旧版一致）',
+    still.every((f) => !f.rotate && !f.armL && !f.armR && !f.legL && !f.legR), JSON.stringify(still[0]));
+
+  const dance = characterFrames({ dance: 'party' }, 12);
+  ok('跳舞时帧数正确', dance.length === 12, String(dance.length));
+  ok('跳舞时帧里带手臂角度', dance.some((f) => Math.abs(f.armL) > 0.5), 'ok');
+  ok('跳舞时帧间隔更短（更跟拍）', dance[0].durationMs < still[0].durationMs, dance[0].durationMs + ' vs ' + still[0].durationMs);
+  ok('跳舞时整体仍在合法范围', dance.every((f) => Math.abs(f.offsetY) <= 0.2 && Math.abs(f.rotate) <= 0.45), 'ok');
+}
+
+// ---------- 四肢几何：必须带关节（圆点转了看不出在动） ----------
+{
+  const plan = characterPlan({ arms: true, legs: true }, { width: 256, height: 256 });
+  ok('手有 2 只', plan.hands.length === 2, String(plan.hands.length));
+  for (const h of plan.hands) {
+    ok('手有肩关节坐标', Number.isFinite(h.sx) && Number.isFinite(h.sy), JSON.stringify(h));
+    ok('手有末端坐标', Number.isFinite(h.ex) && Number.isFinite(h.ey), JSON.stringify(h));
+    ok('手有粗细与半径', h.w > 0 && h.r > 0, JSON.stringify(h));
+    ok('肩与末端不重合（否则转起来看不出变化）', Math.hypot(h.ex - h.sx, h.ey - h.sy) > 1, JSON.stringify(h));
+    ok('手有左右标记（渲染要按左/右取不同角度）', h.side === 'left' || h.side === 'right', h.side);
+  }
+  for (const ft of plan.feet) {
+    ok('脚有髋关节坐标', Number.isFinite(ft.sx) && Number.isFinite(ft.sy), JSON.stringify(ft));
+    ok('脚有末端坐标', Number.isFinite(ft.ex) && Number.isFinite(ft.ey), JSON.stringify(ft));
+    ok('脚有左右标记', ft.side === 'left' || ft.side === 'right', ft.side);
+  }
+  const off = characterPlan({ arms: false, legs: false }, { width: 256, height: 256 });
+  ok('手可关闭（仍然）', off.hands.length === 0);
+  ok('脚可关闭（仍然）', off.feet.length === 0);
+}
+
+// ---------- 静态守护：渲染层真的绕关节转，不是画个静态圆 ----------
+{
+  const src = readFileSync('src/maker/charrender.js', 'utf8');
+  ok('渲染层有绕关节的旋转逻辑', src.includes('drawLimb') && src.includes('rotatePoint'), 'render');
+  ok('渲染复用 shared 的 rotatePoint（渲染与测试同一算法）', src.includes("import { characterPlan, characterFrames, normalizeCharacter, rotatePoint }"), 'shared-rotate');
+  ok('手用 armL/armR、脚用 legL/legR（左右分开）', src.includes('f.armL') && src.includes('f.armR') && src.includes('f.legL') && src.includes('f.legR'), 'render');
+  ok('渲染时把"抬起程度"乘上安全上限（否则会伸出画布）', src.includes('maxOut'), 'maxout');
+  ok('整体旋转是绕身体中心而不是画布中心（否则会甩出画面）', src.includes('pivotX') && src.includes('pivotY'), 'pivot');
+  const shared = readFileSync('src/shared/charstudio.js', 'utf8');
+  ok('几何层导出四肢关节（sx/sy/ex/ey）', shared.includes('sx:') && shared.includes('ex:'), 'geom');
+}
+
+// ---------- 静态守护：UI 必须能选舞蹈，且选了会写进配置 ----------
+{
+  const html = readFileSync('src/maker/index.html', 'utf8');
+  ok('工坊有舞蹈选择框', html.includes('id="stDance"'), 'html');
+  for (const d of DANCE_IDS) {
+    ok('舞蹈选项存在：' + d, html.includes('value="' + d + '"'), d);
+  }
+  const maker = readFileSync('src/maker/maker.js', 'utf8');
+  ok('maker 读配置时带上 dance', /dance:\s*\$\('#stDance'\)/.test(maker), 'read');
+  ok('maker 写配置时回填 dance', /\$\('#stDance'\)\.value = c\.dance/.test(maker), 'write');
+  ok('预览会真的动起来（选了舞蹈就播动画）', maker.includes('stStartPreviewAnim') && maker.includes('requestAnimationFrame(step)'), 'anim');
+  ok('离开工坊页会停掉预览动画（别白烧 CPU）', /stStartPreviewAnim[\s\S]{0,900}classList\.contains\('active'\)/.test(maker), 'stop');
+}
+
+// ---------- ★ 举手不能伸出画布（实测踩过：写死 90° 会被裁掉半截） ----------
+{
+  for (const size of [0.35, 0.6, 0.85, 1]) {
+    const plan = characterPlan({ size, arms: true, legs: true }, { width: 256, height: 256 });
+    for (const limb of [...plan.hands, ...plan.feet]) {
+      ok(`size=${size} ${limb.side}${limb.side === 'left' ? '手' : '手'}有安全上限`, limb.maxOut >= 0, String(limb.maxOut));
+      ok(`size=${size} 肢体带方向标记（决定往哪边抬）`, limb.dir === 1 || limb.dir === -1, String(limb.dir));
+    }
+    // 按安全上限抬到最大，末端必须仍在画布内
+    const W = 256, H = 256;
+    for (const limb of [...plan.hands, ...plan.feet]) {
+      const p = rotatePoint(limb.sx, limb.sy, limb.ex, limb.ey, limb.maxOut * limb.dir);
+      ok(`size=${size} 抬到上限仍在画布内（不会裁掉）`,
+        p.x - limb.r >= -0.01 && p.x + limb.r <= W + 0.01 && p.y - limb.r >= -0.01 && p.y + limb.r <= H + 0.01,
+        `x=${p.x.toFixed(1)} r=${limb.r.toFixed(1)} y=${p.y.toFixed(1)}`);
+    }
+  }
+}
+{
+  // 任意舞蹈、任意帧、任意体型：抬起程度必须在 0~1，乘上限后一定不出界
+  for (const d of DANCES) {
+    if (d.id === 'none') continue;
+    for (const size of [0.35, 0.7, 1]) {
+      const cfg = normalizeCharacter({ dance: d.id, size });
+      const plan = characterPlan(cfg, { width: 256, height: 256 });
+      const frames = characterFrames(cfg, 16);
+      let bad = null;
+      for (const f of frames) {
+        for (const limb of [...plan.hands, ...plan.feet]) {
+          const frac = limb.side === 'left'
+            ? (plan.hands.includes(limb) ? f.armL : f.legL)
+            : (plan.hands.includes(limb) ? f.armR : f.legR);
+          const p = rotatePoint(limb.sx, limb.sy, limb.ex, limb.ey, frac * limb.maxOut * limb.dir);
+          if (p.x - limb.r < -0.01 || p.x + limb.r > 256.01 || p.y - limb.r < -0.01 || p.y + limb.r > 256.01) {
+            bad = { d: d.id, size, frac, limb: limb.side, x: p.x, y: p.y, r: limb.r };
+          }
+        }
+      }
+      ok(`${d.name} size=${size}：全程四肢都在画布内`, !bad, JSON.stringify(bad));
+    }
+  }
+}
+{
+  ok('抬起程度被限制在 0~1（不会超过安全上限）', (() => {
+    for (const d of DANCES) {
+      if (d.id === 'none') continue;
+      for (let i = 0; i < 24; i++) {
+        const p = dancePose(d.id, i / 24);
+        for (const k of ['armL', 'armR', 'legL', 'legR']) if (p[k] < 0 || p[k] > 1) return false;
+      }
+    }
+    return true;
+  })(), 'range');
 }

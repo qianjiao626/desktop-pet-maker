@@ -27,6 +27,9 @@ app.whenReady().then(async () => {
   check("工坊面板可切出", await js(`document.querySelector('.tabpane[data-pane="studio"]').classList.contains('active')`));
   check("预览画布存在", await js(`!!document.querySelector('#studioCanvas')`));
   check("配色按钮已生成", (await js(`document.querySelectorAll('#stPalettes .st-pal').length`)) >= 6);
+  check("有舞蹈选择框", await js(`!!document.querySelector('#stDance')`));
+  const danceOpts = await js(`[...document.querySelectorAll('#stDance option')].map(o => o.value).join(',')`);
+  check("舞蹈选项齐全（含 4 个真动作）", danceOpts === 'none,bounce,wave,twist,party', danceOpts);
 
   // ★ 预览必须真的画出东西（不是一张空画布）
   const stat = () => js(`(() => {
@@ -108,6 +111,62 @@ app.whenReady().then(async () => {
 
   // 生成的帧不该被自动抠图吃掉（它是透明的，不是照片）
   check("抠图模式被自动切到「不抠图」", (await js(`document.querySelector('#cutMode').value`)) === 'none');
+
+  // ★ 跳舞：帧与帧之间**肢体位置**必须真的不同。
+  //   只断言"帧不同"不够 —— 呼吸浮动也能让帧不同，但那是上下飘、不是跳舞。
+  //   这里量左右两侧内容的横向重心：手臂抬起/张开时它会明显变化。
+  const sideSpread = () => js(`(() => {
+    const imgs = [...document.querySelectorAll('#fsTrack img')];
+    return imgs.map((img) => {
+      const cv = document.createElement('canvas'); cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+      const c = cv.getContext('2d'); c.drawImage(img, 0, 0);
+      const d = c.getImageData(0, 0, cv.width, cv.height).data;
+      let lN = 0, lX = 0, rN = 0, rX = 0;
+      const mid = cv.width / 2;
+      for (let i = 0; i < d.length; i += 4) {
+        if (d[i+3] < 200) continue;
+        const px = (i/4) % cv.width;
+        if (px < mid) { lN++; lX += px; } else { rN++; rX += px; }
+      }
+      return { l: lN ? lX/lN : 0, r: rN ? rX/rN : 0, lN, rN };
+    });
+  })()`);
+
+  // 清空后只放跳舞帧，避免和上面的 8 帧混在一起。
+  // 注意：清空会弹 window.confirm —— 离屏窗口里弹窗没人点，executeJavaScript 会**挂住**，
+  // 所以先临时把 confirm 覆盖成"总是确定"。
+  // 注意：executeJavaScript 会把表达式**返回值**序列化回主进程；
+  // 直接写 `window.confirm = () => true` 的返回值是个函数 -> "An object could not be cloned"
+  // -> IPC 报错、套件挂住（实测踩到）。必须用 IIFE 显式返回 undefined。
+  await js(`(() => { window.confirm = () => true; return undefined; })()`);
+  await js(`document.querySelector('#btnClearFrames').click()`);
+  await sleep(400);
+  check("清空后没有帧了", (await js(`document.querySelector('#fsTrack .fs-cell') ? document.querySelectorAll('#fsTrack .fs-cell').length : 0`)) === 0,
+    await js(`String(document.querySelectorAll('#fsTrack .fs-cell').length)`));
+  await js(`(() => { const el = document.querySelector('#stDance'); el.value = 'party'; el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  await sleep(300);
+  await js(`document.querySelector('#btnStAdd').click()`);
+  await sleep(1600);
+  const danceFrames = await sideSpread();
+  check("跳舞帧数量正确", danceFrames.length === 8, String(danceFrames.length));
+  const lMin = Math.min(...danceFrames.map(f => f.l)), lMax = Math.max(...danceFrames.map(f => f.l));
+  const rMin = Math.min(...danceFrames.map(f => f.r)), rMax = Math.max(...danceFrames.map(f => f.r));
+  check("左手位置真的在动（不是只上下飘）", (lMax - lMin) > 1.5, "left spread=" + (lMax - lMin).toFixed(2));
+  check("右手位置真的在动", (rMax - rMin) > 1.5, "right spread=" + (rMax - rMin).toFixed(2));
+  check("两侧都有内容（没把一只手画丢）", danceFrames.every(f => f.lN > 50 && f.rN > 50),
+    JSON.stringify(danceFrames.map(f => [f.lN, f.rN])));
+
+  // 不跳舞 vs 跳舞：横向摆幅必须明显更小（证明 dance 参数真的生效）
+  await js(`document.querySelector('#btnClearFrames').click()`);
+  await sleep(300);
+  await js(`(() => { const el = document.querySelector('#stDance'); el.value = 'none'; el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+  await sleep(250);
+  await js(`document.querySelector('#btnStAdd').click()`);
+  await sleep(1600);
+  const stillFrames = await sideSpread();
+  const stillSpread = Math.max(...stillFrames.map(f => f.l)) - Math.min(...stillFrames.map(f => f.l));
+  check("选「不跳」时横向摆幅明显更小（dance 参数真的生效）", stillSpread < (lMax - lMin) * 0.6,
+    "still=" + stillSpread.toFixed(2) + " vs dance=" + (lMax - lMin).toFixed(2));
 
   // ★ 替换当前帧：帧数不变
   await js(`(() => { const cells = document.querySelectorAll('#fsTrack .fs-cell'); cells[2].click(); })()`);

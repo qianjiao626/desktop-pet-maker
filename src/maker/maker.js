@@ -23,7 +23,7 @@ import { planSheet, sheetSummary } from '../shared/spritesheet.js';
 import { mapKey, isTypingTarget } from '../shared/makerkeys.js';
 import { progressText, summaryText, progressPct } from '../shared/launchprogress.js';
 import { helpText } from '../shared/help.js';
-import { normalizeCharacter, randomCharacter, PALETTES, paletteOf, DEFAULT_CHARACTER } from '../shared/charstudio.js';
+import { normalizeCharacter, randomCharacter, PALETTES, paletteOf, DEFAULT_CHARACTER, characterFrames, DANCES } from '../shared/charstudio.js';
 import { renderCharacter, renderCharacterFrames } from './charrender.js';
 
 const $ = (s) => document.querySelector(s);
@@ -3023,7 +3023,7 @@ function bindQuick() {
 // ---------------- 角色工坊 ----------------
 // 用参数当场画一只原创小人。完全程序化绘制：不联网、不要素材、不要 API Key。
 // 几何计算在 shared/charstudio.js（有单测），这里只管读控件 / 重绘预览 / 变成帧。
-const ST = { cfg: normalizeCharacter(DEFAULT_CHARACTER), previewTimer: 0 };
+const ST = { cfg: normalizeCharacter(DEFAULT_CHARACTER), previewTimer: 0, animT: 0, raf: 0 };
 
 function stReadCfg() {
   return normalizeCharacter({
@@ -3040,6 +3040,7 @@ function stReadCfg() {
     tail: $('#stTail') ? $('#stTail').checked : true,
     arms: $('#stArms') ? $('#stArms').checked : true,
     legs: $('#stLegs') ? $('#stLegs').checked : true,
+    dance: $('#stDance') ? $('#stDance').value : 'none',
   });
 }
 
@@ -3058,6 +3059,7 @@ function stWriteCfg(cfg) {
   if ($('#stTail')) $('#stTail').checked = c.tail;
   if ($('#stArms')) $('#stArms').checked = c.arms;
   if ($('#stLegs')) $('#stLegs').checked = c.legs;
+  if ($('#stDance')) $('#stDance').value = c.dance;
   stSyncLabels();
   stRenderPalettes();
   stPreview();
@@ -3089,20 +3091,55 @@ function stRenderPalettes() {
   for (const b of box.querySelectorAll('.st-pal')) b.classList.toggle('on', b.dataset.pal === ST.cfg.paletteId);
 }
 
+/** 按某个时间点画一帧预览（静态预览与动画循环共用同一条路径） */
+function stDrawPreviewAt(cfg, frameSpec) {
+  const cv = $('#studioCanvas');
+  if (!cv) return;
+  // 预览按设备像素比放大，避免高分屏上发虚
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  const css = 180;
+  renderCharacter(cv, cfg, { width: Math.round(css * dpr), height: Math.round(css * dpr), frame: frameSpec });
+  cv.style.width = css + 'px';
+  cv.style.height = css + 'px';
+}
+
 function stPreview() {
   const cv = $('#studioCanvas');
   if (!cv) return;
   try {
     ST.cfg = stReadCfg();
-    // 预览按设备像素比放大，避免高分屏上发虚
-    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-    const css = 180;
-    renderCharacter(cv, ST.cfg, { width: Math.round(css * dpr), height: Math.round(css * dpr) });
-    cv.style.width = css + 'px';
-    cv.style.height = css + 'px';
+    // 选了舞蹈 -> 预览也真的动起来（否则用户只能靠导出猜效果）
+    if (ST.cfg.dance && ST.cfg.dance !== 'none') { stStartPreviewAnim(); return; }
+    stStopPreviewAnim();
+    stDrawPreviewAt(ST.cfg, null);
   } catch (err) {
     console.warn('[studio] 预览失败：' + (err && err.message ? err.message : err));
   }
+}
+
+// 预览动画循环：和导出的帧用**同一套 characterFrames 采样**，
+// 保证「预览里看到的」就是「导出来会得到的」。
+function stStartPreviewAnim() {
+  if (ST.raf) return;
+  const step = () => {
+    ST.raf = 0;
+    if (!document.querySelector('.tabpane[data-pane="studio"]') ||
+        !document.querySelector('.tabpane[data-pane="studio"]').classList.contains('active')) return;  // 离开工坊就停，别白烧 CPU
+    const cfg = ST.cfg;
+    if (!cfg.dance || cfg.dance === 'none') return;
+    ST.animT = (ST.animT + 0.02) % 1;
+    try {
+      const specs = characterFrames(cfg, 24);
+      const spec = specs[Math.min(specs.length - 1, Math.floor(ST.animT * specs.length))];
+      stDrawPreviewAt(cfg, spec);
+    } catch (err) { return; }
+    ST.raf = requestAnimationFrame(step);
+  };
+  ST.raf = requestAnimationFrame(step);
+}
+
+function stStopPreviewAnim() {
+  if (ST.raf) { cancelAnimationFrame(ST.raf); ST.raf = 0; }
 }
 
 // 拖动滑块时不要每个像素都重画（高频重绘会明显卡顿）
@@ -3134,7 +3171,7 @@ function stBind() {
   stRenderPalettes();
   stWriteCfg(ST.cfg);
 
-  for (const id of ['stName', 'stShape', 'stEar', 'stEye', 'stMouth']) {
+  for (const id of ['stName', 'stShape', 'stEar', 'stEye', 'stMouth', 'stDance']) {
     if ($('#' + id)) $('#' + id).oninput = () => stSchedulePreview();
   }
   for (const id of ['stSize', 'stGap', 'stEyeSize', 'stFrames']) {
@@ -3142,6 +3179,10 @@ function stBind() {
   }
   for (const id of ['stBlush', 'stTail', 'stArms', 'stLegs']) {
     if ($('#' + id)) $('#' + id).onchange = () => stPreview();
+  }
+  // 切到工坊页才跑预览动画（在别的页上没必要烧 CPU）
+  for (const t of document.querySelectorAll('.tab')) {
+    t.addEventListener('click', () => { setTimeout(() => stPreview(), 30); });
   }
 
   $('#btnStRandom').onclick = () => { stWriteCfg(randomCharacter()); setStatus('🎲 随机了一只，不喜欢就再点一次', 'ok'); };
