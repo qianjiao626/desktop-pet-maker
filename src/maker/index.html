@@ -392,6 +392,19 @@
           <option value="flat">一条线</option>
         </select>
       </label>
+      <div id="stPropHint" class="note" hidden>身体比例（小人专用）—— 由「照着照片捏一个小人」自动填入，也可以自己微调</div>
+      <label class="row" id="stHeadRow" hidden>头的大小 <span class="val" id="stHeadV">42%</span>
+        <input type="range" id="stHead" min="20" max="46" value="42" />
+      </label>
+      <label class="row" id="stTorsoRow" hidden>躯干长度 <span class="val" id="stTorsoV">36%</span>
+        <input type="range" id="stTorso" min="24" max="55" value="36" />
+      </label>
+      <label class="row" id="stLegRow" hidden>腿的长度 <span class="val" id="stLegV">22%</span>
+        <input type="range" id="stLeg" min="12" max="42" value="22" />
+      </label>
+      <label class="row" id="stArmRow" hidden>手臂长度 <span class="val" id="stArmV">42%</span>
+        <input type="range" id="stArm" min="16" max="55" value="42" />
+      </label>
       <label class="row">体型大小 <span class="val" id="stSizeV">70%</span>
         <input type="range" id="stSize" min="35" max="100" value="70" />
       </label>

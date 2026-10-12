@@ -505,12 +505,21 @@ import {
   const maker = readFileSync('src/maker/maker.js', 'utf8');
   const fn = maker.match(/function stReadCfg\(\) \{[\s\S]*?\n\}/);
   ok('找到 stReadCfg', !!fn, 'missing');
-  for (const field of ['paletteId', 'proportions', 'basePose', 'customPalette']) {
+  for (const field of ['paletteId', 'basePose', 'customPalette']) {
     ok(`stReadCfg 从 ST.cfg 带出没有控件的字段：${field}`,
       !!fn && new RegExp('ST\\.cfg\\.' + field).test(fn[0]), field);
   }
+  // proportions 后来**有了**滑块（v0.9.43），所以走 stReadProportions ——
+  // 关键是它不能直接从 DOM 读成 undefined，也不能在小人以外被滑块旧值覆盖。
+  ok('proportions 走 stReadProportions（而不是直接读 DOM）',
+    !!fn && /proportions:\s*stReadProportions\(\)/.test(fn[0]), 'props');
+  const helper = maker.match(/function stReadProportions\(\) \{[\s\S]*?\n\}/);
+  ok('找到 stReadProportions', !!helper, 'missing');
+  ok('比例滑块不可见时沿用 ST.cfg（不会被旧值覆盖）',
+    !!helper && /ST\.cfg\.proportions/.test(helper[0]), helper ? helper[0].slice(0, 200) : '');
   // 反向：这几个字段不该被写成"从 DOM 读"（那会读成 undefined）
-  ok('proportions 不是从 DOM 控件读的', !!fn && !/proportions:\s*\$\('#/.test(fn[0]), 'dom');
   ok('basePose 不是从 DOM 控件读的', !!fn && !/basePose:\s*\$\('#/.test(fn[0]), 'dom');
   ok('customPalette 不是从 DOM 控件读的', !!fn && !/customPalette:\s*\$\('#/.test(fn[0]), 'dom');
+  // 比例那组控件必须跟着"小人"形体显示/隐藏（宠物没有这些比例）
+  ok('比例控件有显示/隐藏逻辑', /stWriteProportions/.test(maker) && /stPropHint/.test(maker), 'visibility');
 }

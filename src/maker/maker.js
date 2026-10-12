@@ -3082,6 +3082,54 @@ function bindQuick() {
 // 几何计算在 shared/charstudio.js（有单测），这里只管读控件 / 重绘预览 / 变成帧。
 const ST = { cfg: normalizeCharacter(DEFAULT_CHARACTER), previewTimer: 0, animT: 0, raf: 0 };
 
+/** 比例滑块是否已经显示过（没显示就说明当前不是小人，或还没同步） */
+function stPropsVisible() {
+  const row = $('#stHeadRow');
+  return !!(row && !row.hidden);
+}
+
+/**
+ * 从比例滑块读比例；滑块不可用时返回 null（表示"沿用 ST.cfg 里的"）。
+ * 为什么要这个判断：滑块只在"小人"形体下显示 ——
+ * 若在小人以外也去读它们，会把用户精心调好的比例悄悄换成滑块里的旧值。
+ */
+function stReadProportions() {
+  if (!stPropsVisible()) return ST.cfg.proportions;
+  const num = (id, dflt) => {
+    const el = $('#' + id);
+    const v = el ? Number(el.value) / 100 : NaN;
+    return Number.isFinite(v) ? v : dflt;
+  };
+  return {
+    head: num('stHead', 0.42), torso: num('stTorso', 0.36),
+    leg: num('stLeg', 0.22), arm: num('stArm', 0.42),
+  };
+}
+
+/** 把比例写进滑块并显示/隐藏那一组控件 */
+function stWriteProportions(pr) {
+  const rows = ['stHeadRow', 'stTorsoRow', 'stLegRow', 'stArmRow'];
+  const hint = $('#stPropHint');
+  const isHuman = (($('#stFigure') && $('#stFigure').value) === 'human');
+  for (const id of rows) {
+    const el = $('#' + id);
+    if (el) el.hidden = !isHuman;
+  }
+  if (hint) hint.hidden = !isHuman;
+  if (!isHuman) return;
+  const set = (id, v, dflt) => {
+    const el = $('#' + id);
+    if (!el) return;
+    const n = Number(v);
+    el.value = String(Math.round((Number.isFinite(n) ? n : dflt) * 100));
+  };
+  const p = pr || { head: 0.42, torso: 0.36, leg: 0.22, arm: 0.42 };
+  set('stHead', p.head, 0.42);
+  set('stTorso', p.torso, 0.36);
+  set('stLeg', p.leg, 0.22);
+  set('stArm', p.arm, 0.42);
+}
+
 function stReadCfg() {
   return normalizeCharacter({
     name: $('#stName') ? $('#stName').value : '我的小人',
@@ -3092,7 +3140,9 @@ function stReadCfg() {
     paletteId: ST.cfg.paletteId,
     // 这两个没有对应的 DOM 控件（由「照照片捏小人」写入），必须从 ST.cfg 带过来。
     // 否则每次读配置都会退回默认比例 —— 白名单式归一化把新字段静默丢掉（踩过）。
-    proportions: ST.cfg.proportions,
+    // 比例滑块优先；滑块还没同步过（比如刚载入配置）就沿用 ST.cfg 的比例。
+    // 这两个来源必须只有一个权威，否则会互相覆盖（踩过：DOM 覆盖掉照片算出来的比例）。
+    proportions: stReadProportions(),
     basePose: ST.cfg.basePose,
     customPalette: ST.cfg.customPalette,
     size: $('#stSize') ? parseInt($('#stSize').value, 10) / 100 : 0.7,
@@ -3124,6 +3174,7 @@ function stWriteCfg(cfg) {
   if ($('#stLegs')) $('#stLegs').checked = c.legs;
   if ($('#stDance')) $('#stDance').value = c.dance;
   if ($('#stFigure')) $('#stFigure').value = c.figureType;
+  stWriteProportions(c.proportions);
   stSyncLabels();
   stRenderPalettes();
   stPreview();
@@ -3134,6 +3185,10 @@ function stSyncLabels() {
   if ($('#stGapV')) $('#stGapV').textContent = $('#stGap').value + '%';
   if ($('#stEyeSizeV')) $('#stEyeSizeV').textContent = $('#stEyeSize').value + '%';
   if ($('#stFramesV')) $('#stFramesV').textContent = $('#stFrames').value;
+  for (const [v, s2] of [['stHeadV','stHead'], ['stTorsoV','stTorso'], ['stLegV','stLeg'], ['stArmV','stArm']]) {
+    const a = $('#' + v), b = $('#' + s2);
+    if (a && b) a.textContent = b.value + '%';
+  }
 }
 
 function stRenderPalettes() {
@@ -3278,8 +3333,18 @@ function stBind() {
   for (const id of ['stName', 'stFigure', 'stShape', 'stEar', 'stEye', 'stMouth', 'stDance']) {
     if ($('#' + id)) $('#' + id).oninput = () => stSchedulePreview();
   }
-  for (const id of ['stSize', 'stGap', 'stEyeSize', 'stFrames']) {
+  for (const id of ['stSize', 'stGap', 'stEyeSize', 'stFrames', 'stHead', 'stTorso', 'stLeg', 'stArm']) {
     if ($('#' + id)) $('#' + id).oninput = () => { stSyncLabels(); stSchedulePreview(); };
+  }
+  // 切形体时，身体比例那组控件要跟着显示/隐藏（宠物没有这些比例）
+  if ($('#stFigure')) {
+    const prev = $('#stFigure').oninput;
+    $('#stFigure').oninput = (e) => {
+      if (prev) prev(e);
+      stWriteProportions(stReadProportions());
+      stSyncLabels();
+      stSchedulePreview();
+    };
   }
   for (const id of ['stBlush', 'stTail', 'stArms', 'stLegs']) {
     if ($('#' + id)) $('#' + id).onchange = () => stPreview();

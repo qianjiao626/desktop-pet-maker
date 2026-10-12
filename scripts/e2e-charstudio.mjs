@@ -365,6 +365,55 @@ app.whenReady().then(async () => {
     await sleep(400);
     check('点预设配色后「照片取色」色块消失',
       (await js(`!!document.querySelector('#stPalettes .st-pal-custom')`)) === false);
+
+    // ★ 身体比例滑块：照照片捏完之后要能**微调**（识别不准时这是唯一的出路）
+    const propVis = await js(`['stHeadRow','stTorsoRow','stLegRow','stArmRow'].map(id => !document.querySelector('#' + id).hidden)`);
+    check('小人形体下比例滑块可见', propVis.every(Boolean), JSON.stringify(propVis));
+    // 滑块值应该被"照照片"的结果填过（不是残留默认值）
+    const sliderVals = await js(`['stHead','stTorso','stLeg','stArm'].map(id => document.querySelector('#' + id).value)`);
+    check('比例滑块被自动填入', sliderVals.every((v) => Number(v) > 0), JSON.stringify(sliderVals));
+
+    // 拖动"腿的长度" -> 必须真的改变几何。
+    //
+    // ★ 这里踩过两次指标选错（记下来省得再犯）：
+    //   ① 量"整体重心"：比例是**归一化**的（头+躯干+腿 = 总高），
+    //      拉长腿的同时头会变小，重心反而**上移**（实测 68.86 -> 56.64）。
+    //   ② 量"最下面 20% 的像素数"：脚永远在最下面，那块几乎不变
+    //      （实测 463 -> 442，甚至更少）。
+    //   → 正确做法：量**真实渲染出来的像素**（而不是从滑块重算 —— 那只能证明滑块动了）。
+    //     比例归一化后，腿变长必然让头变小，所以不透明像素总数会**明显减少**。
+    //     实测：leg=0.12 -> 6628 像素；leg=0.42 -> 4789 像素（同一条渲染路径）。
+    const opaqueCount = () => js(`(() => {
+      const cv = document.querySelector('#studioCanvas');
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let n = 0;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 200) n++;
+      return n;
+    })()`);
+    const beforeLeg = await opaqueCount();
+    await js(`(() => { const el = document.querySelector('#stLeg'); el.value = '42'; el.dispatchEvent(new Event('input', { bubbles: true })); return undefined; })()`);
+    await sleep(400);
+    const afterLeg = await opaqueCount();
+    check('拉长腿后画面真的重画了（不透明像素明显变化）', Math.abs(afterLeg - beforeLeg) > beforeLeg * 0.05,
+      beforeLeg + ' -> ' + afterLeg);
+    check('腿变长 -> 头相应变小 -> 总像素减少（比例归一化生效）', afterLeg < beforeLeg,
+      beforeLeg + ' -> ' + afterLeg);
+    check('比例数值文案跟着更新', (await js(`document.querySelector('#stLegV').textContent`)) === '42%',
+      await js(`document.querySelector('#stLegV').textContent`));
+
+    // 切回宠物：比例滑块必须隐藏（宠物没有这些比例）
+    await js(`(() => { const el = document.querySelector('#stFigure'); el.value = 'pet'; el.dispatchEvent(new Event('input', { bubbles: true })); return undefined; })()`);
+    await sleep(350);
+    const petVis = await js(`['stHeadRow','stTorsoRow','stLegRow','stArmRow'].map(id => !document.querySelector('#' + id).hidden)`);
+    check('宠物形体下比例滑块隐藏', petVis.every((v) => v === false), JSON.stringify(petVis));
+    // 再切回小人：滑块要重新出现，且比例没被丢掉
+    await js(`(() => { const el = document.querySelector('#stFigure'); el.value = 'human'; el.dispatchEvent(new Event('input', { bubbles: true })); return undefined; })()`);
+    await sleep(350);
+    const backVis = await js(`['stHeadRow','stTorsoRow','stLegRow','stArmRow'].map(id => !document.querySelector('#' + id).hidden)`);
+    check('切回小人后比例滑块重新出现', backVis.every(Boolean), JSON.stringify(backVis));
+    check('切回后腿的比例仍在（没被宠物形态丢掉）',
+      (await js(`document.querySelector('#stLeg').value`)) === '42',
+      await js(`document.querySelector('#stLeg').value`));
   }
 
   // ★ 工坊也能存「动作片段」：多存几段不同舞步，桌宠上桌后会随机切换。
