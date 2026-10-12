@@ -138,6 +138,31 @@ app.whenReady().then(async () => {
     }
   }
 
+  // ---- 「宠物记住你」：互动越多越熟，久了会淡下去 ----
+  {
+    const hasHook = await px("typeof window.__bondForTest === 'function'");
+    check('宠物有亲密度测试钩子', hasHook === true);
+    if (hasHook) {
+      const none = await px("window.__bondForTest([])");
+      const few = await px("window.__bondForTest(['pat'])");
+      const many = await px("window.__bondForTest(['pat','pat','pat','pat','pat','pat','pat','pat','pat','pat','pat','pat','pat','pat','pat','pat','pat','pat','pat','pat'])");
+      check('没有互动时是陌生', none && none.level === 'stranger', JSON.stringify(none));
+      check('互动后分数上升', few && none && few.score > none.score, `none=${none && none.score} few=${few && few.score}`);
+      check('大量互动能升到熟络或以上', many && ['close', 'intimate'].includes(many.level), JSON.stringify(many));
+      check('档位名可读', many && typeof many.name === 'string' && many.name.length > 0, many && many.name);
+
+      // 真实互动（摸头）也要被记进去
+      const before = await px("window.__petDebug()");
+      await px("window.__forcePatForTest && window.__forcePatForTest()");
+      await sleep(600);
+      const after = await px("window.__petDebug()");
+      check('真实摸头会被记进亲密度', after.bondEvents > (before.bondEvents || 0),
+        `${before.bondEvents} -> ${after.bondEvents}`);
+      check('debug 里有亲密度分数与档位', typeof after.bondScore === 'number' && !!after.bondLevel,
+        `score=${after.bondScore} level=${after.bondLevel}`);
+    }
+  }
+
   // ---- 放大：尺寸必须真的变大 ----
   const b0 = bounds();
   await px(`document.querySelector('#menu .mi[data-act="bigger"]').click()`);

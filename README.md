@@ -10,10 +10,10 @@
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.31](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.31/desktop-pet-maker-win32-x64-v0.9.31.zip)**
+**[下载 Windows 免安装版 v0.9.32](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.32/desktop-pet-maker-win32-x64-v0.9.32.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.31）：
+**Linux x64**（v0.9.32）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
@@ -149,6 +149,9 @@ npm start
   - 生成脚本在 `scripts/make-*.mjs`，全部程序化绘制、不依赖外部素材，可随时重跑
   - 原创形象不复制任何第三方 IP 的具体造型；历史 CC0 素材来源与许可见 `THIRD-PARTY.md`
 - **宠物库支持搜索与排序**：按名字过滤、按名字/体积/帧数排序、显示"n / N 只"计数
+- **宠物记住你**：只统计**最近 30 分钟**的互动（摸头/戳/说话…），
+  亲密度从 陌生 → 眼熟 → 熟络 → 亲密；越熟越爱主动找你说话。
+  用了**滑动窗口**（参考 codachi 的 XP 思路）：很久不理它会自然淡下去，不会假装还亲密
 - **作息**：跟着真实时间变 —— 清晨刚醒（有点懵）/ 上午最精神 / 午后发乏 /
   深夜犯困 / 凌晨基本在睡。只改行为倾向，不动图片与参数，可一键关闭
 - **省电模式开关**：制作器「物理」页可实时开关（关掉就一律满帧，更顺但更费电）

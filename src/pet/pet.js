@@ -7,6 +7,7 @@ import { sanitizeSpeech, speechDuration } from '../shared/speech.js';
 import { reactToNeighbor, gazeAt, yieldDirection } from '../shared/companions.js';
 import { moveMenuLabel, muteMenuLabel } from '../shared/quietmode.js';
 import { applyDayPart, partLabel } from '../shared/schedule.js';
+import { addEvent, bondScore, bondLevel, bondFlavor } from '../shared/bond.js';
 import { applyThrottle, frameGate } from '../shared/throttle.js';
 import { EVENTS, pickLine, shouldSpeak, lineDuration, toneOf } from '../shared/dialog.js';
 import { handState, fistState, pettingPose, strugglePose, HAND_DURATION, FIST_DURATION, PETTING_DURATION } from '../shared/effects.js';
@@ -68,6 +69,11 @@ let quietMuted = false;      // 「静音气泡」：不冒任何台词（含事
 let powerSave = true;        // 省电节流：静止/打瞌睡时降帧（用户可关）
 let scheduleOn = true;       // 「作息」：按真实时间改变行为倾向（用户可关）
 let schedulePart = '';       // 当前生效的时段 id（变了才重算权重）
+// 「宠物记住你」：只记最近 30 分钟内的互动（滑动窗口），久了自然淡下去。
+// 参考 codachi（MIT）的 XP 思路：用**最近的相处**决定状态，而不是只涨不跌的计数器。
+let bondEvents = [];
+let bondScoreNow = 0;
+let bondLevelNow = null;
 // 基础权重：作息只在这个基础上乘系数，**不能直接乘到 B.weights 上**
 // （那样每更新一次就累积相乘，越算越偏，深夜会彻底不动）。
 let baseWeights = { idle: 0.22, walk: 0.52, lookAround: 0.18, doze: 0.05, hop: 0.16 };
@@ -1236,6 +1242,13 @@ function talk(event, opt = {}) {
       if (S.bubbleHideAt && now < S.bubbleHideAt) return '';
     }
     const tone = toneOf(pack.behavior && pack.behavior.personality);
+    // 「记住你」：每次互动都记一笔（滑动窗口内累计），并据此微调口吻。
+    // 注意只**增强**、不替换用户设的性格 —— 用户的选择优先。
+    if (event && event !== 'idle') {
+      bondEvents = addEvent(bondEvents, event, Date.now());
+      bondScoreNow = bondScore(bondEvents, Date.now());
+      bondLevelNow = bondLevel(bondScoreNow);
+    }
     const line = pickLine({ event, tone, custom: pack.bubble.lines, avoid: S.saidLines });
     if (!line) return '';
     S.lastTalkAt = now;
@@ -1277,7 +1290,11 @@ function tickBubble(dt) {
   if (userSpokeAt && performance.now() - userSpokeAt < 3000) return;
   S.bubbleTimer -= dt;
   if (S.bubbleTimer <= 0) {
-    S.bubbleTimer = pack.bubble.intervalSec;
+    // 「记住你」：越熟越爱主动说话（间隔按亲密度缩短，最多缩到 60%）。
+    // 这是 bondFlavor 的唯一用途 —— 只影响"多久说一次"，不改台词内容与性格。
+    const clingy = bondLevelNow ? bondFlavor(bondLevelNow.id).extraClingy : 0;
+    const scale = 1 - 0.4 * Math.max(0, Math.min(1, clingy));
+    S.bubbleTimer = Math.max(3, pack.bubble.intervalSec * scale);
     // 自动轮播也走对话引擎：会按性格换口吻、并且不会连着说同一句。
     // 用户自定义台词优先级最高（在 pickLine 里），所以他写的话一定会被说到。
     if (!talk('idle')) showBubble(randomLine());   // 兜底：对话引擎拒绝时仍然要有话说
@@ -1655,6 +1672,20 @@ window.__forceHop = () => { try { enterState(B, 'hop'); return true; } catch { r
 
 // 测试用：强制进入打瞌睡 / 注入光标坐标（便于自动化断言姿态，不依赖真实鼠标移动）
 window.__forceDoze = () => { try { enterState(B, 'doze'); return true; } catch { return false; } };
+// 测试用：注入一批互动并算出亲密度（不依赖真实时间流逝）。
+// 为什么需要：亲密度是"滑动窗口 + 时间衰减"，只能靠注入时间戳才测得稳定
+// （真等 30 分钟不现实，而且测试会随钟点变化）。
+window.__bondForTest = (types, stepMs = 1000) => {
+  try {
+    const now = Date.now();
+    let ev = [];
+    const list = Array.isArray(types) ? types : [];
+    for (let i = 0; i < list.length; i++) ev = addEvent(ev, list[i], now - (list.length - 1 - i) * stepMs);
+    const sc = bondScore(ev, now);
+    const lv = bondLevel(sc);
+    return { score: sc, level: lv.id, name: lv.name, events: ev.length };
+  } catch (err) { return null; }
+};
 // 测试用：按指定小时应用作息（不依赖跑测试时的真实钟点）。
 // 为什么必须能注入时间：作息的价值就是"不同时段不同表现"，
 // 如果只能测"现在这一刻"，那测试结果会随跑测试的时间而变（早上跑全绿、半夜跑全红）。
@@ -1767,6 +1798,9 @@ window.__petDebug = () => ({
   powerSave,
   scheduleOn,
   schedulePart,   // 当前时段（作息）
+  bondScore: bondScoreNow,
+  bondLevel: bondLevelNow ? bondLevelNow.id : null,
+  bondEvents: bondEvents.length,
   peerCount: peers.length,
   peerReact: peerReact ? { action: peerReact.action, until: Math.round(peerReact.until) } : null,
   peerIds: peers.map((x) => x.id),
