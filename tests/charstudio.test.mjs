@@ -523,3 +523,21 @@ import {
   // 比例那组控件必须跟着"小人"形体显示/隐藏（宠物没有这些比例）
   ok('比例控件有显示/隐藏逻辑', /stWriteProportions/.test(maker) && /stPropHint/.test(maker), 'visibility');
 }
+
+// ---------- ★ 片段权重可调（否则"按权重随机切换"只是句文案） ----------
+// 背景：运行时早就支持按权重随机切换动作，但**用户没有入口**调权重 ——
+// 界面文案写着"按权重随机切换"却没地方调，属于文案与能力脱节。
+{
+  const maker = readFileSync('src/maker/maker.js', 'utf8');
+  const fn = maker.match(/function renderClipList\(\) \{[\s\S]*?\n\}/);
+  ok('找到 renderClipList', !!fn, 'missing');
+  ok('片段胶囊里有加减权重的按钮', !!fn && /clip-w/.test(fn[0]), 'buttons');
+  ok('权重按钮绑定了点击处理', !!fn && /querySelectorAll\('\.clip-w'\)/.test(fn[0]), 'bind');
+  ok('权重有上下限（不让某段把其它全挤掉）',
+    !!fn && /Math\.max\(0\.1/.test(fn[0]) && /Math\.min\(8/.test(fn[0]), 'clamp');
+  ok('调权重后会重绘列表（用户立刻看到反馈）', !!fn && /renderClipList\(\)/.test(fn[0]), 'rerender');
+  // 不能因为调权重而记一次撤销（那是外观调整，不是破坏性操作）
+  ok('调权重不写进撤销栈（它不是破坏性操作）', !!fn && !/recordUndo\(\)[\s\S]{0,200}clip-w/.test(fn[0]), 'no-undo');
+  const html = readFileSync('src/maker/index.html', 'utf8');
+  ok('界面文案告诉了用户怎么调频率', html.includes('调每个动作的出现频率'), 'copy');
+}

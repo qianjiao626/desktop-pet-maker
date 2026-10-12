@@ -276,6 +276,14 @@ button.block{width:100%}
   font-size: 11px; line-height: 1; padding: 2px 5px; border-radius: 999px;
 }
 .clip-del:hover { background: rgba(255, 255, 255, 0.14); color: #ffb3b3; }
+/* 片段出现频率（权重）的加减与显示 */
+.clip-w {
+  border: 0; background: transparent; color: inherit; cursor: pointer;
+  font-size: 12px; line-height: 1; padding: 1px 5px; border-radius: 999px;
+  font-weight: 700;
+}
+.clip-w:hover { background: rgba(255, 255, 255, 0.16); }
+.clip-wv { font-size: 11px; opacity: .85; min-width: 1em; text-align: center; }
 /* ===== 帧缩略图条 ===== */
 .filmstrip {
   margin-top: 8px; padding: 6px 8px; border-radius: 10px;

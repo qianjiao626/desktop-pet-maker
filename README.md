@@ -4,16 +4,16 @@
 
 > 技术选型参考了这些开源项目：`B666T/DesktopPetGenerator`（上传图→抠图→动画→打包）、
 > `PC2005-cloud/dsh-pet`（宠物包 / 素材链思路）、`ln2146/ai-desktop-pet-generator`（抠图→精灵流水线）。
-> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 3335 项单测 + 44 套 e2e**。
+> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 3342 项单测 + 44 套 e2e**。
 
 ---
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.44](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.44/desktop-pet-maker-win32-x64-v0.9.44.zip)**
+**[下载 Windows 免安装版 v0.9.45](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.45/desktop-pet-maker-win32-x64-v0.9.45.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.44）：
+**Linux x64**（v0.9.45）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
@@ -120,7 +120,8 @@ npm start
   另外会按体型算出**安全抬起上限**，所以举手永远不会伸出画布被裁掉
 - **一只宠物能装多个舞步**：工坊里点「💃 存为动作片段」把当前舞步存下来，
   换个舞步再存一段 —— 多存几段后导出，桌宠上桌会**每隔几秒随机切换动作**，
-  而不是永远重复同一个舞步（主帧不动，可随时撤销）
+  而不是永远重复同一个舞步（主帧不动，可随时撤销）。
+  每段还能用 **− / ＋** 调**出现频率** —— 想让「狂欢」比「招手」更常出现就把它调高
 - **在线分享站（零后端）**：把整个宠物库一键导成一个**静态网站** ——
   `index.html`（卡片网格 + 搜索）+ 每只宠物一个自包含分享页 + `manifest.json` + 发布说明。
   **分享页里也能看到跳舞**：宠物包里的多段动作会一并带过去，随机切换播放
@@ -316,7 +317,7 @@ ZIP 内含 `pet.json` + 若干帧图片 + `README.txt`：
 | GIF 处理 | 自研解析器 + 内联 gifuct-js 的 LZW（MIT） |
 | 打包格式 | 自研 ZIP 读写（零第三方依赖） |
 | 交互 | 像素级 alpha 命中测试 + `setIgnoreMouseEvents` 穿透 |
-| 测试 | 自研断言框架：3335 项单测 + 44 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站 / 角色工坊 / 对话） |
+| 测试 | 自研断言框架：3342 项单测 + 44 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站 / 角色工坊 / 对话） |
 
 ## 🧪 测试
 

@@ -462,6 +462,16 @@ app.whenReady().then(async () => {
     await sleep(1500);
     check("主帧也生成了（导出需要主帧）", (await js(`document.querySelectorAll('#fsTrack .fs-cell').length`)) === 8,
       await js(`String(document.querySelectorAll('#fsTrack .fs-cell').length)`));
+    // 把第一段（狂欢）的权重调高两次：它应该更常出现
+    await js(`(() => {
+      const plus = document.querySelector('#clipList .clip-chip .clip-w[data-dir="1"]');
+      if (plus) { plus.click(); plus.click(); }
+      return undefined;
+    })()`);
+    await sleep(300);
+    const wText = await js(`document.querySelector('#clipList .clip-chip .clip-wv').textContent`);
+    check("调高两次后显示为「常出现」", wText === '常', String(wText));
+
     // ★ 真导出一次，拿到**真实的包数据**。
     //   注意：不能去 stub 渲染进程的 window.api —— contextBridge 暴露的对象是只读的，
     //   赋值会静默失败（实测：captured 一直是 null）。正确做法是在**主进程**拦 IPC 通道，
@@ -482,11 +492,18 @@ app.whenReady().then(async () => {
     } : null;
     check("导出时拿到了包数据", !!exported, JSON.stringify(exported));
     check("导出的包里带 3 段动作片段", exported && exported.clipCount === 3, JSON.stringify(exported && exported.clips.map((c) => c.name)));
+    // ★ 权重：运行时按权重随机切换，用户必须能调（否则文案是空话）
+    check("每段片段都带权重（默认 1）", exported && exported.clips.every((c) => Number(c.weight) > 0),
+      JSON.stringify(exported && exported.clips.map((c) => c.weight)));
+    const wBtnCount = await js(`document.querySelectorAll('#clipList .clip-w').length`);
+    check("每段片段都有加减权重的按钮", wBtnCount === 6, String(wBtnCount));
     check("每段片段都有帧文件名", exported && exported.clips.every((c) => c.frames.length > 0 && c.frames.every((f) => f.file)),
       JSON.stringify(exported && exported.clips.map((c) => c.frames.length)));
     check("片段帧数据也一并给了导出（不是悬空引用）", exported && exported.clipImageKeys.length === 3, JSON.stringify(exported && exported.clipImageKeys));
     check("片段名是舞步名（用户能看懂）", exported && exported.clips.map((c) => c.name).join('|').includes('狂欢'),
       JSON.stringify(exported && exported.clips.map((c) => c.name)));
+    check("调高后的权重真的写进了包（2.0）", exported && exported.clips[0] && Number(exported.clips[0].weight) === 2,
+      JSON.stringify(exported && exported.clips.map((c) => c.weight)));
   }
 
   // ★ 替换当前帧：帧数不变

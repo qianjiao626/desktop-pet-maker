@@ -1702,11 +1702,37 @@ function renderClipList() {
   const box = $('#clipList');
   if (!box) return;
   if (!state.clips.length) { box.innerHTML = ''; return; }
-  box.innerHTML = state.clips.map((c) =>
-    '<span class="clip-chip" data-clip="' + escapeHtml(c.id) + '">'
-    + escapeHtml(c.name) + ' · ' + c.frames.length + '帧'
-    + '<button class="clip-del" title="移除这个片段">✕</button></span>'
-  ).join('');
+  // 每个片段带一个"出现频率"（权重）：想让某个动作更常出现就调大它。
+  // 运行时早就支持按权重随机切换，但此前**用户没法调** ——
+  // 界面文案写着"按权重随机切换"却没有入口，属于文案与能力脱节。
+  box.innerHTML = state.clips.map((c) => {
+    const w = Math.max(0.01, Number(c.weight) || 1);
+    const lvl = w >= 2 ? '常' : (w <= 0.5 ? '少' : '中');
+    return '<span class="clip-chip" data-clip="' + escapeHtml(c.id) + '">'
+      + escapeHtml(c.name) + ' · ' + c.frames.length + '帧'
+      + '<button class="clip-w" data-dir="-1" title="让它少出现一点">−</button>'
+      + '<span class="clip-wv" title="出现频率（越大越常出现）">' + lvl + '</span>'
+      + '<button class="clip-w" data-dir="1" title="让它多出现一点">＋</button>'
+      + '<button class="clip-del" title="移除这个片段">✕</button></span>';
+  }).join('');
+
+  // 权重加减：按 0.5 一档，范围 0.1 ~ 8（太极端会变成"只会播这一段"）
+  for (const b of box.querySelectorAll('.clip-w')) {
+    b.onclick = (ev) => {
+      ev.stopPropagation();
+      const chip = ev.target.closest('.clip-chip');
+      const id = chip && chip.dataset.clip;
+      const dir = Number(ev.target.dataset.dir) || 0;
+      const c = state.clips.find((x) => x.id === id);
+      if (!c || !dir) return;
+      const next = Math.max(0.1, Math.min(8, (Number(c.weight) || 1) + dir * 0.5));
+      c.weight = next;
+      renderClipList();
+      const lvl = next >= 2 ? '常出现' : (next <= 0.5 ? '少出现' : '正常');
+      setStatus('「' + c.name + '」出现频率：' + lvl + '（' + next.toFixed(1) + '）', 'ok');
+    };
+  }
+
   for (const b of box.querySelectorAll('.clip-del')) {
     b.onclick = (ev) => {
       ev.stopPropagation();

@@ -34,7 +34,31 @@ async function measure(scale, disableGround) {
     await pet.webContents.executeJavaScript("1"); // 预热
   }
   await pet.loadFile(path.join(ROOT, "src", "pet", "index.html"));
-  await sleep(1500);
+  // ★ 轮询到"渲染稳定"再采样，不要赌固定时间。
+  // 背景（实测踩到）：满负载跑全量 e2e 时，1500ms 内渲染还没收敛，
+  // 采样到的 gap 是 34px（设计值约 12px），单独跑却总是 12px —— 典型的时序抖动。
+  // 判据：连续几次采样结果完全一致，才算稳定。
+  {
+    const readProbe = () => pet.webContents.executeJavaScript(`(() => {
+      const cv=document.querySelector('#stage');
+      const d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data;
+      let first=-1,last=-1;
+      for(let y=0;y<cv.height;y++){let n=0;for(let x=0;x<cv.width;x++)if(d[(y*cv.width+x)*4+3]>24)n++;if(n>0){if(first<0)first=y;last=y;}}
+      return { canvasH:cv.height, first, last, contentH:last-first+1, gap:cv.height-1-last };
+    })()`);
+    let prev = null, same = 0;
+    for (let i = 0; i < 120; i++) {
+      const cur = await readProbe();
+      if (prev && cur.gap === prev.gap && cur.first === prev.first && cur.last === prev.last) {
+        same++;
+        if (same >= 3) break;      // 连续 3 次完全一致 -> 认为收敛
+      } else {
+        same = 0;
+      }
+      prev = cur;
+      await sleep(80);
+    }
+  }
   if (disableGround) {
     // 载入后把画布内容整体上移 groundDy，等价于"没应用这个修复"
     await pet.webContents.executeJavaScript(`(() => {
