@@ -4,16 +4,16 @@
 
 > 技术选型参考了这些开源项目：`B666T/DesktopPetGenerator`（上传图→抠图→动画→打包）、
 > `PC2005-cloud/dsh-pet`（宠物包 / 素材链思路）、`ln2146/ai-desktop-pet-generator`（抠图→精灵流水线）。
-> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 3315 项单测 + 44 套 e2e**。
+> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 3324 项单测 + 44 套 e2e**。
 
 ---
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.41](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.41/desktop-pet-maker-win32-x64-v0.9.41.zip)**
+**[下载 Windows 免安装版 v0.9.42](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.42/desktop-pet-maker-win32-x64-v0.9.42.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.41）：
+**Linux x64**（v0.9.42）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
@@ -99,6 +99,8 @@ npm start
 - **🧍 照着照片捏一个小人**：上传一张正面人物照，点「照着照片捏一个小人」——
   工具用身体识别读出**头身比、腿长、手臂长和站姿**，还会**从照片里取主色**，
   照着他的比例和颜色重画一个**可动小人**，然后就能跳那 4 种舞。
+  **矮胖 / 标准 / 高瘦会捏出明显不同的身材**（比例先归一化再映射到可爱区间，
+  既保留"高个子腿更长"的差异，又不会画出火柴人）。
   ⚠️ 为什么这条路行、而「让照片本身跳舞」不行：让照片跳舞要**搬运像素**，
   但照片没有背面、没有关节内侧、没有被遮挡肢体的像素，补不出来；
   这里做的是**换介质** —— 照片只当参照，像素由我们重新画，
@@ -310,7 +312,7 @@ ZIP 内含 `pet.json` + 若干帧图片 + `README.txt`：
 | GIF 处理 | 自研解析器 + 内联 gifuct-js 的 LZW（MIT） |
 | 打包格式 | 自研 ZIP 读写（零第三方依赖） |
 | 交互 | 像素级 alpha 命中测试 + `setIgnoreMouseEvents` 穿透 |
-| 测试 | 自研断言框架：3315 项单测 + 44 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站 / 角色工坊 / 对话） |
+| 测试 | 自研断言框架：3324 项单测 + 44 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站 / 角色工坊 / 对话） |
 
 ## 🧪 测试
 

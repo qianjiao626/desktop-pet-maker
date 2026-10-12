@@ -94,17 +94,25 @@ function standing(opt = {}) {
 
   // 腿更长的人应当给出更大的腿比例。
   // 注意：要用**还没顶到上限**的基准，否则两边都被 clamp 到同一个上限、看不出差别
-  // （实测踩到：基准腿比例已经是 0.42 = 上限，再加长也没变化）。
-  const shortLegs = poseToCharacter(standing({ kneeY: 0.62, ankleY: 0.74 }));
-  const tall = poseToCharacter(standing({ kneeY: 0.74, ankleY: 0.95 }));
+  // （实测踩到两次：先是 0.42 上限、后来改成 0.32 上限又撞了一次）。
+  const shortLegs = poseToCharacter(standing({ kneeY: 0.54, ankleY: 0.62 }));
+  const tall = poseToCharacter(standing({ kneeY: 0.72, ankleY: 0.92 }));
   ok('基准腿比例没顶到上限（测试才有区分度）', shortLegs.proportions.leg < 0.42,
     String(shortLegs.proportions.leg));
   ok('腿更长的人 -> 腿比例更大', tall.proportions.leg > shortLegs.proportions.leg,
     `${shortLegs.proportions.leg.toFixed(3)} -> ${tall.proportions.leg.toFixed(3)}`);
   // 头更大的人（鼻子离肩更远）应当给出更大的头比例
-  const bigHead = poseToCharacter(standing({ noseY: 0.10 }));
-  ok('头更大的人 -> 头比例更大', bigHead.proportions.head > p.head,
-    `${p.head.toFixed(3)} -> ${bigHead.proportions.head.toFixed(3)}`);
+  // 头更大 = 鼻子离肩更远 = noseY 更小。
+  // 注意敏感区间：noseY 越大，头比例会先降后**撞到下限饱和**（实测 >=0.20 后恒为 0.348），
+  // 所以对比要选在还有区分度的区间（0.10 vs 0.24）。
+  // 注意：映射到可爱区间后，极小 noseY 会直接顶到 head 上限 0.46，
+  // 所以对比要选在**还有区分度**的区间（实测 0.20 与 0.26 之间）。
+  // 实测映射曲线：noseY 0.10 -> 0.46（顶到上限），0.20 起恒为 0.34（触底）。
+  // 有区分度的区间是 0.12~0.19，所以对比点选 0.14 / 0.18。
+  const bigHead = poseToCharacter(standing({ noseY: 0.14 }));
+  const smallHead = poseToCharacter(standing({ noseY: 0.18 }));
+  ok('头更大的人 -> 头比例更大', bigHead.proportions.head > smallHead.proportions.head,
+    `${smallHead.proportions.head.toFixed(3)} -> ${bigHead.proportions.head.toFixed(3)}`);
 }
 
 // ---------- 基础姿势：照着他站的样子（举手要被识别出来） ----------
@@ -170,4 +178,48 @@ function standing(opt = {}) {
   ok('超大比例被压到上限', (() => { const p = normProportions({ head: 9, torso: 9, leg: 9, arm: 9 }); return p.head === 0.46 && p.torso === 0.55 && p.leg === 0.42 && p.arm === 0.55; })(), JSON.stringify(normProportions({ head: 9, torso: 9, leg: 9, arm: 9 })));
   ok('NaN 回落到默认', normProportions({ head: NaN }).head === 0.28, String(normProportions({ head: NaN }).head));
   ok('缺字段回落到默认', JSON.stringify(normProportions(null)) === JSON.stringify({ head: 0.28, torso: 0.38, leg: 0.24, arm: 0.42 }), JSON.stringify(normProportions(null)));
+}
+
+// ---------- ★ 比例必须"既像他、又还是可爱的"（不能照抄真人比例） ----------
+// 背景：第一版只做 clamp、直接照抄测量值 —— 渲染出来是**火柴人**：
+// 腿占身高一半、头只有 1/7，放在桌面上又瘦又长，和产品"圆润萌系"的调性完全不符。
+// 现在把测量值向 Q 版默认比例混合 45%，保留"高个子腿更长"的趋势，但观感仍然可爱。
+{
+  // 极端瘦高的人：真人比例下腿会占一半以上
+  const tall = poseToCharacter(standing({ noseY: 0.12, shoulderY: 0.30, hipY: 0.44, kneeY: 0.76, ankleY: 0.98 }));
+  ok('极端瘦高的人：腿比例仍被压在可爱范围（不超 0.32）', tall.proportions.leg <= 0.321,
+    String(tall.proportions.leg));
+  ok('极端瘦高的人：头不会小到像火柴人（至少 0.33）', tall.proportions.head >= 0.33,
+    String(tall.proportions.head));
+  ok('极端瘦高的人：头 + 躯干 + 腿加起来仍在合理范围（0.7~1.4）', (() => {
+    const sum = tall.proportions.head + tall.proportions.torso + tall.proportions.leg;
+    return sum >= 0.7 && sum <= 1.4;
+  })(), String(tall.proportions.head + tall.proportions.torso + tall.proportions.leg));
+
+  // 但趋势必须还在：腿更长的人，算出来的腿比例仍要更大
+  const short = poseToCharacter(standing({ kneeY: 0.54, ankleY: 0.62 }));
+  ok('混合之后"腿更长 -> 腿比例更大"的趋势仍然保留', tall.proportions.leg > short.proportions.leg,
+    `${short.proportions.leg.toFixed(3)} -> ${tall.proportions.leg.toFixed(3)}`);
+  // 头更大的人，头比例仍要更大
+  const smallHead = poseToCharacter(standing({ noseY: 0.18 }));
+  const bigHead = poseToCharacter(standing({ noseY: 0.14 }));
+  ok('基准头比例没顶到上限（测试才有区分度）', bigHead.proportions.head < 0.459,
+    String(bigHead.proportions.head));
+  ok('混合之后"头更大 -> 头比例更大"的趋势仍然保留', bigHead.proportions.head > smallHead.proportions.head,
+    `${smallHead.proportions.head.toFixed(3)} -> ${bigHead.proportions.head.toFixed(3)}`);
+}
+
+// ---------- ★ 躯干不能比头还宽（那是 Q 版的命） ----------
+{
+  const r = poseToCharacter(standing());
+  const cfg = normalizeCharacter(applyPoseToCharacter(normalizeCharacter({}), r));
+  const plan = characterPlan(cfg, { width: 256, height: 256 });
+  ok('躯干比头窄（头大身子小才可爱）', plan.body.w < plan.head.r * 2,
+    `body=${plan.body.w.toFixed(1)} headD=${(plan.head.r * 2).toFixed(1)}`);
+  ok('躯干也没有细成火柴（有下限）', plan.body.w >= 256 * 0.52 * 0.30 * 0.95,
+    `body=${plan.body.w.toFixed(1)}`);
+  // 四肢要挂在躯干上（不是飘在头旁边）
+  ok('手臂挂在躯干两侧（在躯干范围内）',
+    plan.hands[0].sx >= plan.body.x - 1 && plan.hands[1].sx <= plan.body.x + plan.body.w + 1,
+    JSON.stringify(plan.hands.map((h) => +h.sx.toFixed(1))));
 }

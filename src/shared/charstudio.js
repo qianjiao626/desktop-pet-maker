@@ -366,8 +366,10 @@ export function characterPlan(cfg, box = {}) {
     const top = (H - totalH) / 2 - H * 0.02;     // 整体略上移，给脚底留边
     const headCy = top + headR;
     const torsoY = headCy + headR + gap;
-    // 躯干比头略窄，才像"头大身子小"的 Q 版小人
-    const torsoW = headR * 1.42;
+    // 躯干要比头**明显窄**，才像"头大身子小"的 Q 版小人。
+    // 同时不能窄过头：躯干太细就变火柴人了（实测：1.42 倍头宽时身子比头还宽，很怪）。
+    // 还要给躯干一个**下限**，避免"头很小 + 躯干跟着很细"的火柴人效果。
+    const torsoW = Math.max(totalH * 0.30, headR * 1.18);
     body = { x: cx - torsoW / 2, y: torsoY, w: torsoW, h: torsoH, shape: c.bodyShape };
     head = { cx, cy: headCy, r: headR };
     // 腿从躯干下缘往下延伸
