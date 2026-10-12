@@ -3043,6 +3043,7 @@ function stReadCfg() {
     arms: $('#stArms') ? $('#stArms').checked : true,
     legs: $('#stLegs') ? $('#stLegs').checked : true,
     dance: $('#stDance') ? $('#stDance').value : 'none',
+    figureType: $('#stFigure') ? $('#stFigure').value : 'pet',
   });
 }
 
@@ -3062,6 +3063,7 @@ function stWriteCfg(cfg) {
   if ($('#stArms')) $('#stArms').checked = c.arms;
   if ($('#stLegs')) $('#stLegs').checked = c.legs;
   if ($('#stDance')) $('#stDance').value = c.dance;
+  if ($('#stFigure')) $('#stFigure').value = c.figureType;
   stSyncLabels();
   stRenderPalettes();
   stPreview();
@@ -3186,7 +3188,7 @@ function stBind() {
   stRenderPalettes();
   stWriteCfg(ST.cfg);
 
-  for (const id of ['stName', 'stShape', 'stEar', 'stEye', 'stMouth', 'stDance']) {
+  for (const id of ['stName', 'stFigure', 'stShape', 'stEar', 'stEye', 'stMouth', 'stDance']) {
     if ($('#' + id)) $('#' + id).oninput = () => stSchedulePreview();
   }
   for (const id of ['stSize', 'stGap', 'stEyeSize', 'stFrames']) {

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   DEFAULT_CHARACTER, BODY_SHAPES, EAR_TYPES, EYE_TYPES, MOUTH_TYPES, PALETTES,
   normalizeCharacter, paletteOf, characterPlan, characterFrames, randomCharacter,
-  DANCES, DANCE_IDS, danceOf, dancePose, rotatePoint, maxSafeAngle,
+  DANCES, DANCE_IDS, danceOf, dancePose, rotatePoint, maxSafeAngle, FIGURE_TYPES,
 } from '../src/shared/charstudio.js';
 
 // ---------- normalizeCharacter：用户输入什么都不能画出畸形角色 ----------
@@ -385,4 +385,112 @@ import {
     const hashes = new Set(fs.map((f) => JSON.stringify([f.armL, f.armR, f.legL, f.legR, f.rotate, f.offsetY])));
     ok(`${d.name}：8 帧里姿态各不相同（片段不会是"静止的 8 张"）`, hashes.size >= 6, String(hashes.size));
   }
+}
+
+// ============ 小人形体（v0.9.39）============
+// 背景：用户最初那句是「人人都可以绘制一个自己的**小人**」，
+// 但工坊此前只能捏出圆滚滚的宠物 —— 捏不出人。这是真缺口。
+// 人形 = 头 + 躯干分开（宠物是头身一体），五官画在头上、手脚挂在躯干上。
+{
+  ok('形体类型只有 pet/human', FIGURE_TYPES.join(',') === 'pet,human', FIGURE_TYPES.join(','));
+  ok('默认仍是宠物（老配置不变形）', normalizeCharacter({}).figureType === 'pet', normalizeCharacter({}).figureType);
+  ok('human 被保留', normalizeCharacter({ figureType: 'human' }).figureType === 'human');
+  ok('非法形体退回默认', normalizeCharacter({ figureType: 'robot' }).figureType === 'pet');
+  ok('再归一化稳定', (() => { const c = normalizeCharacter({ figureType: 'human' }); return JSON.stringify(normalizeCharacter(c)) === JSON.stringify(c); })());
+}
+
+// ---------- 人形必须有独立的头，且整身装进画布 ----------
+{
+  const pet = characterPlan({ figureType: 'pet' }, { width: 256, height: 256 });
+  ok('宠物没有独立的头（头身一体）', pet.head === null, JSON.stringify(pet.head));
+
+  for (const size of [0.35, 0.6, 0.85, 1]) {
+    const p = characterPlan({ figureType: 'human', size, arms: true, legs: true }, { width: 256, height: 256 });
+    ok(`size=${size} 小人有一个头`, !!p.head, JSON.stringify(p.head));
+    ok(`size=${size} 头是圆的且半径为正`, p.head.r > 0, String(p.head && p.head.r));
+    ok(`size=${size} 头不超出画布上沿`, p.head.cy - p.head.r >= -0.01, `top=${(p.head.cy - p.head.r).toFixed(1)}`);
+    ok(`size=${size} 头不超出左右`, p.head.cx - p.head.r >= -0.01 && p.head.cx + p.head.r <= 256.01, `x=${p.head.cx.toFixed(1)} r=${p.head.r.toFixed(1)}`);
+    ok(`size=${size} 头在躯干上方（不是头长在肚子上）`, p.head.cy < p.body.y, `${p.head.cy.toFixed(1)} < ${p.body.y.toFixed(1)}`);
+    // 五官必须在头上（否则脸会跑到身子上）
+    for (const e of p.eyes) {
+      const d = Math.hypot(e.cx - p.head.cx, e.cy - p.head.cy);
+      ok(`size=${size} 眼睛落在头内`, d + e.r <= p.head.r * 1.02, `d=${d.toFixed(1)} r=${e.r.toFixed(1)} headR=${p.head.r.toFixed(1)}`);
+    }
+    const dm = Math.hypot(p.mouth.cx - p.head.cx, p.mouth.cy - p.head.cy);
+    ok(`size=${size} 嘴落在头内`, dm <= p.head.r * 1.02, `d=${dm.toFixed(1)}`);
+    // 整身（头 + 躯干 + 腿）都要在画布内
+    const legBot = p.feet.length ? Math.max(...p.feet.map((f) => f.ey + f.r)) : p.body.y + p.body.h;
+    ok(`size=${size} 脚不超出画布下沿`, legBot <= 256.01, `bot=${legBot.toFixed(1)}`);
+    ok(`size=${size} 头到脚都在画布内`, (p.head.cy - p.head.r) >= -0.01 && legBot <= 256.01, 'span');
+  }
+}
+
+// ---------- 小人没有兽耳/尾巴（那是宠物特征） ----------
+{
+  const p = characterPlan({ figureType: 'human', earType: 'cat', tail: true }, { width: 256, height: 256 });
+  ok('小人没有兽耳', p.ears.length === 0, String(p.ears.length));
+  ok('小人没有尾巴', p.tail === null, JSON.stringify(p.tail));
+  const pet = characterPlan({ figureType: 'pet', earType: 'cat', tail: true }, { width: 256, height: 256 });
+  ok('宠物仍然有耳朵（没被误伤）', pet.ears.length === 2, String(pet.ears.length));
+  ok('宠物仍然有尾巴（没被误伤）', !!pet.tail, JSON.stringify(pet.tail));
+}
+
+// ---------- ★ 手脚必须"长在身体上"（不能从侧面飘出来） ----------
+// 实测踩过：躯干是椭圆时，上下两端比中间窄，
+// 按身体框的固定比例放肩点会落到椭圆轮廓**之外** —— 渲染出来手臂与身体之间有一道缝。
+{
+  for (const shape of BODY_SHAPES) {
+    for (const size of [0.4, 0.7, 1]) {
+      const p = characterPlan({ figureType: 'human', bodyShape: shape, size, arms: true }, { width: 256, height: 256 });
+      const t = (p.hands[0].sy - p.body.y) / p.body.h;      // 肩在身体高度上的位置
+      const half = p.body.w * 0.5 * Math.sqrt(Math.max(0, 1 - ((Math.min(1, Math.max(0, t)) - 0.5) * 2) ** 2));
+      const edgeL = p.body.x + p.body.w / 2 - half;
+      const edgeR = p.body.x + p.body.w / 2 + half;
+      const isSquare = shape === 'square';
+      ok(`${shape} size=${size}：左肩不落在身体轮廓外（不飘）`,
+        isSquare || p.hands[0].sx >= edgeL - 1, `sx=${p.hands[0].sx.toFixed(1)} edgeL=${edgeL.toFixed(1)}`);
+      ok(`${shape} size=${size}：右肩不落在身体轮廓外（不飘）`,
+        isSquare || p.hands[1].sx <= edgeR + 1, `sx=${p.hands[1].sx.toFixed(1)} edgeR=${edgeR.toFixed(1)}`);
+      // 髋同理（脚不能从身体侧面飘出去）
+      const tf = (p.feet[0].sy - p.body.y) / p.body.h;
+      const halfF = p.body.w * 0.5 * Math.sqrt(Math.max(0, 1 - ((Math.min(1, Math.max(0, tf)) - 0.5) * 2) ** 2));
+      ok(`${shape} size=${size}：左脚接在身体下缘内`, isSquare || Math.abs(p.feet[0].sx - p.body.x - p.body.w / 2) <= halfF + 1,
+        `dx=${Math.abs(p.feet[0].sx - p.body.x - p.body.w / 2).toFixed(1)} half=${halfF.toFixed(1)}`);
+    }
+  }
+}
+
+// ---------- 小人也能跳舞（复用同一套舞蹈机制） ----------
+{
+  const cfg = normalizeCharacter({ figureType: 'human', dance: 'party' });
+  const fs = characterFrames(cfg, 12);
+  ok('小人跳舞也有 12 帧', fs.length === 12, String(fs.length));
+  ok('小人跳舞时手臂真的摆起来', fs.some((f) => Math.abs(f.armL) > 0.4), JSON.stringify(fs.map((f) => +f.armL.toFixed(2))));
+  const plan = characterPlan(cfg, { width: 256, height: 256 });
+  let bad = null;
+  for (const f of fs) {
+    for (const limb of [...plan.hands, ...plan.feet]) {
+      const isHand = plan.hands.includes(limb);
+      const frac = isHand ? (limb.side === 'left' ? f.armL : f.armR) : (limb.side === 'left' ? f.legL : f.legR);
+      const pt = rotatePoint(limb.sx, limb.sy, limb.ex, limb.ey, frac * limb.maxOut * limb.dir);
+      if (pt.x - limb.r < -0.01 || pt.x + limb.r > 256.01 || pt.y - limb.r < -0.01 || pt.y + limb.r > 256.01) {
+        bad = { side: limb.side, x: pt.x, y: pt.y, r: limb.r };
+      }
+    }
+  }
+  ok('小人跳舞时四肢全程不出画布', !bad, JSON.stringify(bad));
+}
+
+// ---------- 静态守护：UI 能选形体，且会写进配置 ----------
+{
+  const html = readFileSync('src/maker/index.html', 'utf8');
+  ok('工坊有形体选择框', html.includes('id="stFigure"'), 'html');
+  ok('有形体的两个选项', html.includes('value="pet"') && html.includes('value="human"'), 'opts');
+  const maker = readFileSync('src/maker/maker.js', 'utf8');
+  ok('maker 读配置时带上 figureType', /figureType:\s*\$\('#stFigure'\)/.test(maker), 'read');
+  ok('maker 写配置时回填 figureType', /\$\('#stFigure'\)\.value = c\.figureType/.test(maker), 'write');
+  ok('形体切换会触发重绘', /'stName', 'stFigure'/.test(maker), 'bind');
+  const render = readFileSync('src/maker/charrender.js', 'utf8');
+  ok('渲染层会画头（小人）', render.includes('plan.head') && render.includes('arc(plan.head.cx'), 'head');
+  ok('渲染层画了脖子（头不飘着）', render.includes('脖子') || /moveTo\(plan\.head\.cx/.test(render), 'neck');
 }

@@ -202,7 +202,7 @@ export function renderCharacter(canvas, cfg, opt = {}) {
   for (const h of plan.hands) drawLimb(ctx, h, limbAngle(h, f && (h.side === 'left' ? f.armL : f.armR)), pal.body);
   for (const ft of plan.feet) drawLimb(ctx, ft, limbAngle(ft, f && (ft.side === 'left' ? f.legL : f.legR)), pal.body);
 
-  // 耳朵
+  // 耳朵（宠物才有；小人没有兽耳）
   for (const e of plan.ears) drawEar(ctx, e, pal);
 
   // 身体
@@ -210,11 +210,28 @@ export function renderCharacter(canvas, cfg, opt = {}) {
   pathBody(ctx, plan.body);
   ctx.fill();
 
-  // 肚皮
+  // 肚皮 / 小人的衣服
   ctx.fillStyle = pal.belly;
   ctx.beginPath();
   ctx.ellipse(plan.belly.x, plan.belly.y, plan.belly.rx, plan.belly.ry, 0, 0, Math.PI * 2);
   ctx.fill();
+
+  // ★ 小人：头（画在身体之后，让脖子被头压住）+ 脖子
+  if (plan.head) {
+    // 脖子：一小段连在头和躯干之间，别让头"飘着"
+    ctx.strokeStyle = pal.body;
+    ctx.lineWidth = Math.max(2, plan.head.r * 0.34);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(plan.head.cx, plan.head.cy + plan.head.r * 0.55);
+    ctx.lineTo(plan.head.cx, plan.body.y + plan.body.h * 0.10);
+    ctx.stroke();
+    // 头
+    ctx.fillStyle = pal.body;
+    ctx.beginPath();
+    ctx.arc(plan.head.cx, plan.head.cy, plan.head.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   // 腮红
   ctx.fillStyle = 'rgba(255,120,140,0.42)';

@@ -29,6 +29,9 @@ app.whenReady().then(async () => {
   check("配色按钮已生成", (await js(`document.querySelectorAll('#stPalettes .st-pal').length`)) >= 6);
   check("有舞蹈选择框", await js(`!!document.querySelector('#stDance')`));
   check("有「存为动作片段」按钮", await js(`!!document.querySelector('#btnStAddClip')`));
+  check("有形体选择框（宠物 / 小人）", await js(`!!document.querySelector('#stFigure')`));
+  const figOpts = await js(`[...document.querySelectorAll('#stFigure option')].map(o => o.value).join(',')`);
+  check("形体选项是 pet,human", figOpts === 'pet,human', figOpts);
   const danceOpts = await js(`[...document.querySelectorAll('#stDance option')].map(o => o.value).join(',')`);
   check("舞蹈选项齐全（含 4 个真动作）", danceOpts === 'none,bounce,wave,twist,party', danceOpts);
 
@@ -116,6 +119,34 @@ app.whenReady().then(async () => {
   // ★ 跳舞：帧与帧之间**肢体位置**必须真的不同。
   //   只断言"帧不同"不够 —— 呼吸浮动也能让帧不同，但那是上下飘、不是跳舞。
   //   这里量左右两侧内容的横向重心：手臂抬起/张开时它会明显变化。
+  // ★ 轮廓差异：把每帧的不透明区域降采样成 64x64 掩码，
+  //   再和第一帧比对"有多少像素从有变无 / 从无变有"。
+  //   为什么不用横向重心：宠物身子很大，手臂摆动会被重心稀释（实测只有 1.2px 变化，
+  //   但画面上手臂其实摆得很明显）。轮廓差异直接对应"肢体真的动了"。
+  const maskDiff = () => js(`(() => {
+    const imgs = [...document.querySelectorAll('#fsTrack img')];
+    const N = 64;
+    const masks = imgs.map((img) => {
+      const cv = document.createElement('canvas'); cv.width = N; cv.height = N;
+      const c = cv.getContext('2d'); c.clearRect(0, 0, N, N);
+      c.drawImage(img, 0, 0, N, N);
+      const d = c.getImageData(0, 0, N, N).data;
+      const m = [];
+      for (let i = 0; i < N * N; i++) m.push(d[i * 4 + 3] > 128 ? 1 : 0);
+      return m;
+    });
+    if (masks.length < 2) return [];
+    const base = masks[0];
+    return masks.map((m) => {
+      let diff = 0, union = 0;
+      for (let i = 0; i < m.length; i++) {
+        if (m[i] !== base[i]) diff++;
+        if (m[i] || base[i]) union++;
+      }
+      return union ? diff / union : 0;
+    });
+  })()`);
+
   const sideSpread = () => js(`(() => {
     const imgs = [...document.querySelectorAll('#fsTrack img')];
     return imgs.map((img) => {
@@ -149,13 +180,13 @@ app.whenReady().then(async () => {
   await js(`document.querySelector('#btnStAdd').click()`);
   await sleep(1600);
   const danceFrames = await sideSpread();
+  const danceDiff = await maskDiff();
   check("跳舞帧数量正确", danceFrames.length === 8, String(danceFrames.length));
-  const lMin = Math.min(...danceFrames.map(f => f.l)), lMax = Math.max(...danceFrames.map(f => f.l));
-  const rMin = Math.min(...danceFrames.map(f => f.r)), rMax = Math.max(...danceFrames.map(f => f.r));
-  check("左手位置真的在动（不是只上下飘）", (lMax - lMin) > 1.5, "left spread=" + (lMax - lMin).toFixed(2));
-  check("右手位置真的在动", (rMax - rMin) > 1.5, "right spread=" + (rMax - rMin).toFixed(2));
   check("两侧都有内容（没把一只手画丢）", danceFrames.every(f => f.lN > 50 && f.rN > 50),
     JSON.stringify(danceFrames.map(f => [f.lN, f.rN])));
+  const maxDiff = Math.max(...danceDiff);
+  check("跳舞时轮廓真的在变（肢体真的动了，不是整体平移）", maxDiff > 0.06,
+    "max轮廓差异=" + (maxDiff * 100).toFixed(1) + "%");
 
   // 不跳舞 vs 跳舞：横向摆幅必须明显更小（证明 dance 参数真的生效）
   await js(`document.querySelector('#btnClearFrames').click()`);
@@ -164,10 +195,72 @@ app.whenReady().then(async () => {
   await sleep(250);
   await js(`document.querySelector('#btnStAdd').click()`);
   await sleep(1600);
-  const stillFrames = await sideSpread();
-  const stillSpread = Math.max(...stillFrames.map(f => f.l)) - Math.min(...stillFrames.map(f => f.l));
-  check("选「不跳」时横向摆幅明显更小（dance 参数真的生效）", stillSpread < (lMax - lMin) * 0.6,
-    "still=" + stillSpread.toFixed(2) + " vs dance=" + (lMax - lMin).toFixed(2));
+  const stillDiff = await maskDiff();
+  const stillMax = Math.max(...stillDiff);
+  check("选「不跳」时轮廓变化明显更小（dance 参数真的生效）", stillMax < maxDiff * 0.6,
+    "still=" + (stillMax * 100).toFixed(1) + "% vs dance=" + (maxDiff * 100).toFixed(1) + "%");
+
+  // ★ 小人形体：必须真的画出"头 + 身子"，而不是圆滚滚的宠物。
+  //   用几何量而不是"看起来像"：头部的宽度应该明显窄于整身、且集中在画布上半部。
+  {
+    const rowProfile = () => js(`(() => {
+      const cv = document.querySelector('#studioCanvas');
+      const c = cv.getContext('2d');
+      const d = c.getImageData(0, 0, cv.width, cv.height).data;
+      const rows = [];
+      for (let y = 0; y < cv.height; y++) {
+        let n = 0, x0 = cv.width, x1 = -1;
+        for (let x = 0; x < cv.width; x++) {
+          if (d[(y * cv.width + x) * 4 + 3] > 200) { n++; if (x < x0) x0 = x; if (x > x1) x1 = x; }
+        }
+        rows.push({ n, w: x1 >= x0 ? x1 - x0 + 1 : 0 });
+      }
+      return { rows, w: cv.width, h: cv.height };
+    })()`);
+
+    // 先看宠物（默认）
+    await js(`(() => { const el = document.querySelector('#stFigure'); el.value = 'pet'; el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await sleep(350);
+    const petProf = await rowProfile();
+
+    // 换小人
+    await js(`(() => { const el = document.querySelector('#stFigure'); el.value = 'human'; el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await sleep(350);
+    const humanProf = await rowProfile();
+
+    check("切到小人后画面变了（不是同一张图）", JSON.stringify(petProf.rows) !== JSON.stringify(humanProf.rows), 'changed');
+
+    // 小人的特征：上半部有一个**明显更窄的头部段**（颈/头），宠物是头身一体的宽块
+    const nonEmpty = (p) => p.rows.filter((r) => r.n > 0);
+    const hp = nonEmpty(humanProf), pp = nonEmpty(petProf);
+    check("小人画出了内容", hp.length > 20, String(hp.length));
+    // 头部最宽处 vs 整身最宽处：小人应该有明显的宽窄对比（头比身子窄）
+    const maxW = Math.max(...hp.map((r) => r.w));
+    const topHalf = hp.slice(0, Math.floor(hp.length / 2));
+    const minTopW = Math.min(...topHalf.map((r) => r.w).filter((w) => w > 2));
+    check("小人有明显的头身宽窄对比（头比身子窄）", maxW > minTopW * 1.6, `max=${maxW} minTop=${minTopW}`);
+    // 宠物是头身一体：上下宽度变化没那么剧烈
+    const pmax = Math.max(...pp.map((r) => r.w));
+    const pTop = pp.slice(0, Math.floor(pp.length / 2));
+    const pmin = Math.min(...pTop.map((r) => r.w).filter((w) => w > 2));
+    check("宠物仍是头身一体（宽窄对比更小）", (pmax / pmin) < (maxW / minTopW), `pet=${(pmax/pmin).toFixed(2)} human=${(maxW/minTopW).toFixed(2)}`);
+
+    // 小人也要能跳舞（复用同一套机制）
+    await js(`(() => { const el = document.querySelector('#stDance'); el.value = 'party'; el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await sleep(300);
+    await js(`(() => { window.confirm = () => true; return undefined; })()`);
+    await js(`document.querySelector('#btnClearFrames').click()`);
+    await sleep(300);
+    await js(`document.querySelector('#btnStAdd').click()`);
+    await sleep(1500);
+    const humanDance = await sideSpread();
+    const humanDiff = await maskDiff();
+    check("小人跳舞生成了 8 帧", humanDance.length === 8, String(humanDance.length));
+    check("小人跳舞时轮廓真的在变（手臂在动）", Math.max(...humanDiff) > 0.06,
+      "max轮廓差异=" + (Math.max(...humanDiff) * 100).toFixed(1) + "%");
+    await js(`(() => { const el = document.querySelector('#stFigure'); el.value = 'pet'; el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await sleep(250);
+  }
 
   // ★ 工坊也能存「动作片段」：多存几段不同舞步，桌宠上桌后会随机切换。
   //   这条链路此前只接在"照片微动作"上 —— 捏的小人只能有一个舞步（真缺口）。

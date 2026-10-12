@@ -19,6 +19,8 @@ export const BODY_SHAPES = ['round', 'egg', 'square', 'bean'];
 export const EAR_TYPES = ['none', 'cat', 'rabbit', 'round', 'horn'];
 export const EYE_TYPES = ['dot', 'round', 'sleepy', 'sparkle'];
 export const MOUTH_TYPES = ['smile', 'open', 'cat', 'flat'];
+/** 形体：pet = 圆滚滚的小宠物；human = 有头有身子的小人 */
+export const FIGURE_TYPES = ['pet', 'human'];
 /** 可选舞蹈 id（定义在下面的 DANCES；这里先声明是为了 normalizeCharacter 能用） */
 export const DANCE_IDS = ['none', 'bounce', 'wave', 'twist', 'party'];
 
@@ -56,6 +58,7 @@ export const DEFAULT_CHARACTER = Object.freeze({
   arms: true,       // 手臂
   legs: true,       // 脚
   dance: 'none',    // 舞蹈（none = 只有原来的呼吸浮动）
+  figureType: 'pet',// 形体：pet 圆滚滚 / human 小人
 });
 
 /**
@@ -86,6 +89,7 @@ export function normalizeCharacter(input) {
     legs: o.legs === undefined ? d.legs : !!o.legs,
     // 白名单式归一化：新字段必须在这里放行，否则存盘/载入会静默丢掉它
     dance: pick(DANCE_IDS, o.dance, d.dance),
+    figureType: pick(FIGURE_TYPES, o.figureType, d.figureType),
   };
 }
 
@@ -271,36 +275,72 @@ export function characterPlan(cfg, box = {}) {
   const bodyH = H * (0.34 + 0.34 * c.size);
   const cx = W / 2;
   const cy = H / 2 - H * 0.02;                 // 略往上，给脚和耳朵都留空间
-  const body = { x: cx - bodyW / 2, y: cy - bodyH / 2, w: bodyW, h: bodyH, shape: c.bodyShape };
+  let body = { x: cx - bodyW / 2, y: cy - bodyH / 2, w: bodyW, h: bodyH, shape: c.bodyShape };
+
+  // ★ 人形：头 + 身子分开（宠物是"头身一体"的圆滚滚，小人是"有头有身子"）。
+  //   这是用户最初那句「人人都可以绘制一个自己的**小人**」的核心 ——
+  //   之前工坊只能捏出圆滚滚的宠物，捏不出人。
+  //   做法：身体框只留"躯干"，头单独一个圆放在上方，五官画在头上，
+  //   手脚的关节挂在躯干上 —— 这样跳舞时头不动、身子和四肢动，像人。
+  const isHuman = c.figureType === 'human';
+  let head = null;
+  if (isHuman) {
+    // ★ 小人要**自上而下排布**，并把总高限制在画布内。
+    //   第一版凭感觉给了 headR = bodyW*0.62 且头放在 cy 上方 ——
+    //   结果头大到冲出画布顶部、脖子只剩两个小圆点（渲染出来一眼就废）。
+    //   正确做法：先定总高，再按比例切分「头 : 脖子 : 躯干 : 腿」。
+    const totalH = H * (0.52 + 0.34 * c.size);   // 整个人（含腿）占画布高度
+    const legH = totalH * 0.22;                  // 腿（躯干下缘到脚）
+    const torsoH = totalH * 0.36;
+    const headR = totalH * 0.21;                 // 头半径（直径 = 42% 总高，Q 版比例）
+    const gap = totalH * 0.015;                  // 脖子留一点点空隙
+    const top = (H - totalH) / 2 - H * 0.02;     // 整体略上移，给脚底留边
+    const headCy = top + headR;
+    const torsoY = headCy + headR + gap;
+    // 躯干比头略窄，才像"头大身子小"的 Q 版小人
+    const torsoW = headR * 1.42;
+    body = { x: cx - torsoW / 2, y: torsoY, w: torsoW, h: torsoH, shape: c.bodyShape };
+    head = { cx, cy: headCy, r: headR };
+    // 腿从躯干下缘往下延伸
+    body.legH = legH;
+  }
 
   // 耳朵贴在身体顶部
   const earW = bodyW * 0.30;
   const earH = bodyH * 0.30;
   const ears = [];
-  if (c.earType !== 'none') {
+  if (c.earType !== 'none' && !isHuman) {
     const dx = bodyW * 0.28;
     const topY = body.y + bodyH * 0.06;
     ears.push({ side: 'left', type: c.earType, x: cx - dx - earW / 2, y: topY - earH, w: earW, h: earH });
     ears.push({ side: 'right', type: c.earType, x: cx + dx - earW / 2, y: topY - earH, w: earW, h: earH });
   }
 
-  // 眼睛：在身体上部，间距由 eyeGap 控制
-  const eyeR = bodyW * (0.055 + 0.075 * c.eyeSize);
-  const eyeY = body.y + bodyH * 0.36;
-  const eyeDx = bodyW * (0.10 + 0.22 * c.eyeGap);
+  // 眼睛：宠物画在身体上部；小人画在**头上**（脸的位置）。
+  // 头/身分开后五官必须跟着头走，否则脸会长在肚子上（一眼就不像人）。
+  const faceW = isHuman && head ? head.r * 1.55 : bodyW;
+  const faceCx = isHuman && head ? head.cx : cx;
+  const faceCy = isHuman && head ? head.cy : body.y + bodyH * 0.36;
+  const eyeR = faceW * (0.055 + 0.075 * c.eyeSize);
+  const eyeY = isHuman ? faceCy - head.r * 0.05 : faceCy;
+  const eyeDx = faceW * (0.10 + 0.22 * c.eyeGap);
   const eyes = [
-    { side: 'left', type: c.eyeType, cx: cx - eyeDx, cy: eyeY, r: eyeR },
-    { side: 'right', type: c.eyeType, cx: cx + eyeDx, cy: eyeY, r: eyeR },
+    { side: 'left', type: c.eyeType, cx: faceCx - eyeDx, cy: eyeY, r: eyeR },
+    { side: 'right', type: c.eyeType, cx: faceCx + eyeDx, cy: eyeY, r: eyeR },
   ];
 
   // 嘴：眼睛下方
-  const mouth = { type: c.mouthType, cx, cy: body.y + bodyH * 0.53, w: bodyW * 0.16, h: bodyH * 0.07 };
+  const mouth = {
+    type: c.mouthType, cx: faceCx,
+    cy: isHuman ? faceCy + head.r * 0.34 : body.y + bodyH * 0.53,
+    w: faceW * 0.16, h: (isHuman ? head.r * 0.36 : bodyH) * 0.20,
+  };
 
   // 腮红：眼睛外侧
-  const blushR = bodyW * 0.085;
+  const blushR = faceW * 0.085;
   const blushes = c.blush ? [
-    { cx: cx - eyeDx - bodyW * 0.10, cy: mouth.cy - bodyH * 0.03, r: blushR },
-    { cx: cx + eyeDx + bodyW * 0.10, cy: mouth.cy - bodyH * 0.03, r: blushR },
+    { cx: faceCx - eyeDx - faceW * 0.10, cy: mouth.cy - faceW * 0.06, r: blushR },
+    { cx: faceCx + eyeDx + faceW * 0.10, cy: mouth.cy - faceW * 0.06, r: blushR },
   ] : [];
 
   // 手脚：**带关节的短肢**（肩/髋 -> 末端圆手/圆脚），而不是孤零零的圆点。
@@ -309,39 +349,66 @@ export function characterPlan(cfg, box = {}) {
   // "照片转过去露出没画过的内侧"那种信息缺失问题。
   // 关节贴在身体边缘、末端伸到身体外 —— 否则整条肢被身体挡住，
   // 旋转再大也"看不见在动"（第一版就是这样，渲染出来只有几个小疙瘩）。
-  const handR = bodyW * 0.115;
-  const armW = bodyW * 0.095;
+  // 四肢的尺寸与挂点：宠物按身体框算；小人按躯干算，腿往下延伸到 legH。
+  const bw = body.w, bh = body.h;
+  /**
+   * 椭圆身体在某个高度上的**半宽比例**（0~0.5，相对身体宽度）。
+   *
+   * 为什么需要：躯干/身体是椭圆时，上下两端比中间窄很多。
+   * 若把肩按"身体框的 16% 处"来放，在肩膀那个高度其实**已经超出椭圆轮廓**了 ——
+   * 渲染出来手臂与身体之间有一道缝，像飘在空中（实测一眼就看出不对）。
+   * 这里按椭圆方程算出该高度真正的边缘，让手臂**长在身体上**。
+   * @param yFrac 0 = 身体顶，1 = 身体底
+   */
+  const halfWidthAt = (yFrac) => {
+    if (body.shape === 'square') return 0.5;         // 圆角方：上下几乎等宽
+    const t = (Math.min(1, Math.max(0, yFrac)) - 0.5) * 2;   // -1..1
+    return 0.5 * Math.sqrt(Math.max(0, 1 - t * t));
+  };
+  const handR = bw * (isHuman ? 0.14 : 0.095);
+  const armW = bw * (isHuman ? 0.13 : 0.095);
+  // 肩放在"该高度真正的身体边缘"往里一点，保证手臂长在身体上（不飘）
+  const shoulderYFrac = isHuman ? 0.22 : 0.38;
+  // 必须**完全**收进椭圆轮廓：只收一半会差 2px 落在外面（被守护测试抓到）。
+  // 再额外留一点余量，避免椭圆/圆角方的边界误差。
+  const shoulderInset = bw * (0.5 - halfWidthAt(shoulderYFrac)) + bw * 0.02;
+  const shoulderX = (side) => (side === 'left' ? body.x + shoulderInset : body.x + bw - shoulderInset);
   const hands = c.arms ? [
-    { side: 'left', dir: 1, sx: body.x + bodyW * 0.16, sy: body.y + bodyH * 0.38,
-      ex: body.x + bodyW * 0.02, ey: body.y + bodyH * 0.74, r: handR, w: armW },
-    { side: 'right', dir: -1, sx: body.x + bodyW * 0.84, sy: body.y + bodyH * 0.38,
-      ex: body.x + bodyW * 0.98, ey: body.y + bodyH * 0.74, r: handR, w: armW },
+    { side: 'left', dir: 1, sx: shoulderX('left'), sy: body.y + bh * shoulderYFrac,
+      ex: body.x + bw * (isHuman ? -0.06 : -0.02), ey: body.y + bh * (isHuman ? 0.74 : 0.78), r: handR, w: armW },
+    { side: 'right', dir: -1, sx: shoulderX('right'), sy: body.y + bh * shoulderYFrac,
+      ex: body.x + bw * (isHuman ? 1.06 : 1.02), ey: body.y + bh * (isHuman ? 0.74 : 0.78), r: handR, w: armW },
   ] : [];
-  const footR = bodyW * 0.13;
-  const legW = bodyW * 0.105;
+  const footR = bw * (isHuman ? 0.17 : 0.13);
+  const legW = bw * (isHuman ? 0.14 : 0.105);
+  // 髋同理：放在该高度真正的边缘之内，腿才不会从身体侧面飘出去
+  const hipYFrac = isHuman ? 0.96 : 0.84;
+  const legSpan = bw * Math.max(0.14, halfWidthAt(hipYFrac) * 0.78);
+  const legTop = body.y + bh * (isHuman ? 0.96 : 0.84);
+  const legBot = isHuman ? (body.y + bh + (body.legH || 0)) : (body.y + bh * 1.06);
   const feet = c.legs ? [
-    { side: 'left', dir: 1, sx: cx - bodyW * 0.21, sy: body.y + bodyH * 0.84,
-      ex: cx - bodyW * 0.23, ey: body.y + bodyH * 1.06, r: footR, w: legW },
-    { side: 'right', dir: -1, sx: cx + bodyW * 0.21, sy: body.y + bodyH * 0.84,
-      ex: cx + bodyW * 0.23, ey: body.y + bodyH * 1.06, r: footR, w: legW },
+    { side: 'left', dir: 1, sx: cx - legSpan, sy: legTop,
+      ex: cx - legSpan * 1.1, ey: legBot, r: footR, w: legW },
+    { side: 'right', dir: -1, sx: cx + legSpan, sy: legTop,
+      ex: cx + legSpan * 1.1, ey: legBot, r: footR, w: legW },
   ] : [];
 
   // 尾巴：身体右下角外侧
-  const tail = c.tail ? {
+  const tail = (c.tail && !isHuman) ? {
     x1: body.x + bodyW * 0.92, y1: body.y + bodyH * 0.70,
     x2: body.x + bodyW * 1.24, y2: body.y + bodyH * 0.52,
     w: bodyW * 0.075,
   } : null;
 
   // 肚皮：身体内的浅色椭圆
-  const belly = { x: cx, y: body.y + bodyH * 0.62, rx: bodyW * 0.30, ry: bodyH * 0.24 };
+  const belly = { x: cx, y: body.y + body.h * 0.60, rx: body.w * 0.32, ry: body.h * 0.26 };
 
   // 每条肢体的"安全抬起上限"：动作库只给 0~1 的程度，真实角度 = 程度 × 上限，
   // 这样任何体型举手都不会伸出画布（实测踩过：写死 90° 会把手裁掉）。
   for (const h of hands) h.maxOut = maxSafeAngle(h, h.dir, { width: W, height: H });
   for (const ft of feet) ft.maxOut = maxSafeAngle(ft, ft.dir, { width: W, height: H });
 
-  return { width: W, height: H, palette: pal, body, ears, eyes, mouth, blushes, hands, feet, tail, belly, cfg: c };
+  return { width: W, height: H, palette: pal, body, head, ears, eyes, mouth, blushes, hands, feet, tail, belly, cfg: c };
 }
 
 /**
