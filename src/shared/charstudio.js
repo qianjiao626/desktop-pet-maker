@@ -58,6 +58,7 @@ export const DEFAULT_CHARACTER = Object.freeze({
   arms: true,       // 手臂
   legs: true,       // 脚
   dance: 'none',    // 舞蹈（none = 只有原来的呼吸浮动）
+  danceSpeed: 1,    // 跳舞速度倍率（0.5 = 慢一半，2 = 快一倍）
   figureType: 'pet',// 形体：pet 圆滚滚 / human 小人
 });
 
@@ -137,6 +138,12 @@ export function normalizeCharacter(input) {
     legs: o.legs === undefined ? d.legs : !!o.legs,
     // 白名单式归一化：新字段必须在这里放行，否则存盘/载入会静默丢掉它
     dance: pick(DANCE_IDS, o.dance, d.dance),
+    // 速度倍率：clamp 到 0.5~2 —— 太慢看着卡、太快看不清动作
+    danceSpeed: (() => {
+      const n = Number(o.danceSpeed);
+      if (!Number.isFinite(n)) return d.danceSpeed;
+      return n < 0.5 ? 0.5 : n > 2 ? 2 : n;
+    })(),
     figureType: pick(FIGURE_TYPES, o.figureType, d.figureType),
     // 由「照照片捏小人」写入的比例与基础姿势（可选；不填就用默认比例）
     proportions: normProportions(o.proportions),
@@ -581,8 +588,9 @@ export function characterFrames(cfg, count = 8) {
     const p = dancePose(dance, t);
     out.push({
       index: i,
-      // 跳舞时帧间隔短一点更跟拍；不跳时保持原来的 110ms
-      durationMs: dance === 'none' ? 110 : 90,
+      // 跳舞时帧间隔短一点更跟拍；不跳时保持原来的 110ms。
+      // 速度倍率：2x = 每帧时间减半（跳得更快），0.5x = 加倍（跳得更慢）。
+      durationMs: Math.max(16, Math.round((dance === 'none' ? 110 : 90) / c.danceSpeed)),
       offsetY: bob * 0.03 + p.offsetY,   // 相对画布高度的比例
       scaleX: (1 + squash * 0.02) * p.scaleX,
       scaleY: (1 - squash * 0.02) * p.scaleY,

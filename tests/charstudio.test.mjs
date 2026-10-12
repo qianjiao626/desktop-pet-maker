@@ -616,3 +616,48 @@ import {
   }
   ok('同毫秒连存 8 段：id 零撞号（300 轮）', dup === 0, dup + ' 轮出现撞号');
 }
+
+// ---------- ★ 跳舞速度可调（帧时长必须跟着变） ----------
+// 背景：跳舞帧时长原本硬编码 90ms，用户**没法让它跳快些或慢些**。
+{
+  ok('默认速度是 1 倍', normalizeCharacter({}).danceSpeed === 1, String(normalizeCharacter({}).danceSpeed));
+  ok('速度下限 0.5（太慢看着卡）', normalizeCharacter({ danceSpeed: 0.01 }).danceSpeed === 0.5,
+    String(normalizeCharacter({ danceSpeed: 0.01 }).danceSpeed));
+  ok('速度上限 2（太快看不清动作）', normalizeCharacter({ danceSpeed: 99 }).danceSpeed === 2,
+    String(normalizeCharacter({ danceSpeed: 99 }).danceSpeed));
+  ok('非法速度回落默认', normalizeCharacter({ danceSpeed: 'x' }).danceSpeed === 1);
+  ok('再归一化稳定', (() => { const c = normalizeCharacter({ danceSpeed: 1.5 }); return normalizeCharacter(c).danceSpeed === 1.5; })());
+
+  const slow = characterFrames({ dance: 'party', danceSpeed: 0.5 }, 8);
+  const norm = characterFrames({ dance: 'party', danceSpeed: 1 }, 8);
+  const fast = characterFrames({ dance: 'party', danceSpeed: 2 }, 8);
+  ok('慢速时每帧时间更长', slow[0].durationMs > norm[0].durationMs,
+    `${slow[0].durationMs} > ${norm[0].durationMs}`);
+  ok('快速时每帧时间更短', fast[0].durationMs < norm[0].durationMs,
+    `${fast[0].durationMs} < ${norm[0].durationMs}`);
+  ok('速度 2x 正好是 1x 的一半（线性）', Math.abs(fast[0].durationMs - norm[0].durationMs / 2) <= 1,
+    `${fast[0].durationMs} vs ${norm[0].durationMs}`);
+  ok('速度 0.5x 正好是 1x 的两倍（线性）', Math.abs(slow[0].durationMs - norm[0].durationMs * 2) <= 1,
+    `${slow[0].durationMs} vs ${norm[0].durationMs}`);
+  ok('帧时长有下限（不会变成 0 导致死循环）',
+    characterFrames({ dance: 'party', danceSpeed: 2 }, 8).every((f) => f.durationMs >= 16),
+    JSON.stringify(characterFrames({ dance: 'party', danceSpeed: 2 }, 8).map((f) => f.durationMs)));
+  // 速度只影响时长，不该改变姿态（动作本身不变）
+  ok('速度不影响姿态（只改快慢）',
+    JSON.stringify(characterFrames({ dance: 'party', danceSpeed: 2 }, 8).map((f) => [f.armL, f.offsetX, f.nod]))
+    === JSON.stringify(norm.map((f) => [f.armL, f.offsetX, f.nod])), 'pose-same');
+}
+
+// ---------- 静态守护：UI 有速度滑块，且预览也跟着变 ----------
+{
+  const html = readFileSync('src/maker/index.html', 'utf8');
+  ok('工坊有跳舞速度滑块', html.includes('id="stSpeed"'), 'html');
+  ok('速度滑块范围是 50~200（即 0.5x~2x）',
+    /id="stSpeed"[^>]*min="50"[^>]*max="200"/.test(html), 'range');
+  const maker = readFileSync('src/maker/maker.js', 'utf8');
+  ok('maker 读配置时带上 danceSpeed', /danceSpeed:\s*\$\('#stSpeed'\)/.test(maker), 'read');
+  ok('maker 写配置时回填 danceSpeed', /\$\('#stSpeed'\)\.value = String/.test(maker), 'write');
+  ok('速度文案会更新（用户看得到当前倍率）', /stSpeedV/.test(maker), 'label');
+  ok('预览动画速度也跟着倍率走（否则调了看不出变化）',
+    /ST\.animT = \(ST\.animT \+ 0\.02 \* \(Number\(cfg\.danceSpeed\)/.test(maker), 'preview');
+}

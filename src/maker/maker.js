@@ -3180,6 +3180,7 @@ function stReadCfg() {
     arms: $('#stArms') ? $('#stArms').checked : true,
     legs: $('#stLegs') ? $('#stLegs').checked : true,
     dance: $('#stDance') ? $('#stDance').value : 'none',
+    danceSpeed: $('#stSpeed') ? Number($('#stSpeed').value) / 100 : 1,
     figureType: $('#stFigure') ? $('#stFigure').value : 'pet',
   });
 }
@@ -3200,6 +3201,7 @@ function stWriteCfg(cfg) {
   if ($('#stArms')) $('#stArms').checked = c.arms;
   if ($('#stLegs')) $('#stLegs').checked = c.legs;
   if ($('#stDance')) $('#stDance').value = c.dance;
+  if ($('#stSpeed')) $('#stSpeed').value = String(Math.round((Number(c.danceSpeed) || 1) * 100));
   if ($('#stFigure')) $('#stFigure').value = c.figureType;
   stWriteProportions(c.proportions);
   stSyncLabels();
@@ -3212,6 +3214,9 @@ function stSyncLabels() {
   if ($('#stGapV')) $('#stGapV').textContent = $('#stGap').value + '%';
   if ($('#stEyeSizeV')) $('#stEyeSizeV').textContent = $('#stEyeSize').value + '%';
   if ($('#stFramesV')) $('#stFramesV').textContent = $('#stFrames').value;
+  if ($('#stSpeedV') && $('#stSpeed')) {
+    $('#stSpeedV').textContent = (Number($('#stSpeed').value) / 100).toFixed(1) + '×';
+  }
   for (const [v, s2] of [['stHeadV','stHead'], ['stTorsoV','stTorso'], ['stLegV','stLeg'], ['stArmV','stArm']]) {
     const a = $('#' + v), b = $('#' + s2);
     if (a && b) a.textContent = b.value + '%';
@@ -3300,7 +3305,8 @@ function stStartPreviewAnim() {
         !document.querySelector('.tabpane[data-pane="studio"]').classList.contains('active')) return;  // 离开工坊就停，别白烧 CPU
     const cfg = ST.cfg;
     if (!cfg.dance || cfg.dance === 'none') return;
-    ST.animT = (ST.animT + 0.02) % 1;
+    // 预览速度跟着「跳舞速度」倍率走 —— 否则用户调了滑块看不出变化。
+    ST.animT = (ST.animT + 0.02 * (Number(cfg.danceSpeed) || 1)) % 1;
     try {
       const specs = characterFrames(cfg, 24);
       const spec = specs[Math.min(specs.length - 1, Math.floor(ST.animT * specs.length))];
@@ -3406,7 +3412,7 @@ function stBind() {
   for (const id of ['stName', 'stFigure', 'stShape', 'stEar', 'stEye', 'stMouth', 'stDance']) {
     if ($('#' + id)) $('#' + id).oninput = () => stSchedulePreview();
   }
-  for (const id of ['stSize', 'stGap', 'stEyeSize', 'stFrames', 'stHead', 'stTorso', 'stLeg', 'stArm']) {
+  for (const id of ['stSize', 'stGap', 'stEyeSize', 'stFrames', 'stSpeed', 'stHead', 'stTorso', 'stLeg', 'stArm']) {
     if ($('#' + id)) $('#' + id).oninput = () => { stSyncLabels(); stSchedulePreview(); };
   }
   // 切形体时，身体比例那组控件要跟着显示/隐藏（宠物没有这些比例）

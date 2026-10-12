@@ -200,6 +200,26 @@ app.whenReady().then(async () => {
   check("选「不跳」时轮廓变化明显更小（dance 参数真的生效）", stillMax < maxDiff * 0.6,
     "still=" + (stillMax * 100).toFixed(1) + "% vs dance=" + (maxDiff * 100).toFixed(1) + "%");
 
+  // ★ 跳舞速度：调了必须真的改变帧时长（否则滑块是摆设）
+  {
+    check("有跳舞速度滑块", await js(`!!document.querySelector('#stSpeed')`));
+    const framesWithSpeed = (v) => js(`(async () => {
+      const cs = await import('../shared/charstudio.js');
+      const el = document.querySelector('#stSpeed');
+      el.value = '${v}'; el.dispatchEvent(new Event('input', { bubbles: true }));
+      const cfg = cs.normalizeCharacter({ figureType: 'human', dance: 'party', danceSpeed: Number(el.value) / 100 });
+      const specs = cs.characterFrames(cfg, 8);
+      return { durs: specs.map(s => s.durationMs), label: document.querySelector('#stSpeedV').textContent };
+    })()`);
+    const slow = await framesWithSpeed(50);
+    const fast = await framesWithSpeed(200);
+    check("速度 0.5x 时帧时长更长", slow.durs[0] > fast.durs[0], slow.durs[0] + ' vs ' + fast.durs[0]);
+    check("速度文案跟着变（0.5× / 2.0×）", slow.label === '0.5×' && fast.label === '2.0×',
+      slow.label + ' / ' + fast.label);
+    await js(`(() => { const el = document.querySelector('#stSpeed'); el.value = '100'; el.dispatchEvent(new Event('input', { bubbles: true })); return undefined; })()`);
+    await sleep(200);
+  }
+
   // ★ 新舞步（侧步 / 点头 / 转圈 / 打招呼）必须真的动，而且动的是"对的地方"。
   //   重点验两条容易被做错的语义：
   //     ① 侧步要有**水平位移**（只有上下浮动的话，怎么动都像原地弹）
