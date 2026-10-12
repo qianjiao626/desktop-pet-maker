@@ -1788,7 +1788,8 @@ $('#btnPoseAnim').onclick = async () => {
         id: cid,
         name: (moName ? moName.name : motionId),
         weight: 1,
-        frames: newFrames.map((f) => ({ data: f.current, durationMs: 110 })),
+        // 对齐主帧画布尺寸：否则切到这个片段时宠物会突然变大/变小
+        frames: normalizeClipFramesToMain(newFrames.map((f) => ({ data: f.current, durationMs: 110 }))),
       });
       renderClipList();
       POSE.busy = false; poseUpdateButtons();
@@ -3321,11 +3322,57 @@ function stSchedulePreview() {
 }
 
 /**
+ * 把一段片段帧**统一成主帧的画布尺寸**。
+ *
+ * ★ 为什么必须做（实测确认的真缺陷）：
+ *   运行时切换片段时会按新尺寸重算布局（setupGround + setSize）——
+ *   如果片段与主帧尺寸不同，切过去那一瞬间**宠物会突然变大/变小**，
+ *   窗口也跟着跳一下。照片路径生成的片段是正方形（560x560），
+ *   而主帧是照片尺寸（例如 800x600），正好踩中这个问题。
+ *
+ * 做法：等比缩放 + 居中放进主帧画布（"contain"）。
+ * 尺寸已经一致时**原样返回**，不做任何多余的重编码。
+ */
+function normalizeClipFramesToMain(frames) {
+  const list = Array.isArray(frames) ? frames : [];
+  const cur = state.frames[state.activeIdx] || state.frames[0];
+  const W = (cur && cur.current && cur.current.width) || 0;
+  const H = (cur && cur.current && cur.current.height) || 0;
+  if (!W || !H) return list;
+  return list.map((f) => {
+    const d = f && (f.data || f.current);
+    if (!d || !d.width || !d.height) return f;
+    if (d.width === W && d.height === H) return f;
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    const tmp = document.createElement('canvas');
+    tmp.width = d.width; tmp.height = d.height;
+    tmp.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(d.data), d.width, d.height), 0, 0);
+    const k = Math.min(W / d.width, H / d.height);
+    const w = d.width * k, h = d.height * k;
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(tmp, 0, 0, d.width, d.height, (W - w) / 2, (H - h) / 2, w, h);
+    const out = ctx.getImageData(0, 0, W, H);
+    return { data: out, current: out, durationMs: f.durationMs };
+  });
+}
+
+/**
  * 把工坊角色渲染成一段「片段帧」（带 data，供 clip 使用）。
  * 与 stGenerateFrames 共用同一个渲染入口，保证"看到的"和"存下来的"一致。
+ *
+ * ★ 尺寸必须**对齐主帧**，不能一律 256x256。
+ *   运行时切换片段时会按新尺寸重算布局（setupGround + setSize）——
+ *   若片段与主帧尺寸不同，切过去的那一瞬间宠物会**突然变大/变小**。
+ *   主帧还没有时（只存片段、不生成主帧）才退回 256x256。
  */
 function stRenderClipFrames(cfg, frameCount) {
-  const list = renderCharacterFrames(cfg, { width: 256, height: 256, frames: frameCount });
+  const cur = state.frames[state.activeIdx] || state.frames[0];
+  const w = (cur && cur.current && cur.current.width) || 256;
+  const h = (cur && cur.current && cur.current.height) || 256;
+  const list = renderCharacterFrames(cfg, { width: w, height: h, frames: frameCount });
   return list.map((item) => {
     const ctx = item.canvas.getContext('2d', { willReadFrequently: true });
     const d = ctx.getImageData(0, 0, item.canvas.width, item.canvas.height);
@@ -3409,7 +3456,7 @@ function stBind() {
     const cfg = stReadCfg();
     const n = parseInt($('#stFrames').value, 10) || 8;
     recordUndo();
-    const frames = stRenderClipFrames(cfg, n);
+    const frames = normalizeClipFramesToMain(stRenderClipFrames(cfg, n));
     if (!frames.length) { setStatus('生成片段失败：没有帧', 'err'); return; }
     const cid = 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36);
     // 片段名要能分辨：优先用舞步名，不跳就用角色名

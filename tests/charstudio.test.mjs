@@ -380,7 +380,20 @@ import {
   const clipHandler = maker.match(/\$\('#btnStAddClip'\)\.onclick = \(\) => \{[\s\S]*?\n  \};/);
   ok('能找到「存为片段」的处理块', !!clipHandler, 'handler');
   ok('存片段不碰主帧（主帧不动）', !!clipHandler && !/state\.frames\s*=/.test(clipHandler[0]), clipHandler ? clipHandler[0].slice(0, 300) : '');
-  ok('存片段走同一个渲染入口（预览与导出一致）', maker.includes('stRenderClipFrames') && /stRenderClipFrames[\s\S]{0,200}renderCharacterFrames/.test(maker), 'render-shared');
+  ok('存片段走同一个渲染入口（预览与导出一致）', maker.includes('stRenderClipFrames') && /stRenderClipFrames[\s\S]{0,600}renderCharacterFrames/.test(maker), 'render-shared');
+
+  // ★ 片段必须对齐主帧画布尺寸，否则切换时宠物会突然变大/变小
+  //   （运行时切换片段会按新尺寸重算布局 + setSize）。
+  const norm = maker.match(/function normalizeClipFramesToMain\(frames\) \{[\s\S]*?\n\}/);
+  ok('有"片段对齐主帧尺寸"的归一化函数', !!norm, 'missing');
+  ok('归一化用 contain 等比缩放（不变形）',
+    !!norm && /Math\.min\(W \/ d\.width, H \/ d\.height\)/.test(norm[0]), 'contain');
+  ok('尺寸已一致时原样返回（不做多余重编码）',
+    !!norm && /d\.width === W && d\.height === H/.test(norm[0]), 'fast-path');
+  ok('工坊存片段前走了这个归一化',
+    /normalizeClipFramesToMain\(stRenderClipFrames/.test(maker), 'studio');
+  ok('照片微动作存片段前也走了这个归一化',
+    /normalizeClipFramesToMain\(newFrames\.map/.test(maker), 'photo');
 
   // 撤销/重做的门槛不能只看"有没有帧" —— 否则"只存片段不生成主帧"时存不了/撤不了
   const snap = maker.match(/function recordUndo\(\) \{[\s\S]*?\n\}/);

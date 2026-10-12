@@ -543,9 +543,34 @@ app.whenReady().then(async () => {
       clips: captured.pack.clips || [],
       frameCount: (captured.images || []).length,
       clipImageKeys: Object.keys(captured.clipImages || {}),
+      // 带上片段首帧的 dataUrl，供渲染层解码后量真实尺寸
+      firstClipUrl: (() => {
+        const keys = Object.keys(captured.clipImages || {});
+        const f = keys.length ? captured.clipImages[keys[0]][0] : null;
+        return (f && f.dataUrl) || '';
+      })(),
+      mainUrl: (captured.images && captured.images[0] && captured.images[0].dataUrl) || '',
     } : null;
     check("导出时拿到了包数据", !!exported, JSON.stringify(exported));
     check("导出的包里带 3 段动作片段", exported && exported.clipCount === 3, JSON.stringify(exported && exported.clips.map((c) => c.name)));
+    // ★ 片段的画布尺寸必须和主帧一致 —— 否则运行时切换片段会重算布局，
+    //   宠物会在切过去那一瞬间突然变大/变小（窗口也跟着跳）。
+    const sizeCheck = await js(`(async () => {
+      const load = (url) => new Promise((res) => {
+        const im = new Image();
+        im.onload = () => res({ w: im.naturalWidth, h: im.naturalHeight });
+        im.onerror = () => res(null);
+        im.src = url;
+      });
+      const main = ${JSON.stringify(exported && exported.mainUrl)} ? await load(${JSON.stringify(exported && exported.mainUrl)}) : null;
+      const clip = ${JSON.stringify(exported && exported.firstClipUrl)} ? await load(${JSON.stringify(exported && exported.firstClipUrl)}) : null;
+      return { main, clip };
+    })()`);
+    check("主帧与片段都能解码出尺寸", !!(sizeCheck && sizeCheck.main && sizeCheck.clip), JSON.stringify(sizeCheck));
+    check("片段的画布尺寸与主帧一致（切动作不会突然变大变小）",
+      !!(sizeCheck && sizeCheck.main && sizeCheck.clip
+        && sizeCheck.clip.w === sizeCheck.main.w && sizeCheck.clip.h === sizeCheck.main.h),
+      JSON.stringify(sizeCheck));
     // ★ 权重：运行时按权重随机切换，用户必须能调（否则文案是空话）
     check("每段片段都带权重（默认 1）", exported && exported.clips.every((c) => Number(c.weight) > 0),
       JSON.stringify(exported && exported.clips.map((c) => c.weight)));
