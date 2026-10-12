@@ -3,7 +3,7 @@
 // 2) 「生成动画帧」真的把帧加进制作器，且像素不透明、帧与帧之间**确实不同**
 //    （只有一帧/帧全一样 = 动画不动，这是最容易蒙混过关的地方）
 // 3) 「替换当前帧」只换那一帧，帧数不变
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { registerIpc } from "../src/main/main.js";
 
@@ -28,6 +28,7 @@ app.whenReady().then(async () => {
   check("预览画布存在", await js(`!!document.querySelector('#studioCanvas')`));
   check("配色按钮已生成", (await js(`document.querySelectorAll('#stPalettes .st-pal').length`)) >= 6);
   check("有舞蹈选择框", await js(`!!document.querySelector('#stDance')`));
+  check("有「存为动作片段」按钮", await js(`!!document.querySelector('#btnStAddClip')`));
   const danceOpts = await js(`[...document.querySelectorAll('#stDance option')].map(o => o.value).join(',')`);
   check("舞蹈选项齐全（含 4 个真动作）", danceOpts === 'none,bounce,wave,twist,party', danceOpts);
 
@@ -167,6 +168,79 @@ app.whenReady().then(async () => {
   const stillSpread = Math.max(...stillFrames.map(f => f.l)) - Math.min(...stillFrames.map(f => f.l));
   check("选「不跳」时横向摆幅明显更小（dance 参数真的生效）", stillSpread < (lMax - lMin) * 0.6,
     "still=" + stillSpread.toFixed(2) + " vs dance=" + (lMax - lMin).toFixed(2));
+
+  // ★ 工坊也能存「动作片段」：多存几段不同舞步，桌宠上桌后会随机切换。
+  //   这条链路此前只接在"照片微动作"上 —— 捏的小人只能有一个舞步（真缺口）。
+  {
+    // 同样的坑：返回值必须是可序列化的，所以用 IIFE 显式返回 undefined
+    await js(`(() => { window.confirm = () => true; return undefined; })()`);
+    await js(`document.querySelector('#btnClearFrames').click()`);
+    await sleep(300);
+    // 清掉之前可能留下的片段，从零开始数
+    await js(`(() => { for (const b of document.querySelectorAll('#clipList .clip-del')) b.click(); return undefined; })()`);
+    await sleep(300);
+    check("片段列表初始为空", (await js(`document.querySelectorAll('#clipList .clip-chip').length`)) === 0);
+
+    const addClip = async (dance) => {
+      await js(`(() => { const el = document.querySelector('#stDance'); el.value = '${dance}'; el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+      await sleep(250);
+      await js(`document.querySelector('#btnStAddClip').click()`);
+      await sleep(900);
+    };
+    await addClip('party');
+    await addClip('wave');
+    await addClip('twist');
+    const chips = await js(`[...document.querySelectorAll('#clipList .clip-chip')].map(c => c.textContent.trim())`);
+    check("存了 3 段动作片段", chips.length === 3, JSON.stringify(chips));
+    check("片段名能分辨出舞步（不是一串 id）",
+      chips.join('|').includes('狂欢') && chips.join('|').includes('招手') && chips.join('|').includes('扭扭'), JSON.stringify(chips));
+    // 存片段不该动主帧
+    check("存片段不会往主帧里塞帧", (await js(`document.querySelectorAll('#fsTrack .fs-cell').length`)) === 0,
+      await js(`String(document.querySelectorAll('#fsTrack .fs-cell').length)`));
+    // 片段要能撤销
+    check("存片段后可撤销", (await js(`document.querySelector('#btnUndo').disabled`)) === false);
+    await js(`document.querySelector('#btnUndo').click()`);
+    await sleep(900);
+    check("撤销后少了一段片段", (await js(`document.querySelectorAll('#clipList .clip-chip').length`)) === 2,
+      await js(`String(document.querySelectorAll('#clipList .clip-chip').length)`));
+    await js(`document.querySelector('#btnRedo').click()`);
+    await sleep(900);
+    check("重做后又回到 3 段", (await js(`document.querySelectorAll('#clipList .clip-chip').length`)) === 3,
+      await js(`String(document.querySelectorAll('#clipList .clip-chip').length)`));
+
+    // ★ 导出宠物包：clips 必须真的写进包里，且每段帧文件都在
+    await js(`(() => { const el = document.querySelector('#stDance'); el.value = 'party'; el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await sleep(200);
+    await js(`document.querySelector('#btnStAdd').click()`);
+    await sleep(1500);
+    check("主帧也生成了（导出需要主帧）", (await js(`document.querySelectorAll('#fsTrack .fs-cell').length`)) === 8,
+      await js(`String(document.querySelectorAll('#fsTrack .fs-cell').length)`));
+    // ★ 真导出一次，拿到**真实的包数据**。
+    //   注意：不能去 stub 渲染进程的 window.api —— contextBridge 暴露的对象是只读的，
+    //   赋值会静默失败（实测：captured 一直是 null）。正确做法是在**主进程**拦 IPC 通道，
+    //   这样渲染进程走的是完整的真实导出链路。
+    let captured = null;
+    ipcMain.removeHandler('pack:save');
+    ipcMain.handle('pack:save', async (e, args) => {
+      captured = args;
+      return { ok: true, path: 'X:/fake.petpack' };
+    });
+    await js(`document.querySelector('#btnExport').click()`);
+    await sleep(1500);
+    const exported = captured ? {
+      clipCount: (captured.pack.clips || []).length,
+      clips: captured.pack.clips || [],
+      frameCount: (captured.images || []).length,
+      clipImageKeys: Object.keys(captured.clipImages || {}),
+    } : null;
+    check("导出时拿到了包数据", !!exported, JSON.stringify(exported));
+    check("导出的包里带 3 段动作片段", exported && exported.clipCount === 3, JSON.stringify(exported && exported.clips.map((c) => c.name)));
+    check("每段片段都有帧文件名", exported && exported.clips.every((c) => c.frames.length > 0 && c.frames.every((f) => f.file)),
+      JSON.stringify(exported && exported.clips.map((c) => c.frames.length)));
+    check("片段帧数据也一并给了导出（不是悬空引用）", exported && exported.clipImageKeys.length === 3, JSON.stringify(exported && exported.clipImageKeys));
+    check("片段名是舞步名（用户能看懂）", exported && exported.clips.map((c) => c.name).join('|').includes('狂欢'),
+      JSON.stringify(exported && exported.clips.map((c) => c.name)));
+  }
 
   // ★ 替换当前帧：帧数不变
   await js(`(() => { const cells = document.querySelectorAll('#fsTrack .fs-cell'); cells[2].click(); })()`);

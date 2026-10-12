@@ -1672,6 +1672,19 @@ window.__forceHop = () => { try { enterState(B, 'hop'); return true; } catch { r
 
 // 测试用：强制进入打瞌睡 / 注入光标坐标（便于自动化断言姿态，不依赖真实鼠标移动）
 window.__forceDoze = () => { try { enterState(B, 'doze'); return true; } catch { return false; } };
+// 测试用：把当前这次打瞌睡的**进度**直接推到指定值。
+// 为什么需要：打呼是按"睡眠进度 >= 35%"触发的，而进度靠逐帧累积 dt 推进 ——
+// 无头/离屏模式下 rAF 会被 Chromium 节流，累积 dt 远小于墙钟时间，
+// 于是"等 6 秒"在满负载时可能都到不了 35%（实测偶发失败）。
+// 断言要测的是"进度够了就会打呼"这个行为，不该顺带测调度器的运气。
+window.__setDozeProgressForTest = (p) => {
+  try {
+    if (B.state !== 'doze') return false;
+    const want = Math.min(0.99, Math.max(0, Number(p) || 0));
+    B.remaining = B.duration * (1 - want);
+    return true;
+  } catch { return false; }
+};
 // 测试用：注入一批互动并算出亲密度（不依赖真实时间流逝）。
 // 为什么需要：亲密度是"滑动窗口 + 时间衰减"，只能靠注入时间戳才测得稳定
 // （真等 30 分钟不现实，而且测试会随钟点变化）。

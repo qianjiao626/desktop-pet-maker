@@ -144,8 +144,13 @@ app.whenReady().then(async () => {
   }
 
   // 打呼：睡到 35% 后应冒出 Zzz
+  // ★ 不靠"真实时间流逝"：无头模式下 rAF 被节流，累积 dt 远小于墙钟时间，
+  //   满负载时轮询 6 秒都可能到不了 35%（实测偶发失败）。
+  //   改成把睡眠进度直接推到 50%，再轮询气泡 —— 断言的是"进度够了会打呼"这个行为本身。
+  const setProg = await pw.webContents.executeJavaScript('window.__setDozeProgressForTest(0.5)');
+  check('能把睡眠进度推到 50%（测试钩子可用）', setProg === true, String(setProg));
   let sawSnore = false;
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 120; i++) {
     const bubble = await pw.webContents.executeJavaScript(`(() => {
       const b = document.querySelector('#bubble');
       return b && !b.hidden ? b.textContent : '';

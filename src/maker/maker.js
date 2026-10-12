@@ -1297,7 +1297,8 @@ function snapshotState() {
  */
 function recordUndo() {
   if (suppressHistory) return;
-  if (!state.frames.length) return;
+  // 有帧、或有动作片段，都值得记一步 —— 工坊可以"只存片段不生成主帧"
+  if (!state.frames.length && !state.clips.length) return;
   history.push(snapshotState());
   updateUndoButtons();
 }
@@ -1329,7 +1330,8 @@ let suppressHistory = false;   // 撤销/重做期间不记录，否则会把「
 function recordUndoAfter() {
   if (suppressHistory) return;
   // 例外：允许把"空帧"状态也压栈 —— 否则「清空所有帧」能撤销、却永远重做不回来。
-  if (!state.frames.length && !history.size()) return;
+  // 同时：只要栈里已有东西（比如只有动作片段），也要继续记，否则重做无处可去。
+  if (!state.frames.length && !state.clips.length && !history.size()) return;
   history.push(snapshotState());
   updateUndoButtons();
 }
@@ -3148,6 +3150,19 @@ function stSchedulePreview() {
   ST.previewTimer = setTimeout(() => { ST.previewTimer = 0; stPreview(); }, 40);
 }
 
+/**
+ * 把工坊角色渲染成一段「片段帧」（带 data，供 clip 使用）。
+ * 与 stGenerateFrames 共用同一个渲染入口，保证"看到的"和"存下来的"一致。
+ */
+function stRenderClipFrames(cfg, frameCount) {
+  const list = renderCharacterFrames(cfg, { width: 256, height: 256, frames: frameCount });
+  return list.map((item) => {
+    const ctx = item.canvas.getContext('2d', { willReadFrequently: true });
+    const d = ctx.getImageData(0, 0, item.canvas.width, item.canvas.height);
+    return { data: d, durationMs: item.durationMs };
+  });
+}
+
 /** 把工坊角色变成真实的帧，返回加入的帧数 */
 function stGenerateFrames(cfg, frameCount) {
   const list = renderCharacterFrames(cfg, { width: 256, height: 256, frames: frameCount });
@@ -3205,6 +3220,26 @@ function stBind() {
     // 生成的帧已经是抠好的（本身就是透明背景）-> 关掉抠图，别把它当照片抠
     if ($('#cutMode')) $('#cutMode').value = 'none';
     setStatus('✅ 已生成 ' + made.length + ' 帧「' + cfg.name + '」，点「启用桌宠」就能上桌', 'ok');
+  };
+
+  // ★ 存为动作片段：主帧不动，只把这一段动作登记下来。
+  //   多存几段（不同舞步/不同配色），桌宠上桌后会**随机切换**，不会永远重复一个动作。
+  //   这条链路此前只接在"照片微动作"上，捏的小人存不了片段 —— 所以只能有一个舞步。
+  if ($('#btnStAddClip')) $('#btnStAddClip').onclick = () => {
+    const cfg = stReadCfg();
+    const n = parseInt($('#stFrames').value, 10) || 8;
+    recordUndo();
+    const frames = stRenderClipFrames(cfg, n);
+    if (!frames.length) { setStatus('生成片段失败：没有帧', 'err'); return; }
+    const cid = 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36);
+    // 片段名要能分辨：优先用舞步名，不跳就用角色名
+    const dn = (DANCES.find((d) => d.id === cfg.dance) || {}).name;
+    const clipName = (cfg.dance && cfg.dance !== 'none' ? dn : cfg.name) || cfg.name;
+    state.clips.push({ id: cid, name: String(clipName), weight: 1, frames });
+    renderClipList();
+    recordUndoAfter();
+    setStatus('✅ 已存为动作片段「' + clipName + '」（' + frames.length + ' 帧）。'
+      + '再换个舞步继续存，导出后桌宠会随机切换（当前共 ' + state.clips.length + ' 段）', 'ok');
   };
 
   $('#btnStReplace').onclick = () => {

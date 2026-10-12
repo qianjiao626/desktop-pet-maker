@@ -349,3 +349,40 @@ import {
     return true;
   })(), 'range');
 }
+
+// ---------- ★ 工坊能存「动作片段」（否则捏的小人只能有一个舞步） ----------
+// 背景：动作片段机制早就有了，但**只接在"照片微动作"上** ——
+// 捏的小人存不了片段，于是上桌后永远重复同一个舞步（真缺口）。
+{
+  const html = readFileSync('src/maker/index.html', 'utf8');
+  ok('工坊有「存为动作片段」按钮', html.includes('id="btnStAddClip"'), 'html');
+  ok('按钮文案说明了可以多存几段', /存为动作片段（可多存几段）/.test(html), 'label');
+
+  const maker = readFileSync('src/maker/maker.js', 'utf8');
+  ok('maker 绑定了该按钮', maker.includes("$('#btnStAddClip').onclick"), 'bind');
+  ok('存片段走的是 state.clips.push', /state\.clips\.push\(\{ id: cid, name: String\(clipName\)/.test(maker), 'push');
+  ok('片段名用舞步名（用户能分辨，不是一串 id）', maker.includes('DANCES.find((d) => d.id === cfg.dance)'), 'name');
+  ok('存片段会刷新片段列表', /state\.clips\.push[\s\S]{0,400}renderClipList\(\)/.test(maker), 'render');
+  // 只取这个按钮自己的处理块（跨到下一个函数就会误判）
+  const clipHandler = maker.match(/\$\('#btnStAddClip'\)\.onclick = \(\) => \{[\s\S]*?\n  \};/);
+  ok('能找到「存为片段」的处理块', !!clipHandler, 'handler');
+  ok('存片段不碰主帧（主帧不动）', !!clipHandler && !/state\.frames\s*=/.test(clipHandler[0]), clipHandler ? clipHandler[0].slice(0, 300) : '');
+  ok('存片段走同一个渲染入口（预览与导出一致）', maker.includes('stRenderClipFrames') && /stRenderClipFrames[\s\S]{0,200}renderCharacterFrames/.test(maker), 'render-shared');
+
+  // 撤销/重做的门槛不能只看"有没有帧" —— 否则"只存片段不生成主帧"时存不了/撤不了
+  const snap = maker.match(/function recordUndo\(\) \{[\s\S]*?\n\}/);
+  ok('recordUndo 允许"只有片段"时也记一步', !!snap && /!state\.frames\.length && !state\.clips\.length/.test(snap[0]), snap ? snap[0] : 'missing');
+  const after = maker.match(/function recordUndoAfter\(\) \{[\s\S]*?\n\}/);
+  ok('recordUndoAfter 同样考虑片段', !!after && /!state\.clips\.length/.test(after[0]), after ? after[0] : 'missing');
+}
+
+// ---------- 片段里的帧必须和"生成动画帧"一样是真像素 ----------
+{
+  // characterFrames 是两者的共同采样来源：段片段时也不能退化成静止帧
+  for (const d of DANCES) {
+    if (d.id === 'none') continue;
+    const fs = characterFrames({ dance: d.id }, 8);
+    const hashes = new Set(fs.map((f) => JSON.stringify([f.armL, f.armR, f.legL, f.legR, f.rotate, f.offsetY])));
+    ok(`${d.name}：8 帧里姿态各不相同（片段不会是"静止的 8 张"）`, hashes.size >= 6, String(hashes.size));
+  }
+}
