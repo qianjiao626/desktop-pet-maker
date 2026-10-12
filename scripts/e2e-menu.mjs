@@ -105,6 +105,39 @@ app.whenReady().then(async () => {
     check('取消静音后文案变回「静音气泡」', muteLabel2.includes('静音'), muteLabel2);
   }
 
+  // ---- 作息：不同时段要有不同倾向（用注入时间，不依赖跑测试的真实钟点）----
+  {
+    const hasHook = await px("typeof window.__setScheduleHourForTest === 'function'");
+    check('宠物有作息测试钩子', hasHook === true);
+    if (hasHook) {
+      const morning = await px("window.__setScheduleHourForTest(10)");
+      const late = await px("window.__setScheduleHourForTest(3)");
+      check('上午时段识别正确', morning && morning.part === 'morning', JSON.stringify(morning && morning.part));
+      check('凌晨时段识别正确', late && late.part === 'late', JSON.stringify(late && late.part));
+      check('上午更爱走动（walk 权重更大）',
+        morning && late && morning.weights.walk > late.weights.walk,
+        `morning=${morning && morning.weights.walk} late=${late && late.weights.walk}`);
+      check('凌晨更爱打瞌睡（doze 权重更大）',
+        morning && late && late.weights.doze > morning.weights.doze,
+        `morning=${morning && morning.weights.doze} late=${late && late.weights.doze}`);
+      check('权重都是正数或 0（没有 NaN/负值）',
+        morning && Object.values(morning.weights).every((v) => Number.isFinite(v) && v >= 0),
+        JSON.stringify(morning && morning.weights));
+
+      // 制作器侧开关存在，且能关掉作息
+      check('制作器有作息开关', await mx("!!document.querySelector('#chkSchedule')"));
+      await mx("(() => { const cb = document.querySelector('#chkSchedule'); cb.checked = false; cb.onchange(); return undefined; })()");
+      await sleep(500);
+      const offInfo = await px("window.__petDebug()");
+      check('关掉作息后宠物侧 scheduleOn=false', offInfo.scheduleOn === false, 'scheduleOn=' + offInfo.scheduleOn);
+      check('关掉作息后时段清空', !offInfo.schedulePart, 'part=' + offInfo.schedulePart);
+      await mx("(() => { const cb = document.querySelector('#chkSchedule'); cb.checked = true; cb.onchange(); return undefined; })()");
+      await sleep(500);
+      const onInfo = await px("window.__petDebug()");
+      check('重新打开作息后 scheduleOn=true', onInfo.scheduleOn === true, 'scheduleOn=' + onInfo.scheduleOn);
+    }
+  }
+
   // ---- 放大：尺寸必须真的变大 ----
   const b0 = bounds();
   await px(`document.querySelector('#menu .mi[data-act="bigger"]').click()`);

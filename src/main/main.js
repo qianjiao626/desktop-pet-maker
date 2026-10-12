@@ -1637,6 +1637,15 @@ ipcMain.handle('pet:setPowerSave', (e, on) => {
   return { ok: true, applied: n };
 });
 
+// 作息开关：同样转发给每一只（多宠物时不能只给当前那只）
+ipcMain.handle('pet:setSchedule', (e, on) => {
+  let n = 0;
+  for (const it of listPets()) {
+    try { it.win.webContents.send('pet:schedule', on !== false); n++; } catch (err) { /* 忽略 */ }
+  }
+  return { ok: true, applied: n };
+});
+
 // ---------- 快速模式：启用 / 停用（同进程，无需重启） ----------
 function ensurePetWindowVisibility() {
   const w = getPetWindow();

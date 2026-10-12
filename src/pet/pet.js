@@ -6,6 +6,7 @@ import { createBehavior, tickBehavior, enterState, pat as doPat, isWalking, targ
 import { sanitizeSpeech, speechDuration } from '../shared/speech.js';
 import { reactToNeighbor, gazeAt, yieldDirection } from '../shared/companions.js';
 import { moveMenuLabel, muteMenuLabel } from '../shared/quietmode.js';
+import { applyDayPart, partLabel } from '../shared/schedule.js';
 import { applyThrottle, frameGate } from '../shared/throttle.js';
 import { EVENTS, pickLine, shouldSpeak, lineDuration, toneOf } from '../shared/dialog.js';
 import { handState, fistState, pettingPose, strugglePose, HAND_DURATION, FIST_DURATION, PETTING_DURATION } from '../shared/effects.js';
@@ -65,8 +66,14 @@ let peers = [];              // 其它宠物在哪（主进程定期推送）—
 let quietPaused = false;     // 「暂停走动」：在专心工作时让它待着别乱走
 let quietMuted = false;      // 「静音气泡」：不冒任何台词（含事件台词与轮播）
 let powerSave = true;        // 省电节流：静止/打瞌睡时降帧（用户可关）
+let scheduleOn = true;       // 「作息」：按真实时间改变行为倾向（用户可关）
+let schedulePart = '';       // 当前生效的时段 id（变了才重算权重）
+// 基础权重：作息只在这个基础上乘系数，**不能直接乘到 B.weights 上**
+// （那样每更新一次就累积相乘，越算越偏，深夜会彻底不动）。
+let baseWeights = { idle: 0.22, walk: 0.52, lookAround: 0.18, doze: 0.05, hop: 0.16 };
 let _testFreeze = false;     // 仅测试用：冻结行为状态机（让强制状态不被切走）
 let lastDrawAt = 0;          // 上次**真正绘制**的时间（省电时不是每帧都画）
+let lastScheduleCheckAt = 0; // 上次检查作息的时间（每 60 秒一次就够）
 let drawCount = 0;           // 真正绘制（推进物理）的帧数
 let lastTargetFps = 0;       // 本帧算出的目标帧率（调试/测试用）
 let lastPeerReactAt = 0;     // 上次对同伴起反应的时间（做冷却）
@@ -999,6 +1006,23 @@ window.addEventListener('beforeunload', () => {
   try { api.savePos(pack.id, Math.round(S.body.x), Math.round(S.body.y)); } catch (err) { /* 忽略 */ }
 });
 
+/**
+ * 按真实时间刷新行为权重（作息）。
+ * 为什么不是每帧算：时段一小时才变一次，每帧算纯属浪费；
+ * 而且**权重只能从基础权重重算**，不能累乘（否则会越来越偏）。
+ * @param now Date 或时间戳（测试可注入）
+ */
+function refreshSchedule(now = new Date()) {
+  if (!scheduleOn) return;
+  let hour;
+  try { hour = now.getHours() + now.getMinutes() / 60; } catch (err) { return; }
+  const { weights, part } = applyDayPart(baseWeights, hour);
+  // 保留「活泼跳跃」开关：关掉时 hop 权重必须为 0
+  if (!hopEnabled) weights.hop = 0;
+  B.weights = weights;
+  schedulePart = part.id;
+}
+
 // ---------------- 主循环 ----------------
 let lastT = 0;
 function loop(ts) {
@@ -1022,6 +1046,9 @@ function loop(ts) {
   // 立刻记下本帧算出的目标帧率 —— 不能等 gate 通过再记：
   // 降帧时大部分帧都被 gate 挡掉，那样外部读到的永远是上一次的旧值（实测是 60）。
   lastTargetFps = fps;
+  // 作息：每 60 秒检查一次（时段按小时变，不需要更频繁）
+  if (ts - lastScheduleCheckAt > 60000) { lastScheduleCheckAt = ts; refreshSchedule(); }
+
   const gate = frameGate({ now: ts, lastDraw: lastDrawAt, fps });
   if (!gate.draw) return;      // 这一帧不画也不推进物理
   lastDrawAt = ts;
@@ -1528,12 +1555,26 @@ if (api.onPowerSave) api.onPowerSave((on) => {
   powerSave = on !== false;
 });
 
+if (api.onSchedule) api.onSchedule((on) => {
+  // 作息开关：关掉后行为权重回到"不分时段"的基础值。
+  scheduleOn = on !== false;
+  if (scheduleOn) {
+    refreshSchedule();
+  } else {
+    B.weights = { ...baseWeights };
+    if (!hopEnabled) B.weights.hop = 0;
+    schedulePart = '';
+  }
+});
+
 if (api.onQuickLook) api.onQuickLook((on) => { lookEnabled = !!on; });
 
 if (api.onQuickHop) api.onQuickHop((on) => {
   hopEnabled = !!on;
-  // 关闭跳跃时把权重清零：状态机不会选到 hop（而不是选到后不动）
-  B.weights.hop = hopEnabled ? 0.16 : 0;
+  // 关闭跳跃时把**基础权重**清零，再让作息重算 ——
+  // 不能直接改 B.weights（那是作息算出来的结果，下次刷新就被覆盖了）。
+  baseWeights.hop = hopEnabled ? 0.16 : 0;
+  refreshSchedule();
   if (!hopEnabled && B.state === 'hop') { B.state = 'idle'; B.remaining = 0; B.duration = 0; }
 });
 
@@ -1614,6 +1655,15 @@ window.__forceHop = () => { try { enterState(B, 'hop'); return true; } catch { r
 
 // 测试用：强制进入打瞌睡 / 注入光标坐标（便于自动化断言姿态，不依赖真实鼠标移动）
 window.__forceDoze = () => { try { enterState(B, 'doze'); return true; } catch { return false; } };
+// 测试用：按指定小时应用作息（不依赖跑测试时的真实钟点）。
+// 为什么必须能注入时间：作息的价值就是"不同时段不同表现"，
+// 如果只能测"现在这一刻"，那测试结果会随跑测试的时间而变（早上跑全绿、半夜跑全红）。
+window.__setScheduleHourForTest = (hour) => {
+  try {
+    refreshSchedule({ getHours: () => Math.floor(hour), getMinutes: () => Math.round((hour % 1) * 60) });
+    return { part: schedulePart, weights: { ...B.weights } };
+  } catch (err) { return null; }
+};
 // 测试用：走一次「被摸头」的完整路径（doPat + 台词），不依赖鼠标事件。
 // 为什么需要：静音开关要验证"摸了也不说话"，得能确定性地触发摸头。
 window.__forcePatForTest = () => {
@@ -1715,6 +1765,8 @@ window.__petDebug = () => ({
   drawCount,
   fpsNow: lastTargetFps,   // 本帧目标帧率
   powerSave,
+  scheduleOn,
+  schedulePart,   // 当前时段（作息）
   peerCount: peers.length,
   peerReact: peerReact ? { action: peerReact.action, until: Math.round(peerReact.until) } : null,
   peerIds: peers.map((x) => x.id),
@@ -1755,6 +1807,9 @@ window.__petDebug = () => ({
     // 省电模式：以包里的设置为准（制作器「物理」页可改），默认开。
     // 关掉就一律满帧 —— 画面最顺，但常驻时明显更费电。
     powerSave = !(pack.behavior && pack.behavior.powerSave === false);
+    // 作息：以包里的设置为准（默认开），并立刻按当前时间应用一次
+    scheduleOn = !(pack.behavior && pack.behavior.schedule === false);
+    if (scheduleOn) refreshSchedule();
     frameDurs = pack.frames.map((f) => f.durationMs);
     images = await Promise.all(framesToLoad.map((f) => loadImage(f.dataUrl)));
 

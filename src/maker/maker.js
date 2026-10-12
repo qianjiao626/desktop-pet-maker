@@ -475,6 +475,8 @@ function readPack() {
       personality: currentTemplate || 'default',
       // 省电模式：静止/打瞌睡降帧。默认开；关掉就一律满帧（更顺但更费电）。
       powerSave: $('#chkPowerSave') ? $('#chkPowerSave').checked : true,
+      // 作息：跟着真实时间改变行为倾向（默认开）。
+      schedule: $('#chkSchedule') ? $('#chkSchedule').checked : true,
     },
   };
 }
@@ -521,6 +523,7 @@ function applyPack(pack) {
   if (pack.behavior) {
     if (pack.behavior.personality) currentTemplate = pack.behavior.personality;
     if ($('#chkPowerSave') && pack.behavior.powerSave !== undefined) $('#chkPowerSave').checked = pack.behavior.powerSave !== false;
+    if ($('#chkSchedule') && pack.behavior.schedule !== undefined) $('#chkSchedule').checked = pack.behavior.schedule !== false;
     $('#corner').value = pack.behavior.startCorner || 'bottom-right';
     $('#keepAbove').checked = pack.behavior.keepAbove !== false;
   }
@@ -2186,6 +2189,19 @@ if ($('#btnLibEnableMulti')) $('#btnLibEnableMulti').onclick = async () => {
 
 // 省电模式开关：改了要**立刻**下发给正在跑的宠物（而不是等下次启用）。
 // 多宠物时主进程会转发给每一只。
+// 作息开关：同样立刻下发（不用等下次启用）
+if ($('#chkSchedule')) {
+  $('#chkSchedule').onchange = () => {
+    const on = $('#chkSchedule').checked;
+    try {
+      if (window.api.setSchedule) window.api.setSchedule(on);
+      setStatus(on ? '已开启作息（会跟着真实时间变化）' : '已关闭作息（一直保持同样的活跃度）', 'ok');
+    } catch (err) {
+      console.warn('[schedule] 切换失败：' + (err && err.message ? err.message : err));
+    }
+  };
+}
+
 if ($('#chkPowerSave')) {
   $('#chkPowerSave').onchange = () => {
     const on = $('#chkPowerSave').checked;
