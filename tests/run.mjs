@@ -65,6 +65,7 @@ await import('./headless.test.mjs');
 await import('./quietmode.test.mjs');
 await import('./schedule.test.mjs');
 await import('./bond.test.mjs');
+await import('./packversion.test.mjs');
 await import('./tray.test.mjs');
 await import('./ipc.test.mjs');
 const { pass, total } = report('桌宠制作器 单元测试');

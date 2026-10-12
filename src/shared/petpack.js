@@ -8,6 +8,8 @@ export const DEFAULT_PACK = {
   name: '我的桌宠',
   author: '',
   createdAt: '',
+  updatedAt: '',   // 作者最后一次导出的时间（用于判断哪个更新）
+  rev: 0,           // 修订号（同一时间内多次导出时用来分先后）
   // 帧序列：file 为包内文件名，durationMs 为该帧停留毫秒
   frames: [{ file: 'pet.png', durationMs: 120 }],
   // 统一画布尺寸（所有帧按此归一化，避免抖动）
@@ -140,6 +142,10 @@ export function normalizePack(input = {}) {
     name: str(i.name, d.name, 40),
     author: str(i.author, '', 40),
     createdAt: str(i.createdAt, new Date().toISOString(), 40),
+    // 版本信息（用于宠物包一键更新）：normalizePack 是**白名单式**的，
+    // 新字段不加进来就会被静默丢掉（实测：加了 updatedAt/rev 却发现包里没有）。
+    updatedAt: str(i.updatedAt, '', 40),
+    rev: (() => { const n = Number(i.rev); return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0; })(),
     frames,
     clips,
     canvas: { width: Math.round(cw), height: Math.round(ch) },

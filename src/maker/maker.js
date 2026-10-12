@@ -1074,11 +1074,32 @@ async function handleDroppedShares(files) {
   }
 }
 
+/**
+ * 安装前的版本预检 + 询问（宠物包一键更新的核心）。
+ * 为什么必须"先问再装"：覆盖是破坏性的，尤其"这个包比你现在用的更旧"要先警告；
+ * 装完再说就晚了（旧版已经把新版覆盖掉了）。
+ * @returns true 表示可以继续安装
+ */
+async function confirmInstallVersion(srcPath) {
+  let info = null;
+  try { info = await window.api.inspectPack(srcPath); } catch (err) { info = null; }
+  if (!info || !info.ok || !info.version) return true;   // 没有版本信息 / 首次安装 -> 直接装
+  const v = info.version;
+  if (v.result === 'same') {
+    setStatus('ℹ ' + (v.prompt || '这个版本已经装过了'), 'ok');
+    return true;    // 同版不拦，装一次也无害（可能是文件损坏后重装）
+  }
+  const detail = '\n\n当前：' + v.current + '\n这个包：' + v.incoming + '\n（' + (v.reason || '') + '）';
+  return window.confirm((v.prompt || '要覆盖同名宠物吗？') + detail);
+}
+
 /** 拖入 .petpack：安装并直接启动 —— 给「收到宠物包的人」一条最短路径 */
 async function handleDroppedPacks(files) {
   for (const f of files) {
     const p = (window.api.pathForFile && window.api.pathForFile(f)) || '';
     if (!p) { setStatus('无法读取文件路径，请改用「宠物库 → 安装宠物包…」', 'err'); continue; }
+    const okGo = await confirmInstallVersion(p);
+    if (!okGo) { setStatus('已取消更新「' + f.name + '」'); continue; }
     setStatus('正在安装「' + f.name + '」…');
     const r = await window.api.installAndRun(p);
     if (r && r.ok) {
@@ -2340,6 +2361,8 @@ if ($('#btnLibExport')) $('#btnLibExport').onclick = async () => {
 $('#btnLibInstall').onclick = async () => {
   const r = await window.api.openPack();
   if (!r || r.error) return;
+  const okGo = await confirmInstallVersion(r.file);
+  if (!okGo) { setStatus('已取消安装'); return; }
   const inst = await window.api.installPack(r.file);
   setStatus(
     inst.ok

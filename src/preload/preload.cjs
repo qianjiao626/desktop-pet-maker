@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('api', {
   revealFile: (p) => ipcRenderer.invoke('app:revealFile', p),
   appVersion: () => ipcRenderer.invoke('app:version'),
   listInstalled: () => ipcRenderer.invoke('pet:listInstalled'),
+  inspectPack: (srcPath) => ipcRenderer.invoke('pet:inspectPack', srcPath),
   installPack: (srcPath) => ipcRenderer.invoke('pet:install', srcPath),
   installAndRun: (srcPath) => ipcRenderer.invoke('pet:installAndRun', srcPath),
   runInstalled: (id) => ipcRenderer.invoke('pet:runInstalled', id),

@@ -18,6 +18,7 @@ import { startupSwitches, appMenuTemplate } from '../shared/platform.js';
 import { buildShareHtml, shareFileName } from '../shared/sharepack.js';
 import { assignSlugs, planSiteFiles } from '../shared/sharesite.js';
 import { shouldSave, sanitizePos, prunePositions } from '../shared/positionstore.js';
+import { stampForExport, compareVersions, updatePrompt, versionLabel } from '../shared/packversion.js';
 import { normalizeTemplateList, addTemplate, removeTemplate, renameTemplate, templateFromPack, normalizeTemplate, templateFileName, TEMPLATE_SCHEMA } from '../shared/mytemplates.js';
 import { planBatch, batchPackFor, summarizeBatch } from '../shared/batch.js';
 import { estimatePose, isPoseModelInstalled } from './pose.js';
@@ -302,7 +303,10 @@ function buildPackAndEntries(pack, images, clipImages) {
 }
 
 function writePackFile(pack, images, outPath, clipImages) {
-  const { pack: p, files } = buildPackAndEntries(pack, images, clipImages);
+  // 导出时打上版本戳（createdAt 保留、updatedAt 更新、rev 递增）——
+  // 这样接收方才能判断"这个包比我现在用的新还是旧"（宠物包一键更新的基础）。
+  const stamped = { ...pack, ...stampForExport(pack) };
+  const { pack: p, files } = buildPackAndEntries(stamped, images, clipImages);
   const v = validatePack(p);
   if (!v.ok) throw new Error(v.errors.join('；'));
   const entries = [
@@ -1137,6 +1141,33 @@ ipcMain.handle('pet:listInstalled', () => {
   return out;
 });
 
+// 安装前预检：这个包是"新版 / 同版 / 旧版"？（**不落盘**，只给结论）
+// 为什么要预检而不是"装完再说"：覆盖是破坏性的 —— 得让用户在动手之前决定，
+// 尤其是"这个包比你现在用的更旧"这种情况，必须先警告。
+ipcMain.handle('pet:inspectPack', (e, srcPath) => {
+  try {
+    if (!srcPath || !fs.existsSync(srcPath)) throw new Error('文件不存在');
+    const { pack } = readPackFile(srcPath);
+    const dir = petsDir();
+    const dest = path.join(dir, petPackFileName(pack.name || path.basename(srcPath)));
+    const existed = fs.existsSync(dest);
+    let version = null;
+    if (existed) {
+      try {
+        const { pack: current } = readPackFile(dest);
+        const cmp = compareVersions(current, pack);
+        const pr = updatePrompt(current, pack);
+        version = {
+          result: cmp.result, reason: cmp.reason,
+          current: versionLabel(current), incoming: versionLabel(pack),
+          prompt: pr.text, level: pr.level,
+        };
+      } catch (err) { version = null; }
+    }
+    return { ok: true, name: pack.name || path.basename(srcPath), existed, version };
+  } catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
+});
+
 ipcMain.handle('pet:install', (e, srcPath) => {
   let tmp = null;
   try {
@@ -1147,6 +1178,24 @@ ipcMain.handle('pet:install', (e, srcPath) => {
     const dest = path.join(dir, petPackFileName(pack.name || path.basename(srcPath)));
     const existed = fs.existsSync(dest);
 
+    // 「一键更新」判断：如果已经装过同名包，比较版本，把结论一起回报给界面。
+    // 注意：这里**只判断、不拦截** —— 是否覆盖由用户决定（界面会问）。
+    let version = null;
+    if (existed) {
+      try {
+        const { pack: current } = readPackFile(dest);
+        const cmp = compareVersions(current, pack);
+        version = {
+          result: cmp.result,
+          reason: cmp.reason,
+          current: versionLabel(current),
+          incoming: versionLabel(pack),
+          prompt: updatePrompt(current, pack).text,
+          level: updatePrompt(current, pack).level,
+        };
+      } catch (err) { version = null; }
+    }
+
     // 原子写入：先写临时文件再 rename，避免中途失败留下损坏的半包
     tmp = dest + '.tmp-install';
     fs.copyFileSync(srcPath, tmp);
@@ -1154,7 +1203,7 @@ ipcMain.handle('pet:install', (e, srcPath) => {
     fs.renameSync(tmp, dest);                // 同目录 rename 为原子操作
     tmp = null;
 
-    return { ok: true, path: dest, replaced: existed, id: path.basename(dest), name: pack.name || path.basename(dest) };
+    return { ok: true, path: dest, replaced: existed, id: path.basename(dest), name: pack.name || path.basename(dest), version };
   } catch (err) {
     if (tmp) { try { fs.unlinkSync(tmp); } catch {} }
     return { ok: false, errors: [String(err.message || err)] };

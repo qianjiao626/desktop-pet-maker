@@ -39,6 +39,7 @@ const suites = [
   ['e2e-dialog.mjs', []],
   ['e2e-menu.mjs', []],
   ['e2e-groups.mjs', []],
+  ['e2e-packversion.mjs', []],
   ['e2e-multipet.mjs', []],
   ['e2e-framereplace.mjs', []],
   ['e2e-tray.mjs', []],
