@@ -567,3 +567,52 @@ import {
   const html = readFileSync('src/maker/index.html', 'utf8');
   ok('界面文案告诉了用户怎么调频率', html.includes('调每个动作的出现频率'), 'copy');
 }
+
+// ---------- ★ 一键存全部舞步 + 片段 id 必须唯一 ----------
+// 背景：「8 个舞步手动点 8 次」太烦，用户很容易只存一两个，
+// 结果桌宠还是"老重复一个动作"。但批量创建引出一个新风险：
+// 片段 id 会变成包内帧文件名（clip_<id>_000.png），**撞号会让后一段静默覆盖前一段**
+// ——整段动作丢掉，而且不报错。早先的 id 只靠"时间戳+随机数"，
+// 同一毫秒连存 8 段时实测撞号率 2.70%（生日问题）。
+{
+  const maker = readFileSync('src/maker/maker.js', 'utf8');
+  const html = readFileSync('src/maker/index.html', 'utf8');
+
+  ok('工坊有「一键存全部舞步」按钮', html.includes('id="btnStAllClips"'), 'html');
+  ok('按钮文案说明了它省事', /一键存全部舞步/.test(html), 'copy');
+
+  const all = maker.match(/\$\('#btnStAllClips'\)\.onclick = \(\) => \{[\s\S]*?\n  \};/);
+  ok('找到「一键存全部」的处理块', !!all, 'missing');
+  ok('它会遍历所有舞步', !!all && /DANCES\.map\(\(d\) => d\.id\)/.test(all[0]), 'iterate');
+  ok('它跳过「不跳」（静止姿态不是动作，会稀释其它动作的频率）',
+    !!all && /filter\(\(id\) => id !== 'none'\)/.test(all[0]), 'skip-none');
+  ok('它写了撤销栈（一键存 8 段要能一次撤回）',
+    !!all && /recordUndo\(\)/.test(all[0]) && /recordUndoAfter\(\)/.test(all[0]), 'undo');
+
+  // 单存与批量存必须走同一个函数（否则两条路径产生的片段可能不一致）
+  const push = maker.match(/function stPushClip\(cfg, n\) \{[\s\S]*?\n  \}/);
+  ok('抽出共用的 stPushClip', !!push, 'shared');
+  ok('单存按钮也走 stPushClip', /btnStAddClip[\s\S]{0,900}stPushClip\(/.test(maker), 'single');
+  ok('批量存也走 stPushClip', !!all && /stPushClip\(/.test(all[0]), 'batch');
+
+  // ★ id 唯一性：必须有自增序号兜底（只靠时间戳+随机数会撞）
+  ok('片段 id 带自增序号（同毫秒连存也不撞号）',
+    !!push && /stClipSeq\+\+/.test(push[0]) && /stClipSeq\.toString\(36\)/.test(push[0]),
+    push ? push[0].slice(0, 300) : '');
+}
+
+// ---------- 片段 id 唯一性：模拟同毫秒连存 8 段，必须零撞号 ----------
+{
+  // 复刻实现里的 id 生成规则（自增序号 + 时间戳 + 随机尾）
+  const makeId = (() => {
+    let seq = 0;
+    return () => { seq++; return 'c' + Date.now().toString(36) + '_' + seq.toString(36) + Math.floor(Math.random() * 1296).toString(36); };
+  })();
+  let dup = 0;
+  for (let t = 0; t < 300; t++) {
+    const ids = new Set();
+    for (let i = 0; i < 8; i++) ids.add(makeId());
+    if (ids.size < 8) dup++;
+  }
+  ok('同毫秒连存 8 段：id 零撞号（300 轮）', dup === 0, dup + ' 轮出现撞号');
+}

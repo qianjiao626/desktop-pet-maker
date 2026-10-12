@@ -491,6 +491,38 @@ app.whenReady().then(async () => {
     await addClip('party');
     await addClip('wave');
     await addClip('twist');
+    // ★ 一键存全部舞步：8 个舞步手动点 8 次太烦，而且很容易只存一两个，
+    //   结果桌宠还是"老重复一个动作"。
+    {
+      // 先清空，从零开始
+      await js(`(() => { for (const b of document.querySelectorAll('#clipList .clip-del')) b.click(); return undefined; })()`);
+      await sleep(400);
+      check("清空后片段列表为空", (await js(`document.querySelectorAll('#clipList .clip-chip').length`)) === 0);
+      await js(`document.querySelector('#btnStAllClips').click()`);
+      await sleep(2500);
+      const ids = await js(`[...document.querySelectorAll('#clipList .clip-chip')].map(c => c.dataset.clip)`);
+      check("一键存全部：存下 8 段（= 除「不跳」外的全部舞步）", ids.length === 8, String(ids.length));
+      check("一键存全部：片段 id 互不重复（撞号会静默覆盖整段动作）",
+        new Set(ids).size === ids.length, JSON.stringify(ids));
+      // 每段都该有帧，不是空壳
+      const sizes = await js(`(async () => {
+        const cs = await import('../shared/charstudio.js');
+        return [...document.querySelectorAll('#clipList .clip-chip')].map(c => c.textContent);
+      })()`);
+      check("每段片段都有帧（不是空壳）", sizes.every((t) => /\d+帧/.test(t) && !/· 0帧/.test(t)),
+        JSON.stringify(sizes));
+      // 撤销要能一次撤回这 8 段
+      await js(`document.querySelector('#btnUndo').click()`);
+      await sleep(900);
+      check("一键存全部可一次撤销（回到 0 段）",
+        (await js(`document.querySelectorAll('#clipList .clip-chip').length`)) === 0,
+        await js(`String(document.querySelectorAll('#clipList .clip-chip').length)`));
+    }
+
+    // 再手动存 3 段（后面的断言依赖这 3 段）
+    await addClip('party');
+    await addClip('wave');
+    await addClip('twist');
     const chips = await js(`[...document.querySelectorAll('#clipList .clip-chip')].map(c => c.textContent.trim())`);
     check("存了 3 段动作片段", chips.length === 3, JSON.stringify(chips));
     check("片段名能分辨出舞步（不是一串 id）",

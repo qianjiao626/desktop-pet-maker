@@ -3452,20 +3452,57 @@ function stBind() {
   // ★ 存为动作片段：主帧不动，只把这一段动作登记下来。
   //   多存几段（不同舞步/不同配色），桌宠上桌后会**随机切换**，不会永远重复一个动作。
   //   这条链路此前只接在"照片微动作"上，捏的小人存不了片段 —— 所以只能有一个舞步。
+  /**
+   * 把一个舞步存成动作片段。单存与"一键存全部"共用这一段，
+   * 保证两条路径产生的片段**完全一致**（不会一个走了归一化、另一个没走）。
+   * @returns 成功返回片段名，失败返回 null
+   */
+  let stClipSeq = 0;
+  function stPushClip(cfg, n) {
+    const frames = normalizeClipFramesToMain(stRenderClipFrames(cfg, n));
+    if (!frames.length) return null;
+    // ★ id 必须**确定性唯一**：片段 id 会变成包内帧文件名
+    //   （clip_<id>_000.png），撞号会让后一段**静默覆盖**前一段的帧 —— 整段动作丢掉。
+    //   早先只靠"时间戳+随机数"，而"一键存全部"是同一毫秒内连存 8 段，
+    //   生日问题下撞号概率约 3%，太高了。这里加自增序号兜底。
+    stClipSeq++;
+    const cid = 'c' + Date.now().toString(36) + '_' + stClipSeq.toString(36)
+      + Math.floor(Math.random() * 1296).toString(36);
+    const dn = (DANCES.find((d) => d.id === cfg.dance) || {}).name;
+    const clipName = (cfg.dance && cfg.dance !== 'none' ? dn : cfg.name) || cfg.name;
+    state.clips.push({ id: cid, name: String(clipName), weight: 1, frames });
+    return String(clipName);
+  }
+
+  // ★ 一键存全部舞步：8 个舞步手动点 8 次太烦，而且用户很容易只存一两个，
+  //   结果桌宠还是"老重复一个动作"。这个按钮把「舞蹈」里的每个舞步都存一段。
+  if ($('#btnStAllClips')) $('#btnStAllClips').onclick = () => {
+    const cfg = stReadCfg();
+    const n = parseInt($('#stFrames').value, 10) || 8;
+    // 跳过 "不跳"（那是静止姿态，不是动作）—— 存进去只会稀释其它动作的出现频率
+    const ids = DANCES.map((d) => d.id).filter((id) => id !== 'none');
+    recordUndo();
+    const names = [];
+    for (const id of ids) {
+      const nm = stPushClip({ ...cfg, dance: id }, n);
+      if (nm) names.push(nm);
+    }
+    if (!names.length) { setStatus('没能生成动作片段', 'err'); return; }
+    renderClipList();
+    recordUndoAfter();
+    setStatus('✅ 已一次存下 ' + names.length + ' 段动作：' + names.join(' / ')
+      + '。导出后桌宠会随机换着跳（每段旁的 −/＋ 可调出现频率）', 'ok');
+  };
+
   if ($('#btnStAddClip')) $('#btnStAddClip').onclick = () => {
     const cfg = stReadCfg();
     const n = parseInt($('#stFrames').value, 10) || 8;
     recordUndo();
-    const frames = normalizeClipFramesToMain(stRenderClipFrames(cfg, n));
-    if (!frames.length) { setStatus('生成片段失败：没有帧', 'err'); return; }
-    const cid = 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36);
-    // 片段名要能分辨：优先用舞步名，不跳就用角色名
-    const dn = (DANCES.find((d) => d.id === cfg.dance) || {}).name;
-    const clipName = (cfg.dance && cfg.dance !== 'none' ? dn : cfg.name) || cfg.name;
-    state.clips.push({ id: cid, name: String(clipName), weight: 1, frames });
+    const clipName = stPushClip(cfg, n);
+    if (!clipName) { setStatus('生成片段失败：没有帧', 'err'); return; }
     renderClipList();
     recordUndoAfter();
-    setStatus('✅ 已存为动作片段「' + clipName + '」（' + frames.length + ' 帧）。'
+    setStatus('✅ 已存为动作片段「' + clipName + '」。'
       + '再换个舞步继续存，导出后桌宠会随机切换（当前共 ' + state.clips.length + ' 段）', 'ok');
   };
 
