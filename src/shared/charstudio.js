@@ -22,7 +22,7 @@ export const MOUTH_TYPES = ['smile', 'open', 'cat', 'flat'];
 /** 形体：pet = 圆滚滚的小宠物；human = 有头有身子的小人 */
 export const FIGURE_TYPES = ['pet', 'human'];
 /** 可选舞蹈 id（定义在下面的 DANCES；这里先声明是为了 normalizeCharacter 能用） */
-export const DANCE_IDS = ['none', 'bounce', 'wave', 'twist', 'party'];
+export const DANCE_IDS = ['none', 'bounce', 'wave', 'twist', 'step', 'nod', 'spin', 'greet', 'party'];
 
 /** 预设配色（都是纯色，避免渐变的复杂度） */
 export const PALETTES = [
@@ -227,6 +227,74 @@ export const DANCES = [
     },
   },
   {
+    id: 'step', name: '侧步', emoji: '🚶',
+    desc: '左右踏步，身体跟着横向摆动',
+    pose(t) {
+      const s = Math.sin(t * Math.PI * 2);
+      const c = Math.cos(t * Math.PI * 2);
+      return {
+        // 左右踏步：横向位移是主角（这是 offsetX 通道存在的理由）
+        offsetX: s * 0.06,
+        offsetY: -Math.abs(c) * 0.03,
+        rotate: -s * 0.12,
+        // 迈出去的那条腿抬起来，另一条踩实
+        legOutL: Math.max(0, s) * 0.55, legOutR: Math.max(0, -s) * 0.55,
+        raiseL: 0.20 + Math.max(0, -s) * 0.30, raiseR: 0.20 + Math.max(0, s) * 0.30,
+      };
+    },
+  },
+  {
+    id: 'nod', name: '点头', emoji: '🙂',
+    desc: '头一点一点的，像在认真听你说话',
+    pose(t) {
+      const s = Math.sin(t * Math.PI * 2);
+      const s2 = Math.sin(t * Math.PI * 4);
+      return {
+        // 点头幅度：第一版给 0.22，渲染出来几乎看不出（和静止一样）。
+        // 现在加大到 0.42 —— 仍然克制（不到 25 度），但肉眼能看清在点头。
+        nod: s2 * 0.42,
+        offsetY: s * 0.012,
+        rotate: s2 * 0.02,
+        raiseL: 0.12 + s * 0.10, raiseR: 0.12 - s * 0.10,
+        legOutL: 0, legOutR: 0,
+      };
+    },
+  },
+  {
+    id: 'spin', name: '转圈', emoji: '🌀',
+    desc: '左右转头看来看去，双手跟着摆',
+    pose(t) {
+      const s = Math.sin(t * Math.PI * 2);
+      const c = Math.cos(t * Math.PI * 2);
+      return {
+        // turn 是把头 + 五官偏移，不是整幅图翻面（那样会连身体一起反）
+        turn: s,
+        tilt: c * 0.16,          // 顺带歪歪头，更俏皮
+        nod: Math.max(0, c) * 0.35,
+        offsetY: c * 0.02,
+        rotate: s * 0.10,
+        raiseL: 0.30 + Math.max(0, s) * 0.45, raiseR: 0.30 + Math.max(0, -s) * 0.45,
+        legOutL: Math.max(0, s) * 0.20, legOutR: Math.max(0, -s) * 0.20,
+      };
+    },
+  },
+  {
+    id: 'greet', name: '打招呼', emoji: '🤚',
+    desc: '一只手举高挥，头轻轻点一下，像在跟你问好',
+    pose(t) {
+      const s = Math.sin(t * Math.PI * 2);
+      const s2 = Math.sin(t * Math.PI * 4);
+      return {
+        raiseL: 0.85 + s2 * 0.15,   // 举着手挥
+        raiseR: 0.10 + s * 0.10,
+        nod: s2 * 0.24,
+        offsetY: s * 0.010,
+        rotate: -s * 0.03,
+        legOutL: 0, legOutR: 0,
+      };
+    },
+  },
+  {
     id: 'party', name: '狂欢', emoji: '🎉',
     desc: '双手一起举高挥动，跳得最起劲',
     pose(t) {
@@ -297,7 +365,7 @@ export function danceOf(id) {
 export function dancePose(id, t) {
   const d = danceOf(id);
   if (d.id === 'none' || typeof d.pose !== 'function') {
-    return { offsetY: 0, rotate: 0, scaleX: 1, scaleY: 1, armL: 0, armR: 0, legL: 0, legR: 0 };
+    return { offsetX: 0, offsetY: 0, rotate: 0, scaleX: 1, scaleY: 1, nod: 0, tilt: 0, turn: 0, armL: 0, armR: 0, legL: 0, legR: 0 };
   }
   const p = d.pose(t) || {};
   const num = (v, dflt) => (Number.isFinite(Number(v)) ? Number(v) : dflt);
@@ -308,10 +376,22 @@ export function dancePose(id, t) {
   //   这样无论体型大小，举手都不会伸出画布被裁掉（实测踩过）。
   const frac = (v) => clamp(num(v, 0), 0, 1);
   return {
+    // 水平位移（比例，相对画布宽）：做"左右踏步"这类动作必需 ——
+    // 只有上下浮动时，怎么动都像原地弹，不像在跳舞。
+    // 上限比竖直更保守（0.08）：横着挪太多会撞到画布边缘被裁掉。
+    offsetX: clamp(num(p.offsetX, 0), -0.08, 0.08),
     offsetY: clamp(num(p.offsetY, 0), -0.12, 0.12),
     rotate: clamp(num(p.rotate, 0), -0.45, 0.45),
     scaleX: clamp(num(p.scaleX, 1), 0.85, 1.15),
     scaleY: clamp(num(p.scaleY, 1), 0.85, 1.15),
+    // 点头：头**往下沉 + 竖直压扁**（正面小人的点头是透视缩短，不是平面旋转）。
+    //   ★ 踩过的坑：第一版用平面内 rotate 做"点头"，那画出来其实是**歪头**
+    //   （脑袋左右倒），完全不是点头的意思。正面角色的点头必须靠"下压 + 压扁"。
+    nod: clamp(num(p.nod, 0), -1, 1),
+    // 歪头：平面内旋转（可爱的小动作），与点头是两回事
+    tilt: clamp(num(p.tilt, 0), -0.5, 0.5),
+    // 转身：只把**头 + 五官**镜像过来，像侧过头去看，而不是整幅图翻面
+    turn: clamp(num(p.turn, 0), -1, 1),
     // armL/armR/legL/legR 都是"抬起程度"，左右各自由渲染层决定方向
     armL: frac(p.raiseL), armR: frac(p.raiseR),
     legL: frac(p.legOutL), legR: frac(p.legOutR),
@@ -506,7 +586,11 @@ export function characterFrames(cfg, count = 8) {
       offsetY: bob * 0.03 + p.offsetY,   // 相对画布高度的比例
       scaleX: (1 + squash * 0.02) * p.scaleX,
       scaleY: (1 - squash * 0.02) * p.scaleY,
+      offsetX: p.offsetX,
       rotate: p.rotate,
+      nod: p.nod,
+      tilt: p.tilt,
+      turn: p.turn,
       // 舞蹈是**叠加**在基础姿势上的：跳舞时 basePose 取 0（回到自然站立再跳），
       // 不跳时用 basePose —— 这样"照照片捏的小人"不跳时就是他本来的站姿。
       armL: dance === 'none' ? c.basePose.armL : p.armL,

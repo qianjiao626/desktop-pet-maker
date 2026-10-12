@@ -33,7 +33,7 @@ app.whenReady().then(async () => {
   const figOpts = await js(`[...document.querySelectorAll('#stFigure option')].map(o => o.value).join(',')`);
   check("形体选项是 pet,human", figOpts === 'pet,human', figOpts);
   const danceOpts = await js(`[...document.querySelectorAll('#stDance option')].map(o => o.value).join(',')`);
-  check("舞蹈选项齐全（含 4 个真动作）", danceOpts === 'none,bounce,wave,twist,party', danceOpts);
+  check("舞蹈选项齐全（含 8 个真动作）", danceOpts === 'none,bounce,wave,twist,step,nod,spin,greet,party', danceOpts);
 
   // ★ 预览必须真的画出东西（不是一张空画布）
   const stat = () => js(`(() => {
@@ -199,6 +199,60 @@ app.whenReady().then(async () => {
   const stillMax = Math.max(...stillDiff);
   check("选「不跳」时轮廓变化明显更小（dance 参数真的生效）", stillMax < maxDiff * 0.6,
     "still=" + (stillMax * 100).toFixed(1) + "% vs dance=" + (maxDiff * 100).toFixed(1) + "%");
+
+  // ★ 新舞步（侧步 / 点头 / 转圈 / 打招呼）必须真的动，而且动的是"对的地方"。
+  //   重点验两条容易被做错的语义：
+  //     ① 侧步要有**水平位移**（只有上下浮动的话，怎么动都像原地弹）
+  //     ② 点头必须是**头往下沉/压扁**，不是平面内旋转（那叫歪头）
+  {
+    const shapeOf = (dance) => js(`(async () => {
+      const mod = await import('./charrender.js');
+      const cs = await import('../shared/charstudio.js');
+      const cfg = cs.normalizeCharacter({ figureType: 'human', dance: '${dance}', size: 0.85 });
+      const specs = cs.characterFrames(cfg, 8);
+      const out = [];
+      for (const spec of specs) {
+        const cv = document.createElement('canvas');
+        mod.renderCharacter(cv, cfg, { width: 160, height: 160, frame: spec });
+        const d = cv.getContext('2d').getImageData(0, 0, 160, 160).data;
+        let top = -1, bot = -1, sumX = 0, n = 0;
+        for (let y = 0; y < 160; y++) for (let x = 0; x < 160; x++) {
+          if (d[(y*160+x)*4+3] > 200) {
+            if (top < 0) top = y; bot = y; sumX += x; n++;
+          }
+        }
+        out.push({ top, bot, cx: n ? +(sumX/n).toFixed(2) : 0 });
+      }
+      return out;
+    })()`);
+
+    const step = await shapeOf('step');
+    const stepCx = step.map(f => f.cx);
+    check('侧步有水平位移（真的左右走，不是原地弹）',
+      Math.max(...stepCx) - Math.min(...stepCx) > 1.0,
+      'cx spread=' + (Math.max(...stepCx) - Math.min(...stepCx)).toFixed(2));
+
+    const nod = await shapeOf('nod');
+    const nodTop = nod.map(f => f.top);
+    check('点头时头顶位置真的在动（下压可见）',
+      Math.max(...nodTop) - Math.min(...nodTop) >= 2,
+      'top spread=' + (Math.max(...nodTop) - Math.min(...nodTop)));
+    // 点头不该让整体横向重心大幅偏移（那是歪头的特征）
+    const nodCx = nod.map(f => f.cx);
+    check('点头不是歪头（横向重心基本不晃）',
+      Math.max(...nodCx) - Math.min(...nodCx) < 2.0,
+      'cx spread=' + (Math.max(...nodCx) - Math.min(...nodCx)).toFixed(2));
+
+    const spin = await shapeOf('spin');
+    const spinCx = spin.map(f => f.cx);
+    check('转圈时头真的在左右偏', Math.max(...spinCx) - Math.min(...spinCx) > 0.8,
+      'cx spread=' + (Math.max(...spinCx) - Math.min(...spinCx)).toFixed(2));
+
+    const greet = await shapeOf('greet');
+    check('打招呼时手真的举起来了（不透明像素有变化）',
+      new Set(greet.map(f => f.bot)).size > 1 || new Set(greet.map(f => f.top)).size > 1,
+      JSON.stringify(greet.map(f => [f.top, f.bot])));
+  }
 
   // ★ 小人形体：必须真的画出"头 + 身子"，而不是圆滚滚的宠物。
   //   用几何量而不是"看起来像"：头部的宽度应该明显窄于整身、且集中在画布上半部。

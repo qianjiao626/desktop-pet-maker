@@ -167,7 +167,8 @@ export function renderCharacter(canvas, cfg, opt = {}) {
   if (f) {
     const pivotX = plan.body.x + plan.body.w / 2;
     const pivotY = plan.body.y + plan.body.h * 0.5;
-    ctx.translate(W / 2, H / 2 + H * (f.offsetY || 0));
+    // 水平位移与竖直一样是"相对画布的比例"（左右踏步要用）
+    ctx.translate(W / 2 + W * (f.offsetX || 0), H / 2 + H * (f.offsetY || 0));
     ctx.scale(f.scaleX || 1, f.scaleY || 1);
     ctx.translate(-W / 2, -H / 2);
     if (f.rotate) {
@@ -219,29 +220,61 @@ export function renderCharacter(canvas, cfg, opt = {}) {
   ctx.fill();
 
   // ★ 小人：头（画在身体之后，让脖子被头压住）+ 脖子
+  //   点头 / 转身都要**只动头**，所以这里单独开一层变换。
+  const nod = (f && f.nod) || 0;      // 点头（下压 + 压扁）
+  const tilt = (f && f.tilt) || 0;    // 歪头（平面内旋转）
+  const turn = (f && f.turn) || 0;
+  const headPivotY = plan.head ? (plan.body.y + plan.body.h * 0.10) : 0;   // 绕脖子根转
+  // 点头用"绕脖子根旋转"实现（是真正的转动，不是位移糊弄）；
+  // 转身用"头的横移 + 五官横移"实现 —— 正面 Q 版小人的侧头，
+  // 关键是**五官要跟着偏**，而不是把整颗头镜像（那会看出是假的）。
+  // 侧头的横移要**小**：第一版给 0.22 倍头半径，渲染出来五官与头明显脱开，
+  // 像贴纸错位（一眼假）。真正的"侧头"感主要来自五官相对头的偏移，
+  // 所以头只偏一点点、五官偏得多一点。
+  // ★ 点头 vs 歪头是**两个不同的动作**，别混：
+  //   - 点头（nod）：头往下沉 + 竖直压扁 —— 正面角色低头是"透视缩短"，
+  //     不是平面旋转。第一版用 rotate 做点头，画出来其实是"歪头"（脑袋左右倒），
+  //     完全不是点头的意思（渲染出来一看就不对）。
+  //   - 歪头（tilt）：平面内旋转，才是可爱的小歪头。
+  const nodDrop = Math.max(0, nod) * (plan.head ? plan.head.r * 0.30 : 0);
+  const nodSquash = 1 - Math.max(0, nod) * 0.16;
+  const headShiftX = turn * (plan.head ? plan.head.r * 0.06 : 0);
+  const headShiftY = Math.abs(turn) * (plan.head ? plan.head.r * 0.04 : 0) + nodDrop;
+  if (plan.head && (tilt || nodSquash !== 1)) {
+    ctx.save();
+    ctx.translate(plan.head.cx, plan.head.cy + headShiftY);
+    if (tilt) ctx.rotate(tilt);                       // 歪头
+    if (nodSquash !== 1) ctx.scale(1.03, nodSquash);  // 点头：竖直压扁（略加宽保持体积感）
+    ctx.translate(-plan.head.cx, -(plan.head.cy + headShiftY));
+  }
   if (plan.head) {
     // 脖子：一小段连在头和躯干之间，别让头"飘着"
     ctx.strokeStyle = pal.body;
     ctx.lineWidth = Math.max(2, plan.head.r * 0.34);
     ctx.lineCap = 'round';
     ctx.beginPath();
-    ctx.moveTo(plan.head.cx, plan.head.cy + plan.head.r * 0.55);
+    ctx.moveTo(plan.head.cx + headShiftX * 0.5, plan.head.cy + plan.head.r * 0.55 + headShiftY);
     ctx.lineTo(plan.head.cx, plan.body.y + plan.body.h * 0.10);
     ctx.stroke();
     // 头
     ctx.fillStyle = pal.body;
     ctx.beginPath();
-    ctx.arc(plan.head.cx, plan.head.cy, plan.head.r, 0, Math.PI * 2);
+    // 点头时头"压扁"：用椭圆而不是圆，才有低头的透视感
+    ctx.ellipse(plan.head.cx + headShiftX, plan.head.cy + headShiftY,
+      plan.head.r * 1.03, plan.head.r * nodSquash, 0, 0, Math.PI * 2);
     ctx.fill();
   }
+  if (plan.head && (tilt || nodSquash !== 1)) ctx.restore();
 
-  // 腮红
+  // 腮红（跟着头一起偏）
+  const faceDx = headShiftX + turn * (plan.head ? plan.head.r * 0.14 : 0);
+  const faceDy = headShiftY;
   ctx.fillStyle = 'rgba(255,120,140,0.42)';
-  for (const b of plan.blushes) { ctx.beginPath(); ctx.arc(b.cx, b.cy, b.r, 0, Math.PI * 2); ctx.fill(); }
+  for (const b of plan.blushes) { ctx.beginPath(); ctx.arc(b.cx + faceDx, b.cy + faceDy, b.r, 0, Math.PI * 2); ctx.fill(); }
 
-  // 眼睛 / 嘴
-  for (const e of plan.eyes) drawEye(ctx, e, pal, dark);
-  drawMouth(ctx, plan.mouth, dark);
+  // 眼睛 / 嘴（五官跟着头偏 —— 这是"侧头"看起来真的关键）
+  for (const e of plan.eyes) drawEye(ctx, { ...e, cx: e.cx + faceDx, cy: e.cy + faceDy }, pal, dark);
+  drawMouth(ctx, { ...plan.mouth, cx: plan.mouth.cx + faceDx, cy: plan.mouth.cy + faceDy }, dark);
 
   ctx.restore();
   return plan;

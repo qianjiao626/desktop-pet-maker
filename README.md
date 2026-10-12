@@ -4,16 +4,16 @@
 
 > 技术选型参考了这些开源项目：`B666T/DesktopPetGenerator`（上传图→抠图→动画→打包）、
 > `PC2005-cloud/dsh-pet`（宠物包 / 素材链思路）、`ln2146/ai-desktop-pet-generator`（抠图→精灵流水线）。
-> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 3342 项单测 + 44 套 e2e**。
+> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 3378 项单测 + 44 套 e2e**。
 
 ---
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.45](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.45/desktop-pet-maker-win32-x64-v0.9.45.zip)**
+**[下载 Windows 免安装版 v0.9.46](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.46/desktop-pet-maker-win32-x64-v0.9.46.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.45）：
+**Linux x64**（v0.9.46）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
@@ -112,7 +112,8 @@ npm start
   小人**一样能跳那 4 种舞**（同一套舞蹈机制）。
   ⚠️ 这也是「画一个小人 → 操控他跳舞」这句里**"画小人"**那半边的兑现：
   以前工坊只能捏出圆滚滚的宠物，捏不出人
-- **💃 让他跳舞（4 种舞步）**：蹦蹦 / 招手 / 扭扭 / 狂欢 —— 手绕肩、脚绕髋真的摆起来，
+- **💃 让他跳舞（8 种舞步）**：蹦蹦 / 招手 / 扭扭 / **侧步 / 点头 / 转圈 / 打招呼** / 狂欢 ——
+  手绕肩、脚绕髋真的摆起来，还会**左右踏步**、**点头**、**侧头看你**，
   工坊预览里**当场就能看到在跳**（不用先导出再猜）。
   ⚠️ 为什么只有「捏的小人」能跳舞：静态照片没有背面、没有关节内侧、没有被遮挡的肢体像素，
   任何"搬运像素"都补不出来（三条渲染路线都实测失败）；而绘制小人的像素是**我们自己画的**，
@@ -317,7 +318,7 @@ ZIP 内含 `pet.json` + 若干帧图片 + `README.txt`：
 | GIF 处理 | 自研解析器 + 内联 gifuct-js 的 LZW（MIT） |
 | 打包格式 | 自研 ZIP 读写（零第三方依赖） |
 | 交互 | 像素级 alpha 命中测试 + `setIgnoreMouseEvents` 穿透 |
-| 测试 | 自研断言框架：3342 项单测 + 44 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站 / 角色工坊 / 对话） |
+| 测试 | 自研断言框架：3378 项单测 + 44 套 e2e（真实驱动 UI / 宠物 / 宠物库 / 打包 / 分享站 / 角色工坊 / 对话） |
 
 ## 🧪 测试
 

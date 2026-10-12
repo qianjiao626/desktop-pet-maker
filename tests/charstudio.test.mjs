@@ -166,7 +166,10 @@ import {
   ok('每个舞蹈都有 name/emoji/desc', DANCES.every((d) => d.name && d.emoji && d.desc), 'ok');
   ok('第一个是"不跳"（默认不能一上来就蹦迪）', DANCES[0].id === 'none', DANCES[0].id);
   ok('未知 id 退回"不跳"（不返回 undefined）', danceOf('nope').id === 'none', danceOf('nope').id);
-  ok('none 的姿态是全零', JSON.stringify(dancePose('none', 0.3)) === JSON.stringify({ offsetY: 0, rotate: 0, scaleX: 1, scaleY: 1, armL: 0, armR: 0, legL: 0, legR: 0 }), JSON.stringify(dancePose('none', 0.3)));
+  ok('none 的姿态是全零', JSON.stringify(dancePose('none', 0.3)) === JSON.stringify({
+    offsetX: 0, offsetY: 0, rotate: 0, scaleX: 1, scaleY: 1, nod: 0, tilt: 0, turn: 0,
+    armL: 0, armR: 0, legL: 0, legR: 0,
+  }), JSON.stringify(dancePose('none', 0.3)));
 }
 
 // ---------- 每个舞蹈都必须"真的在动"，而且要动得能被看见 ----------
@@ -177,17 +180,25 @@ import {
     const poses = [];
     for (let i = 0; i < SAMPLES; i++) poses.push(dancePose(d.id, i / SAMPLES));
 
-    // ① 手臂或身体必须真的摆起来（否则叫"跳舞"却纹丝不动）
-    const armSpread = Math.max(...poses.map((p) => Math.abs(p.armL))) ;
-    ok(`${d.name}：手臂真的摆起来了`, armSpread > 0.5, 'armL max=' + armSpread.toFixed(3));
-    // ② 至少有一项在变（不是恒定姿态）
+    // ① 必须有**看得见**的动作（否则叫"跳舞"却纹丝不动）。
+    //    注意：不能一律要求"手臂大幅摆" —— 「点头」这类舞步本来就以头为主，
+    //    手臂只是轻微配合。所以这里看**整体表现力**：
+    //    手臂 / 头(点头+转头) / 身体(位移+旋转+腿) 三者取最大的那一项。
     const vary = (k) => Math.max(...poses.map((p) => p[k])) - Math.min(...poses.map((p) => p[k]));
-    const total = vary('armL') + vary('armR') + vary('rotate') + vary('offsetY') + vary('legL') + vary('legR');
-    ok(`${d.name}：姿态确实在变化（不是恒定姿势）`, total > 0.3, 'total=' + total.toFixed(3));
+    const armAmp = Math.max(...poses.map((p) => Math.max(p.armL, p.armR)));
+    const headAmp = Math.max(vary('nod'), vary('turn'));
+    const bodyAmp = vary('offsetX') + vary('offsetY') + vary('rotate') + vary('legL') + vary('legR');
+    const best = Math.max(armAmp, headAmp * 2, bodyAmp);
+    ok(`${d.name}：有看得见的动作（手臂/头/身体至少一处够明显）`, best > 0.3,
+      `arm=${armAmp.toFixed(2)} head=${headAmp.toFixed(2)} body=${bodyAmp.toFixed(2)}`);
+    // ② 至少有一项在变（不是恒定姿态）
+    const total = armAmp + headAmp + bodyAmp;
+    ok(`${d.name}：姿态确实在变化（不是恒定姿势）`, total > 0.2, 'total=' + total.toFixed(3));
 
     // ③ 幅度必须被 clamp 住（防以后写错数值画出畸形/穿帮）。
     //    聚合成一条断言：逐采样点断言会把测试数量灌成几百条，噪音大。
-    const bad = poses.filter((p) => Math.abs(p.offsetY) > 0.12 || Math.abs(p.rotate) > 0.45
+    const bad = poses.filter((p) => Math.abs(p.offsetY) > 0.12 || Math.abs(p.offsetX) > 0.08
+      || Math.abs(p.nod) > 0.5 || Math.abs(p.turn) > 1 || Math.abs(p.rotate) > 0.45
       || Math.abs(p.armL) > 1.85 || Math.abs(p.armR) > 1.85
       || Math.abs(p.legL) > 0.75 || Math.abs(p.legR) > 0.75
       || p.scaleX < 0.85 || p.scaleX > 1.15 || p.scaleY < 0.85 || p.scaleY > 1.15);
@@ -203,7 +214,9 @@ import {
     const b = dancePose(d.id, 1);
     const close = (x, y) => Math.abs(x - y) < 1e-6;
     ok(`${d.name}：首尾姿态接得上（无缝循环）`,
-      close(a.armL, b.armL) && close(a.armR, b.armR) && close(a.offsetY, b.offsetY) && close(a.rotate, b.rotate),
+      close(a.armL, b.armL) && close(a.armR, b.armR) && close(a.offsetY, b.offsetY)
+      && close(a.offsetX, b.offsetX) && close(a.rotate, b.rotate)
+      && close(a.nod, b.nod) && close(a.turn, b.turn),
       JSON.stringify(a) + ' vs ' + JSON.stringify(b));
   }
 }
@@ -491,7 +504,7 @@ import {
   ok('maker 写配置时回填 figureType', /\$\('#stFigure'\)\.value = c\.figureType/.test(maker), 'write');
   ok('形体切换会触发重绘', /'stName', 'stFigure'/.test(maker), 'bind');
   const render = readFileSync('src/maker/charrender.js', 'utf8');
-  ok('渲染层会画头（小人）', render.includes('plan.head') && render.includes('arc(plan.head.cx'), 'head');
+  ok('渲染层会画头（小人）', render.includes('plan.head') && /ellipse\(plan\.head\.cx/.test(render), 'head');
   ok('渲染层画了脖子（头不飘着）', render.includes('脖子') || /moveTo\(plan\.head\.cx/.test(render), 'neck');
 }
 
