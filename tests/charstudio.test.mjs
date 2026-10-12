@@ -494,3 +494,22 @@ import {
   ok('渲染层会画头（小人）', render.includes('plan.head') && render.includes('arc(plan.head.cx'), 'head');
   ok('渲染层画了脖子（头不飘着）', render.includes('脖子') || /moveTo\(plan\.head\.cx/.test(render), 'neck');
 }
+
+// ---------- ★ 静态守护：没有 DOM 控件的配置字段，必须从 ST.cfg 带过来 ----------
+// 背景（v0.9.40 实测踩到）：stReadCfg() 是从 DOM 拼配置的，
+// 而 proportions / basePose 没有对应控件 —— 于是「照照片捏小人」写进去的比例
+// 会在下一次读配置时被 normalizeCharacter 用默认值填回，**静默丢掉**：
+// 按钮点了、状态栏也提示成功，但画面纹丝不动（e2e 抓到 3373 -> 3373）。
+// 这类字段必须显式从 ST.cfg 带过来（paletteId 早就是这么做的）。
+{
+  const maker = readFileSync('src/maker/maker.js', 'utf8');
+  const fn = maker.match(/function stReadCfg\(\) \{[\s\S]*?\n\}/);
+  ok('找到 stReadCfg', !!fn, 'missing');
+  for (const field of ['paletteId', 'proportions', 'basePose']) {
+    ok(`stReadCfg 从 ST.cfg 带出没有控件的字段：${field}`,
+      !!fn && new RegExp('ST\\.cfg\\.' + field).test(fn[0]), field);
+  }
+  // 反向：这几个字段不该被写成"从 DOM 读"（那会读成 undefined）
+  ok('proportions 不是从 DOM 控件读的', !!fn && !/proportions:\s*\$\('#/.test(fn[0]), 'dom');
+  ok('basePose 不是从 DOM 控件读的', !!fn && !/basePose:\s*\$\('#/.test(fn[0]), 'dom');
+}

@@ -262,6 +262,66 @@ app.whenReady().then(async () => {
     await sleep(250);
   }
 
+  // ★ 「照着照片捏一个小人」：识别到的比例与站姿必须真的进到几何里。
+  //   这里不依赖真模型（跑不动），而是把 poseEstimate 的返回值在**主进程**拦下来，
+  //   塞一组构造好的关键点 —— 这样测的是"拿到关键点之后这条链路对不对"。
+  {
+    const body = await js(`!!document.querySelector('#btnPoseToChar')`);
+    check('身体识别面板有「照着照片捏一个小人」按钮', body === true, String(body));
+
+    // 造一组关键点：站直、左臂举起（用来验证"站姿被带进去"）
+    const kps = [
+      ['nose', 0.50, 0.16], ['leftShoulder', 0.40, 0.30], ['rightShoulder', 0.60, 0.30],
+      ['leftHip', 0.43, 0.50], ['rightHip', 0.57, 0.50],
+      ['leftElbow', 0.30, 0.30], ['rightElbow', 0.64, 0.46],
+      ['leftWrist', 0.20, 0.30], ['rightWrist', 0.66, 0.62],
+      ['leftKnee', 0.43, 0.70], ['rightKnee', 0.57, 0.70],
+      ['leftAnkle', 0.43, 0.88], ['rightAnkle', 0.57, 0.88],
+    ].map(([name, x, y]) => ({ name, x, y, score: 0.9 }));
+
+    ipcMain.removeHandler('pose:estimate');
+    ipcMain.handle('pose:estimate', async () => ({
+      ok: true, keypoints: kps, srcWidth: 256, srcHeight: 256, material: { ok: true },
+    }));
+
+    // 先确保有一帧可识别
+    await js(`(() => { const el = document.querySelector('#stFigure'); el.value = 'human'; el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+    await sleep(250);
+    await js(`(() => { window.confirm = () => true; return undefined; })()`);
+    await js(`document.querySelector('#btnClearFrames').click()`);
+    await sleep(300);
+    await js(`document.querySelector('#btnStAdd').click()`);
+    await sleep(1500);
+
+    const beforePlan = await js(`(async () => {
+      const cs = await import('../shared/charstudio.js');
+      const cv = document.querySelector('#studioCanvas');
+      const c = cv.getContext('2d');
+      const d = c.getImageData(0, 0, cv.width, cv.height).data;
+      let opaque = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) opaque++;
+      return { opaque };
+    })()`);
+
+    await js(`document.querySelector('#btnPoseToChar').click()`);
+    await sleep(1500);
+    const afterStatus = await js(`document.querySelector('#status') ? document.querySelector('#status').textContent : ''`);
+    check('点按钮后给出了结果反馈', /捏出一个小人|识别失败|没识别到/.test(String(afterStatus)), String(afterStatus).slice(0, 80));
+    check('真的切到了工坊页（当场能看到）', (await js(`document.querySelector('.tabpane[data-pane="studio"]').classList.contains('active')`)) === true);
+
+    // 比例与站姿必须真的落到界面上（读 select/复选框之外的状态：看画面是否变化）
+    const afterPlan = await js(`(() => {
+      const cv = document.querySelector('#studioCanvas');
+      const c = cv.getContext('2d');
+      const d = c.getImageData(0, 0, cv.width, cv.height).data;
+      let opaque = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 200) opaque++;
+      return { opaque };
+    })()`);
+    check('画面真的变了（比例/站姿进了几何）', beforePlan.opaque !== afterPlan.opaque,
+      beforePlan.opaque + ' -> ' + afterPlan.opaque);
+    check('形体被切成小人', (await js(`document.querySelector('#stFigure').value`)) === 'human',
+      await js(`document.querySelector('#stFigure').value`));
+  }
+
   // ★ 工坊也能存「动作片段」：多存几段不同舞步，桌宠上桌后会随机切换。
   //   这条链路此前只接在"照片微动作"上 —— 捏的小人只能有一个舞步（真缺口）。
   {

@@ -195,6 +195,8 @@ export function renderCharacter(canvas, cfg, opt = {}) {
   //
   // 帧里给的是「抬起程度 0~1」，真实角度 = 程度 × 该肢体的安全上限 × 方向。
   // 乘上限是为了让任何体型举手都不会伸出画布（实测踩过：写死 90° 会把手裁掉）。
+  // 帧里给的是"抬起程度"；真实角度 = 程度 × 该肢体的安全上限 × 方向。
+  // basePose 已经由 characterFrames 合进 frac（不跳时就是他本来的站姿）。
   const limbAngle = (limb, frac) => {
     const k = Number(frac) || 0;
     return k * (limb.maxOut || 0) * (limb.dir || 1);

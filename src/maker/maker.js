@@ -24,6 +24,7 @@ import { mapKey, isTypingTarget } from '../shared/makerkeys.js';
 import { progressText, summaryText, progressPct } from '../shared/launchprogress.js';
 import { helpText } from '../shared/help.js';
 import { normalizeCharacter, randomCharacter, PALETTES, paletteOf, DEFAULT_CHARACTER, characterFrames, DANCES } from '../shared/charstudio.js';
+import { poseToCharacter, applyPoseToCharacter } from '../shared/posetochar.js';
 import { renderCharacter, renderCharacterFrames } from './charrender.js';
 
 const $ = (s) => document.querySelector(s);
@@ -1509,6 +1510,8 @@ function poseUpdateButtons() {
   if (fit) fit.disabled = POSE.busy || !installed || !state.frames.length;
   const anim = $('#btnPoseAnim');
   if (anim) anim.disabled = POSE.busy || !installed || !state.frames.length;
+  const p2c = $('#btnPoseToChar');
+  if (p2c) p2c.disabled = POSE.busy || !installed || !state.frames.length;
   const dl = $('#btnPoseDownload');
   if (dl) dl.disabled = POSE.busy;
 }
@@ -1640,6 +1643,51 @@ $('#btnPoseFit').onclick = async () => {
     setStatus('自动适配异常：' + String(err.message || err), 'err');
   }
 };
+// ★ 照着照片捏一个**可动小人**：识别 -> 取身体比例与站姿 -> 用参数化小人重画。
+//
+// 为什么这条路能成，而"让照片本身跳舞"不能成（必须写清楚，别被误解成绕路）：
+//   让照片跳舞要**搬运像素** —— 但照片没有背面、没有关节内侧、没有被遮挡肢体的像素，
+//   任何搬运都补不出来（三条渲染路线实测全败，见 HANDOFF 已知坑第 23 条）。
+//   这里做的是**换介质**：照片只当**参照**（提供比例与姿势），
+//   像素由我们按参数**重新画** —— 抬手后腋下长什么样我们知道，不存在信息缺失。
+//   专业 2D 骨骼动画（Spine 等）也是这么做的：绑骨 + 重绘，而不是扭曲照片。
+$('#btnPoseToChar') && ($('#btnPoseToChar').onclick = async () => {
+  if (POSE.busy || !state.frames.length) return;
+  const frame = state.frames[state.activeIdx] || state.frames[0];
+  const src = frame.original || frame.current;
+  if (!src) { setStatus('当前帧没有图片数据', 'err'); return; }
+  POSE.busy = true; poseUpdateButtons();
+  setStatus('正在识别身体比例…');
+  try {
+    const r = await window.api.poseEstimate(imageDataToDataURL(src));
+    POSE.busy = false; poseUpdateButtons();
+    if (!r || !r.ok) {
+      if (r && r.needModel) { setStatus('请先下载识别模型', 'err'); await refreshPoseInfo(); return; }
+      setStatus('识别失败：' + ((r && r.errors) || []).join(';'), 'err');
+      return;
+    }
+    const derived = poseToCharacter(r.keypoints, { width: 256, height: 256 });
+    if (!derived) {
+      setStatus('没识别到可靠的躯干（肩+髋），换一张正面站好的照片试试', 'err');
+      return;
+    }
+    // 把比例与站姿套到当前工坊外观上（配色/五官等保持用户已选的）
+    const cfg = normalizeCharacter(applyPoseToCharacter(stReadCfg(), derived));
+    stWriteCfg(cfg);
+    // 切到工坊页，让用户当场看到"照着他捏出来的小人"
+    const tab = document.querySelector('.tab[data-tab="studio"]');
+    if (tab) tab.click();
+    const pct = (v) => Math.round(v * 100) + '%';
+    setStatus('✅ 已照着他捏出一个小人：头 ' + pct(cfg.proportions.head)
+      + ' · 躯干 ' + pct(cfg.proportions.torso) + ' · 腿 ' + pct(cfg.proportions.leg)
+      + (derived.notes.length ? '（' + derived.notes.join('；') + '）' : '')
+      + '。选个舞步再点「生成动画帧」就能跳起来', 'ok');
+  } catch (err) {
+    POSE.busy = false; poseUpdateButtons();
+    setStatus('照着照片捏小人失败：' + String((err && err.message) || err), 'err');
+  }
+});
+
 // 生成骨架微动作：把当前帧当作标准立绘，按选中的微动作烘出多帧。
 // 闸门在 canAnimate（主进程）：素材不合格会直接拒绝并说明原因。
 /** 渲染「动作片段」列表（可删） */
@@ -3035,6 +3083,10 @@ function stReadCfg() {
     eyeType: $('#stEye') ? $('#stEye').value : 'round',
     mouthType: $('#stMouth') ? $('#stMouth').value : 'smile',
     paletteId: ST.cfg.paletteId,
+    // 这两个没有对应的 DOM 控件（由「照照片捏小人」写入），必须从 ST.cfg 带过来。
+    // 否则每次读配置都会退回默认比例 —— 白名单式归一化把新字段静默丢掉（踩过）。
+    proportions: ST.cfg.proportions,
+    basePose: ST.cfg.basePose,
     size: $('#stSize') ? parseInt($('#stSize').value, 10) / 100 : 0.7,
     eyeGap: $('#stGap') ? parseInt($('#stGap').value, 10) / 100 : 0.5,
     eyeSize: $('#stEyeSize') ? parseInt($('#stEyeSize').value, 10) / 100 : 0.5,

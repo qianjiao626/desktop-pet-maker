@@ -62,6 +62,38 @@ export const DEFAULT_CHARACTER = Object.freeze({
 });
 
 /**
+ * 归一化「身体比例」（占整身高度的比例）。
+ * 从照片推出来的比例可能离谱（识别抖动），这里统一 clamp 到"人样"的范围 ——
+ * 宁可不太像，也绝不能画成怪物。
+ */
+export function normProportions(input) {
+  const o = (input && typeof input === 'object') ? input : {};
+  const d = { head: 0.28, torso: 0.38, leg: 0.24, arm: 0.42 };
+  const one = (v, lo, hi, dflt) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return dflt;
+    return n < lo ? lo : n > hi ? hi : n;
+  };
+  return {
+    head: one(o.head, 0.20, 0.46, d.head),
+    torso: one(o.torso, 0.24, 0.55, d.torso),
+    leg: one(o.leg, 0.12, 0.42, d.leg),
+    arm: one(o.arm, 0.16, 0.55, d.arm),
+  };
+}
+
+/** 归一化「基础姿势」（各肢体的抬起程度 0~1） */
+export function normBasePose(input) {
+  const o = (input && typeof input === 'object') ? input : {};
+  const one = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return 0;
+    return n < 0 ? 0 : n > 1 ? 1 : n;
+  };
+  return { armL: one(o.armL), armR: one(o.armR), legL: one(o.legL), legR: one(o.legR) };
+}
+
+/**
  * 校验 / 归一化一份角色配置。
  * 用户可能从文件导入半截配置，或者滑块给出 NaN —— 这里兜住所有情况。
  */
@@ -90,6 +122,9 @@ export function normalizeCharacter(input) {
     // 白名单式归一化：新字段必须在这里放行，否则存盘/载入会静默丢掉它
     dance: pick(DANCE_IDS, o.dance, d.dance),
     figureType: pick(FIGURE_TYPES, o.figureType, d.figureType),
+    // 由「照照片捏小人」写入的比例与基础姿势（可选；不填就用默认比例）
+    proportions: normProportions(o.proportions),
+    basePose: normBasePose(o.basePose),
   };
 }
 
@@ -290,9 +325,14 @@ export function characterPlan(cfg, box = {}) {
     //   结果头大到冲出画布顶部、脖子只剩两个小圆点（渲染出来一眼就废）。
     //   正确做法：先定总高，再按比例切分「头 : 脖子 : 躯干 : 腿」。
     const totalH = H * (0.52 + 0.34 * c.size);   // 整个人（含腿）占画布高度
-    const legH = totalH * 0.22;                  // 腿（躯干下缘到脚）
-    const torsoH = totalH * 0.36;
-    const headR = totalH * 0.21;                 // 头半径（直径 = 42% 总高，Q 版比例）
+    // 比例来自配置（可由「照照片捏小人」写入；默认是一套 Q 版比例）。
+    // 先归一化，让"头 + 躯干 + 腿"正好铺满 totalH，不会因为比例之和 ≠ 1 而溢出。
+    const pr = normProportions(c.proportions);
+    const sum = Math.max(0.1, pr.head + pr.torso + pr.leg);
+    const headD = totalH * (pr.head / sum);      // 头的直径
+    const torsoH = totalH * (pr.torso / sum);
+    const legH = totalH * (pr.leg / sum);
+    const headR = headD / 2;
     const gap = totalH * 0.015;                  // 脖子留一点点空隙
     const top = (H - totalH) / 2 - H * 0.02;     // 整体略上移，给脚底留边
     const headCy = top + headR;
@@ -373,10 +413,11 @@ export function characterPlan(cfg, box = {}) {
   // 再额外留一点余量，避免椭圆/圆角方的边界误差。
   const shoulderInset = bw * (0.5 - halfWidthAt(shoulderYFrac)) + bw * 0.02;
   const shoulderX = (side) => (side === 'left' ? body.x + shoulderInset : body.x + bw - shoulderInset);
+  const bp = normBasePose(c.basePose);
   const hands = c.arms ? [
-    { side: 'left', dir: 1, sx: shoulderX('left'), sy: body.y + bh * shoulderYFrac,
+    { side: 'left', dir: 1, base: bp.armL, sx: shoulderX('left'), sy: body.y + bh * shoulderYFrac,
       ex: body.x + bw * (isHuman ? -0.06 : -0.02), ey: body.y + bh * (isHuman ? 0.74 : 0.78), r: handR, w: armW },
-    { side: 'right', dir: -1, sx: shoulderX('right'), sy: body.y + bh * shoulderYFrac,
+    { side: 'right', dir: -1, base: bp.armR, sx: shoulderX('right'), sy: body.y + bh * shoulderYFrac,
       ex: body.x + bw * (isHuman ? 1.06 : 1.02), ey: body.y + bh * (isHuman ? 0.74 : 0.78), r: handR, w: armW },
   ] : [];
   const footR = bw * (isHuman ? 0.17 : 0.13);
@@ -387,9 +428,9 @@ export function characterPlan(cfg, box = {}) {
   const legTop = body.y + bh * (isHuman ? 0.96 : 0.84);
   const legBot = isHuman ? (body.y + bh + (body.legH || 0)) : (body.y + bh * 1.06);
   const feet = c.legs ? [
-    { side: 'left', dir: 1, sx: cx - legSpan, sy: legTop,
+    { side: 'left', dir: 1, base: bp.legL, sx: cx - legSpan, sy: legTop,
       ex: cx - legSpan * 1.1, ey: legBot, r: footR, w: legW },
-    { side: 'right', dir: -1, sx: cx + legSpan, sy: legTop,
+    { side: 'right', dir: -1, base: bp.legR, sx: cx + legSpan, sy: legTop,
       ex: cx + legSpan * 1.1, ey: legBot, r: footR, w: legW },
   ] : [];
 
@@ -435,8 +476,12 @@ export function characterFrames(cfg, count = 8) {
       scaleX: (1 + squash * 0.02) * p.scaleX,
       scaleY: (1 - squash * 0.02) * p.scaleY,
       rotate: p.rotate,
-      armL: p.armL, armR: p.armR,
-      legL: p.legL, legR: p.legR,
+      // 舞蹈是**叠加**在基础姿势上的：跳舞时 basePose 取 0（回到自然站立再跳），
+      // 不跳时用 basePose —— 这样"照照片捏的小人"不跳时就是他本来的站姿。
+      armL: dance === 'none' ? c.basePose.armL : p.armL,
+      armR: dance === 'none' ? c.basePose.armR : p.armR,
+      legL: dance === 'none' ? c.basePose.legL : p.legL,
+      legR: dance === 'none' ? c.basePose.legR : p.legR,
     });
   }
   return out;
