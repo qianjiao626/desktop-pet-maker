@@ -107,11 +107,17 @@ app.whenReady().then(async () => {
     // 观察足够长时间（状态机含发呆/打瞌睡，短窗内可能恰好不动）
     const seen = new Set();
     let minX = Infinity, maxX = -Infinity;
-    for (let i = 0; i < 90; i++) {
+    // ★ 采样要"等状态真的出现过"，而不是固定跑 90 次。
+    //   无头模式（跑 e2e 时不显示窗口，桌面保持干净）下 rAF 被 Chromium 节流，
+    //   22 秒的固定采样窗口有时覆盖不到 walk（状态机随机 + 低帧率），
+    //   表现为偶发假失败（实测：单跑全绿、全量跑挂）。
+    //   改成"看到 walk 且位置动过就提前收工，否则最多等 40 秒"。
+    for (let i = 0; i < 160; i++) {
       const d = await pw.webContents.executeJavaScript('window.__petDebug()');
       seen.add(d.behavior.state);
       if (d.body.x < minX) minX = d.body.x;
       if (d.body.x > maxX) maxX = d.body.x;
+      if (seen.has('walk') && (maxX - minX) > 2) break;
       await sleep(250);
     }
     check('观察到爬动状态', seen.has('walk'), [...seen].join(','));

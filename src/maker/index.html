@@ -479,6 +479,24 @@
     </div>
     <div class="lib-groups" id="libGroups"></div>
     <div class="lib-grid" id="libGrid"></div>
+
+    <!-- 宠物详情面板（点卡片上的 ⓘ 打开） -->
+    <div class="lib-detail" id="libDetail" hidden>
+      <div class="lib-detail-head">
+        <img id="libDetailThumb" alt="" />
+        <div class="lib-detail-title">
+          <b id="libDetailName"></b>
+          <span id="libDetailSummary"></span>
+        </div>
+        <button id="btnLibDetailClose" class="ghost" title="关闭详情">✕</button>
+      </div>
+      <div class="lib-detail-rows" id="libDetailRows"></div>
+      <div class="lib-detail-actions">
+        <button id="btnLibDetailRun" class="primary">▶ 启动这只</button>
+        <button id="btnLibDetailFolder" class="ghost">在文件夹里显示</button>
+        <button id="btnLibDetailCopyPath" class="ghost">复制路径</button>
+      </div>
+    </div>
     <div class="modal-foot">
       <button id="btnLibOpenDir" class="ghost">打开文件夹</button>
       <button id="btnLibExport" class="ghost">📦 导出合集…</button>

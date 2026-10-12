@@ -9,6 +9,7 @@ import { synthesizeMotion, MOTION_NAMES, motionCanvasSize } from '../shared/moti
 import { fitFrameLimit, fmtBytes } from '../shared/budget.js';
 import { sanitizeSpeech, isSpeakable, pushSpeech } from '../shared/speech.js';
 import { emptyState, normalizeState, isFavorite, toggleFavorite, filterLibrary, groupsOf } from '../shared/library.js';
+import { detailRows, detailSummary, humanBytes } from '../shared/petdetail.js';
 import { classifyDroppedFiles, isShareFile } from '../shared/dnd.js';
 import { PERSONALITY_TEMPLATES, applyTemplate, templateFlags, matchTemplate } from '../shared/templates.js';
 import { applyCustomTemplate, matchCustomTemplate } from '../shared/mytemplates.js';
@@ -1963,6 +1964,81 @@ async function openGroupAdmin(g) {
   } catch (err) { setStatus('改名异常：' + String((err && err.message) || err), 'err'); }
 }
 
+// ---------------- 宠物详情面板 ----------------
+// 以前库里只有"名字 + 帧数 + 体积"，想看作者/版本/画布/片段数就得去翻文件夹。
+// 这里把详情折成一组条目显示（折行逻辑在 shared/petdetail.js，有单测）。
+let libDetailId = null;   // 当前正在看详情的那只（id）
+
+function showPetDetail(item) {
+  const box = $('#libDetail');
+  if (!box || !item) return;
+  libDetailId = item.id;
+  const groups = groupsOf(libPrefs, item.id).map((g) => g.name);
+  const rows = detailRows(item, {
+    clips: item.clips,
+    canvas: item.canvas,
+    version: item.version,
+    groups,
+  });
+  const thumb = $('#libDetailThumb');
+  if (thumb) { thumb.src = item.thumb || ''; thumb.alt = item.name || ''; }
+  const nm = $('#libDetailName');
+  if (nm) nm.textContent = item.name || item.id || '未命名';
+  const sum = $('#libDetailSummary');
+  if (sum) sum.textContent = detailSummary(item, { clips: item.clips });
+  const list = $('#libDetailRows');
+  if (list) {
+    list.innerHTML = rows.map((r) =>
+      '<div class="lib-detail-row' + (r.tone === 'warn' ? ' warn' : '') + '">'
+      + '<span class="k">' + escapeHtml(r.label) + '</span>'
+      + '<span class="v">' + escapeHtml(r.value) + '</span></div>').join('');
+  }
+  box.hidden = false;
+}
+
+function hidePetDetail() {
+  const box = $('#libDetail');
+  if (box) box.hidden = true;
+  libDetailId = null;
+}
+
+function currentDetailItem() {
+  return libCache.find((x) => x.id === libDetailId) || null;
+}
+
+if ($('#btnLibDetailClose')) $('#btnLibDetailClose').onclick = () => hidePetDetail();
+if ($('#btnLibDetailRun')) $('#btnLibDetailRun').onclick = async () => {
+  const it = currentDetailItem();
+  if (!it || it.broken) { setStatus('这只读不出来，没法启动', 'err'); return; }
+  hidePetDetail();
+  const modal = $('#libModal');
+  if (modal) modal.hidden = true;
+  setStatus('正在启动「' + it.name + '」…');
+  const r = await window.api.runInstalled(it.id);
+  if (r && r.ok) {
+    setStatus('✅「' + it.name + '」已出现在桌面上', 'ok');
+    try { const saved = await window.api.libraryTouch(it.id); if (saved) libPrefs = normalizeState(saved); } catch (err) { /* 忽略 */ }
+  } else {
+    setStatus('启动失败：' + (((r && r.errors) || []).join('; ') || '未知错误'), 'err');
+  }
+};
+if ($('#btnLibDetailFolder')) $('#btnLibDetailFolder').onclick = () => {
+  const it = currentDetailItem();
+  if (it && it.file) window.api.revealFile(it.file);
+};
+if ($('#btnLibDetailCopyPath')) $('#btnLibDetailCopyPath').onclick = async () => {
+  const it = currentDetailItem();
+  if (!it || !it.file) return;
+  const btn = $('#btnLibDetailCopyPath');
+  try {
+    await navigator.clipboard.writeText(it.file);
+    if (btn) { const old = btn.textContent; btn.textContent = '✓ 已复制'; setTimeout(() => { btn.textContent = old; }, 1500); }
+  } catch (err) {
+    if (btn) btn.textContent = '复制失败';
+    setStatus('复制失败（可以手动从详情里选中路径）', 'err');
+  }
+};
+
 function libFiltered() {
   return filterLibrary(libCache, {
     query: ($('#libSearch') ? $('#libSearch').value : ''),
@@ -1999,6 +2075,9 @@ function renderLibrary() {
 
   renderGroupBar();
   updateMultiButton();
+  // 详情面板：如果正在看的那只已经不在当前列表里（换了筛选/分组/被删），就关掉它，
+  // 否则会显示"已经看不到的那只"的详情，让人以为它还在。
+  if (libDetailId && !list.some((x) => x.id === libDetailId)) hidePetDetail();
   grid.innerHTML = '';
   for (const it of list) {
     const el = document.createElement('div');
@@ -2015,11 +2094,14 @@ function renderLibrary() {
         + '<button class="lib-fav' + (fav ? ' on' : '') + '" title="'
         + (fav ? '取消收藏' : '收藏') + '">' + (fav ? '★' : '☆') + '</button>'
         + '<button class="lib-groupbtn" title="加入 / 移出分组">🏷</button>'
+        + '<button class="lib-infobtn" title="看这只的详细信息">ⓘ</button>'
         + (inGroups.length ? '<div class="lib-gtags">' + inGroups.map((g) => '<span class="lib-gtag">' + escapeHtml(g.name) + '</span>').join('') + '</div>' : '')
         // 只给「用户自己装的」打标：内置宠物占多数，全都标反而成了噪音
         + (it.builtin ? '' : '<span class="lib-badge mine">我的</span>')
         + '<div class="nm">' + escapeHtml(it.name) + '</div>'
         + '<div class="meta">' + it.frames + ' 帧 · ' + (it.size / 1024).toFixed(0) + ' KB</div>';
+      const ibtn = el.querySelector('.lib-infobtn');
+      if (ibtn) ibtn.onclick = (ev) => { ev.stopPropagation(); showPetDetail(it); };
       const gbtn = el.querySelector('.lib-groupbtn');
       if (gbtn) gbtn.onclick = (ev) => { ev.stopPropagation(); openGroupMenu(it, gbtn); };
       el.querySelector('.lib-fav').onclick = async (ev) => {
@@ -2038,7 +2120,7 @@ function renderLibrary() {
       el.classList.toggle('picked', libMulti.picked.has(it.id));
       el.onclick = (ev) => {
         // 点收藏/分组/启动按钮时不触发勾选
-        if (ev.target.closest('.lib-fav') || ev.target.closest('.lib-groupbtn') || ev.target.closest('.acts')) return;
+        if (ev.target.closest('.lib-fav') || ev.target.closest('.lib-groupbtn') || ev.target.closest('.lib-infobtn') || ev.target.closest('.acts')) return;
         if (libMulti.picked.has(it.id)) libMulti.picked.delete(it.id);
         else libMulti.picked.add(it.id);
         renderLibrary();

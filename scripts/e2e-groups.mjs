@@ -46,6 +46,31 @@ app.whenReady().then(async () => {
   check("拿到已安装宠物列表", Array.isArray(list) && list.length >= 2, "n=" + (list && list.length));
   const petId = list[0].id;
 
+  // ---- 宠物详情面板：卡片上的 ⓘ 要能打开，且内容不是空的 ----
+  {
+    const hasInfoBtn = await js("!!document.querySelector('#libGrid .lib-item .lib-infobtn')");
+    check('卡片上有详情按钮', hasInfoBtn === true);
+    if (hasInfoBtn) {
+      await js("(() => { document.querySelector('#libGrid .lib-item .lib-infobtn').click(); return undefined; })()");
+      await sleep(400);
+      check('详情面板打开了', await js("!document.querySelector('#libDetail').hidden"));
+      const name = await js("document.querySelector('#libDetailName').textContent");
+      check('详情里有名字', typeof name === 'string' && name.trim().length > 0, JSON.stringify(name));
+      const rowCount = await js("document.querySelectorAll('#libDetailRows .lib-detail-row').length");
+      check('详情里有信息行（不是空面板）', rowCount >= 3, 'rows=' + rowCount);
+      const rowsText = await js("[...document.querySelectorAll('#libDetailRows .lib-detail-row')].map(r => r.textContent).join(' | ')");
+      check('详情里有"帧数"', rowsText.includes('帧数'), rowsText.slice(0, 120));
+      check('详情里有"来源"', rowsText.includes('来源'), rowsText.slice(0, 120));
+      check('详情里没有 undefined', !rowsText.includes('undefined'), rowsText.slice(0, 120));
+      check('详情有缩略图', await js("!!document.querySelector('#libDetailThumb').src"));
+
+      // 关闭
+      await js("document.querySelector('#btnLibDetailClose').click()");
+      await sleep(250);
+      check('详情能关掉', await js("document.querySelector('#libDetail').hidden === true"));
+    }
+  }
+
   // ---- 1. 新建分组：走**界面**路径（点「＋ 新建分组」，stub 掉 prompt）
   // 走 UI 而不是直接调 IPC，是因为 UI 路径会同步渲染进程里的 libPrefs —— 那才是真实用户路径。
   await js("(() => { window.__origPrompt = window.prompt; window.prompt = () => " + JSON.stringify(G1) + "; return undefined; })()");

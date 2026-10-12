@@ -377,3 +377,30 @@ button.block{width:100%}
 /* ---------- 空状态的「三条出路」 ---------- */
 .empty-ways{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;align-items:center}
 .empty-ways button{white-space:nowrap}
+
+/* ---------- 宠物详情面板 ---------- */
+.lib-detail{
+  position:absolute;right:14px;top:56px;width:340px;max-height:calc(100% - 130px);
+  overflow:auto;z-index:6;padding:14px;border-radius:14px;
+  background:#151a25;border:1px solid #2c3448;box-shadow:0 16px 40px rgba(0,0,0,.55);
+}
+.lib-detail-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.lib-detail-head img{
+  width:52px;height:52px;object-fit:contain;border-radius:10px;
+  background:repeating-conic-gradient(#1b2130 0% 25%, #171c28 0% 50%) 50% / 16px 16px;
+}
+.lib-detail-title{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.lib-detail-title b{font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lib-detail-title span{font-size:12px;color:var(--dim)}
+.lib-detail-rows{display:flex;flex-direction:column;gap:6px}
+.lib-detail-row{display:flex;gap:10px;font-size:12.5px;line-height:1.5}
+.lib-detail-row .k{flex:0 0 68px;color:var(--dim)}
+.lib-detail-row .v{flex:1;min-width:0;word-break:break-all}
+.lib-detail-row.warn .v{color:#ffb3b3}
+.lib-detail-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.lib-detail-actions button{flex:1;min-width:96px}
+.lib-infobtn{
+  position:absolute;top:6px;right:62px;width:24px;height:24px;border-radius:8px;border:none;
+  background:rgba(12,15,22,.72);color:#cfd8e8;font-size:12px;cursor:pointer;line-height:1;
+}
+.lib-infobtn:hover{background:rgba(76,125,255,.85);color:#fff}

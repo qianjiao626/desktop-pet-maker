@@ -1130,9 +1130,19 @@ ipcMain.handle('pet:listInstalled', () => {
     const full = path.join(dir, f);
     const builtin = builtinNames.has(f);
     try {
-      const { pack, frames } = readPackFile(full);
-      out.push({ id: f, name: pack.name, author: pack.author, frames: frames.length, file: full,
-        thumb: frames[0].dataUrl, size: fs.statSync(full).size, builtin });
+      const { pack, frames, clips } = readPackFile(full);
+      // 详情面板要用的字段一次带齐（避免点开时再读一遍包）。
+      // version 用 shared/packversion 的 versionLabel：老包没有版本信息时给"版本未知"。
+      out.push({
+        id: f, name: pack.name, author: pack.author, frames: frames.length, file: full,
+        thumb: frames[0].dataUrl, size: fs.statSync(full).size, builtin,
+        canvas: { width: (pack.canvas && pack.canvas.width) || 0, height: (pack.canvas && pack.canvas.height) || 0 },
+        clips: Array.isArray(clips) ? clips.length : 0,
+        version: versionLabel(pack),
+        createdAt: pack.createdAt || '',
+        updatedAt: pack.updatedAt || '',
+        rev: Number(pack.rev) || 0,
+      });
     } catch (err) {
       out.push({ id: f, name: f, broken: true, error: String(err.message || err), file: full, builtin });
     }
