@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { zipCreate, zipRead, zipWriteToFile } from '../shared/zip.js';
+import { installCrashGuard, defaultCrashLogPath } from './crashguard.js';
 import { encodeGif } from '../shared/gifencode.js';
 import { normalizePack, validatePack } from '../shared/petpack.js';
 import { petPackFileName, safeFileName } from '../shared/safeid.js';
@@ -66,6 +67,13 @@ const DEBUG = process.env.PETMAKER_DEBUG === '1';
 //   ② PETMAKER_NO_LAUNCH=1（老的测试开关）
 //   ③ **命令行里有 scripts/e2e- 就自动无头** —— 兜底。
 //      这样即使某个测试忘了设环境变量，也绝不会把窗口弹到用户屏幕上。
+// ---------- 兜底：任何未捕获异常都**不要弹原生错误框** ----------
+// 背景（用户带截图报的真实问题）：Electron 默认会弹原生窗口
+// 「A JavaScript error occurred in the main process / Uncaught Exception」，
+// 直接跳到用户桌面上。用户明确抱怨过"窗口老是弹出来影响工作"。
+// 具体规则见 src/main/crashguard.js。
+installCrashGuard({ logPath: null });   // 路径等 app ready 后再补写（userData 此时可能还没就绪）
+
 const HEADLESS = process.env.PETMAKER_HEADLESS === '1'
   || process.env.PETMAKER_NO_LAUNCH === '1'
   || process.argv.some((a) => /scripts[\\/]e2e-/.test(String(a)));
@@ -2007,6 +2015,9 @@ async function runSelfTest() {
 // ---------- 启动 ----------
 function startApp() {
 app.whenReady().then(async () => {
+  // userData 就绪了 -> 重新装一次兜底，这次把错误也写进 crash.log。
+  // （早期那次 logPath=null，因为那时 app.getPath('userData') 还不能用。）
+  try { installCrashGuard({ logPath: defaultCrashLogPath(app.getPath('userData')) }); } catch {}
   if (selftest) { const code = await runSelfTest(); app.exit(code); return; }
   registerIpc();
   const broadcast = () => {
@@ -2037,8 +2048,12 @@ app.whenReady().then(async () => {
       setPetWindow(petWindow);
       createTray();
     } catch (err) {
-      dialog.showErrorBox('无法加载宠物包', String(err.message || err));
-      app.quit();
+      // ★ 不用 dialog.showErrorBox：它会弹一个原生错误框跳到用户桌面上
+      //   （用户明确抱怨过"窗口老是弹出来影响工作"）。
+      //   改为写日志 + 控制台，然后安静退出。
+      try { process.stderr.write('[PET_LOAD_FAILED] ' + (err && err.stack ? err.stack : err) + String.fromCharCode(10)); } catch {}
+      try { console.error('无法加载宠物包: ' + (err && err.message ? err.message : err)); } catch {}
+      app.exit(1);
     }
   }
 });

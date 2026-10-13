@@ -1669,6 +1669,19 @@ if (api.onWorkArea) api.onWorkArea(async (wa) => {
 // 调试钩子：暴露内部状态供自动化测试断言（无副作用）
 // 测试用：把行为切到跳跃，便于自动化断言渲染姿态（无副作用，仅状态机）
 window.__forceHop = () => { try { enterState(B, 'hop'); return true; } catch { return false; } };
+// 测试用：强制进入爬动状态。
+// 为什么需要：状态机是随机的（发呆/张望/打瞌睡/爬动），
+// 无头模式下 rAF 被 Chromium 节流、状态推进很慢 ——
+// "等它自己随机走到 walk"在满负载时会偶发失败（实测：单跑全绿、全量跑挂）。
+// 断言要测的是"walk 会产生水平位移"这个行为，不该顺带赌随机与调度。
+window.__forceWalk = () => {
+  try {
+    enterState(B, 'walk');
+    B.walkDir = 1;
+    B.remaining = Math.max(B.remaining, 4000);   // 保持够久，别立刻被切走
+    return true;
+  } catch { return false; }
+};
 
 // 测试用：强制进入打瞌睡 / 注入光标坐标（便于自动化断言姿态，不依赖真实鼠标移动）
 window.__forceDoze = () => { try { enterState(B, 'doze'); return true; } catch { return false; } };

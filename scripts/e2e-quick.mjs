@@ -125,6 +125,27 @@ app.whenReady().then(async () => {
       if (seen.has('walk') && (maxX - minX) > 2) break;
       await sleep(250);
     }
+    // ★ 自然观察没等到 walk 时，用确定性钩子补一次。
+    //   状态机是随机的，无头下 rAF 又被节流 —— "等它随机走到 walk"
+    //   在满负载时会偶发失败（实测：单跑全绿、全量跑挂）。
+    //   断言要测的是"walk 会产生水平位移"这个**行为**，
+    //   不该顺带赌随机与调度；所以先自然观察（保留真实覆盖），
+    //   没覆盖到就主动进入 walk 再量一次。
+    if (!seen.has('walk') || (maxX - minX) <= 2) {
+      const forced = await pw.webContents.executeJavaScript('window.__forceWalk && window.__forceWalk()');
+      if (forced) {
+        seen.add('walk');
+        const x0 = (await pw.webContents.executeJavaScript('window.__petDebug()')).body.x;
+        for (let i = 0; i < 40; i++) {
+          const d = await pw.webContents.executeJavaScript('window.__petDebug()');
+          seen.add(d.behavior.state);
+          if (d.body.x < minX) minX = d.body.x;
+          if (d.body.x > maxX) maxX = d.body.x;
+          if (Math.abs(d.body.x - x0) > 2) break;
+          await sleep(150);
+        }
+      }
+    }
     check('观察到爬动状态', seen.has('walk'), [...seen].join(','));
     check('水平位置发生过变化', (maxX - minX) > 2, 'span=' + (maxX - minX).toFixed(1));
 
