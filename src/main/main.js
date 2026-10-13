@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { zipCreate, zipRead, zipWriteToFile } from '../shared/zip.js';
 import { installCrashGuard, defaultCrashLogPath } from './crashguard.js';
+import { showDialog } from './dialogguard.js';
 import { encodeGif } from '../shared/gifencode.js';
 import { normalizePack, validatePack } from '../shared/petpack.js';
 import { petPackFileName, safeFileName } from '../shared/safeid.js';
@@ -640,10 +641,10 @@ export function registerIpc() {
 ipcMain.handle('mode:get', () => ({ mode: isMaker ? 'maker' : 'pet', petPath }));
 
 ipcMain.handle('image:open', async () => {
-  const r = await dialog.showOpenDialog({
+  const r = await showDialog(dialog, 'open', {
     title: '选择宠物图片', properties: ['openFile'],
     filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }],
-  });
+  }, getMakerWindow);
   if (r.canceled || !r.filePaths.length) return null;
   const p = r.filePaths[0];
   const buf = fs.readFileSync(p);
@@ -651,10 +652,10 @@ ipcMain.handle('image:open', async () => {
 });
 
 ipcMain.handle('image:openMany', async () => {
-  const r = await dialog.showOpenDialog({
+  const r = await showDialog(dialog, 'open', {
     title: '选择多帧图片（按文件名顺序）', properties: ['openFile', 'multiSelections'],
     filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'] }],
-  });
+  }, getMakerWindow);
   if (r.canceled || !r.filePaths.length) return [];
   return r.filePaths
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
@@ -667,21 +668,21 @@ ipcMain.handle('image:openMany', async () => {
 ipcMain.handle('pack:save', async (e, { pack, images, suggestedName, clipImages }) => {
   const v = validatePack({ ...pack, frames: (images || []).map((_, idx) => ({ file: 'f' + idx })) });
   if (!v.ok) return { ok: false, errors: v.errors };
-  const r = await dialog.showSaveDialog({
+  const r = await showDialog(dialog, 'save', {
     title: '导出桌宠包',
     defaultPath: petPackFileName(suggestedName || pack.name || 'mypet'),
     filters: [{ name: '桌宠包', extensions: ['petpack', 'zip'] }],
-  });
+  }, getMakerWindow);
   if (r.canceled || !r.filePath) return { ok: false, canceled: true };
   try { return { ok: true, path: writePackFile(pack, images, r.filePath, clipImages).path }; }
   catch (err) { return { ok: false, errors: [String(err.message || err)] }; }
 });
 
 ipcMain.handle('pack:open', async () => {
-  const r = await dialog.showOpenDialog({
+  const r = await showDialog(dialog, 'open', {
     title: '打开宠物包', properties: ['openFile'],
     filters: [{ name: '桌宠包', extensions: ['petpack', 'zip'] }],
-  });
+  }, getMakerWindow);
   if (r.canceled || !r.filePaths.length) return null;
   try { return readPackFile(r.filePaths[0]); }
   catch (err) { return { error: String(err.message || err) }; }
@@ -710,11 +711,11 @@ ipcMain.handle('share:exportHtml', async (e, { pack, images, clipImages }) => {
       petpackName: petPackFileName(p.name),
       clips: shareClips,
     });
-    const r = await dialog.showSaveDialog({
+    const r = await showDialog(dialog, 'save', {
       title: '导出分享页（单个 HTML 文件）',
       defaultPath: shareFileName(p.name || 'mypet'),
       filters: [{ name: '网页分享包', extensions: ['html'] }],
-    });
+    }, getMakerWindow);
     if (r.canceled || !r.filePath) return { ok: false, canceled: true };
     fs.writeFileSync(r.filePath, html, 'utf8');
     return { ok: true, path: r.filePath, bytes: Buffer.byteLength(html, 'utf8'), petpackBytes: petpackBuf.length };
@@ -745,7 +746,7 @@ ipcMain.handle('share:exportSite', async (e, opt) => {
     if (!items.length) return { ok: false, errors: ['宠物库里没有可导出的宠物'] };
 
     // 目标目录：用户选一个文件夹（站点文件都写进它，方便整体拖去托管）
-    const r = await dialog.showOpenDialog({ title: '选择导出站点的文件夹', properties: ['openDirectory', 'createDirectory'] });
+    const r = await showDialog(dialog, 'open', { title: '选择导出站点的文件夹', properties: ['openDirectory', 'createDirectory'] }, getMakerWindow);
     if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true };
     const outDir = path.join(r.filePaths[0], 'desk-pet-site');
     fs.mkdirSync(outDir, { recursive: true });
@@ -797,11 +798,11 @@ ipcMain.handle('char:save', async (e, cfg) => {
   try {
     if (!cfg || typeof cfg !== 'object') throw new Error('没有可保存的角色配置');
     const safeName = safeFileName(String(cfg.name || 'my-character'), { maxLen: 40, fallback: 'character' });
-    const r = await dialog.showSaveDialog({
+    const r = await showDialog(dialog, 'save', {
       title: '保存角色配置',
       defaultPath: safeName + '.petchar.json',
       filters: [{ name: '角色配置', extensions: ['json'] }],
-    });
+    }, getMakerWindow);
     if (r.canceled || !r.filePath) return { ok: false, canceled: true };
     fs.writeFileSync(r.filePath, JSON.stringify(cfg, null, 2), 'utf8');
     return { ok: true, path: r.filePath };
@@ -810,11 +811,11 @@ ipcMain.handle('char:save', async (e, cfg) => {
 
 ipcMain.handle('char:load', async () => {
   try {
-    const r = await dialog.showOpenDialog({
+    const r = await showDialog(dialog, 'open', {
       title: '载入角色配置',
       properties: ['openFile'],
       filters: [{ name: '角色配置', extensions: ['json'] }],
-    });
+    }, getMakerWindow);
     if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true };
     const raw = fs.readFileSync(r.filePaths[0], 'utf8');
     const parsed = JSON.parse(raw);
@@ -854,11 +855,11 @@ ipcMain.handle('tpl:export', async (e, id) => {
   try {
     const tpl = loadTemplates().find((x) => x.id === id);
     if (!tpl) throw new Error('模板不存在');
-    const r = await dialog.showSaveDialog({
+    const r = await showDialog(dialog, 'save', {
       title: '导出模板',
       defaultPath: templateFileName(tpl.name),
       filters: [{ name: '桌宠模板', extensions: ['pettpl', 'json'] }],
-    });
+    }, getMakerWindow);
     if (r.canceled || !r.filePath) return { ok: false, canceled: true };
     fs.writeFileSync(r.filePath, JSON.stringify({ schema: TEMPLATE_SCHEMA, templates: [tpl] }, null, 2));
     return { ok: true, path: r.filePath };
@@ -870,10 +871,10 @@ ipcMain.handle('tpl:import', async (e, srcPath) => {
   try {
     let p = srcPath;
     if (!p) {
-      const r = await dialog.showOpenDialog({
+      const r = await showDialog(dialog, 'open', {
         title: '导入模板', properties: ['openFile'],
         filters: [{ name: '桌宠模板', extensions: ['pettpl', 'json'] }],
-      });
+      }, getMakerWindow);
       if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true };
       p = r.filePaths[0];
     }
@@ -910,7 +911,7 @@ ipcMain.handle('share:readHtml', (e, htmlPath) => {
 });
 
 ipcMain.handle('pack:exportFolder', async (e, { pack, images, clipImages }) => {
-  const r = await dialog.showOpenDialog({ title: '选择导出文件夹', properties: ['openDirectory', 'createDirectory'] });
+  const r = await showDialog(dialog, 'open', { title: '选择导出文件夹', properties: ['openDirectory', 'createDirectory'] }, getMakerWindow);
   if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true };
   try {
     const { pack: p, files } = buildPackAndEntries(pack, images, clipImages);
@@ -1130,11 +1131,11 @@ ipcMain.handle('batch:run', async (e, { files, tpl, autoModel = true, alwaysFull
 });
 
 ipcMain.handle('batch:pickFiles', async () => {
-  const r = await dialog.showOpenDialog({
+  const r = await showDialog(dialog, 'open', {
     title: '选择多张图片（每张会各自变成一只宠物）',
     properties: ['openFile', 'multiSelections'],
     filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'bmp'] }],
-  });
+  }, getMakerWindow);
   if (r.canceled) return [];
   return r.filePaths.slice();
 });
@@ -1331,11 +1332,11 @@ ipcMain.handle('export:gif', async (e, { frames, width, height, fps, suggestedNa
       return { ok: false, errors: ['各帧尺寸不一致（' + decoded.map((d) => d.width + 'x' + d.height).join(', ') + '）。请先在制作器里「统一画布」再导出 GIF'] };
     }
     const enc = encodeGif(decoded, { loop: 0 });
-    const r = await dialog.showSaveDialog({
+    const r = await showDialog(dialog, 'save', {
       title: '导出 GIF 动图',
       defaultPath: String(suggestedName || 'pet') + '.gif',
       filters: [{ name: 'GIF 动图', extensions: ['gif'] }],
-    });
+    }, getMakerWindow);
     if (r.canceled || !r.filePath) return { ok: false, canceled: true };
     fs.writeFileSync(r.filePath, Buffer.from(enc.buffer));
     return { ok: true, path: r.filePath, bytes: enc.buffer.length, frames: enc.frameCount, width: enc.width, height: enc.height };
@@ -1373,11 +1374,11 @@ ipcMain.handle('pet:exportAll', async (e, opt) => {
     });
     if (!plan.ok) return { ok: false, errors: [plan.reason], skipped: plan.skipped };
 
-    const r = await dialog.showSaveDialog({
+    const r = await showDialog(dialog, 'save', {
       title: '导出宠物库',
       defaultPath: '桌宠合集-' + new Date().toISOString().slice(0, 10) + '.zip',
       filters: [{ name: '压缩包', extensions: ['zip'] }],
-    });
+    }, getMakerWindow);
     if (r.canceled || !r.filePath) return { ok: false, canceled: true };
 
     const entries = plan.entries.map((en) => ({
@@ -1438,11 +1439,11 @@ ipcMain.handle('export:spriteSheet', async (e, { frames, cellW, cellH, suggested
       sheetWidth: plan.width, sheetHeight: plan.height, cols: plan.cols, rows: plan.rows, durations,
     });
 
-    const r = await dialog.showSaveDialog({
+    const r = await showDialog(dialog, 'save', {
       title: '导出 Sprite Sheet（会同时生成 PNG 与 JSON）',
       defaultPath: String(suggestedName || 'pet') + '-sheet.png',
       filters: [{ name: 'PNG 图片', extensions: ['png'] }],
-    });
+    }, getMakerWindow);
     if (r.canceled || !r.filePath) return { ok: false, canceled: true };
     const pngPath = r.filePath.replace(/\.[a-z0-9]+$/i, '') + '.png';
     const jsonPath = pngPath.replace(/\.png$/i, '.json');
@@ -1486,10 +1487,10 @@ ipcMain.handle('export:bulkGif', async (e, opt) => {
     const plan = planBulkGif(items, { includeBuiltin: true, maxEdge: o.maxEdge, maxFrames: o.maxFrames });
     if (!plan.ok) return { ok: false, errors: [plan.reason], skipped: plan.skipped };
 
-    const r = await dialog.showOpenDialog({
+    const r = await showDialog(dialog, 'open', {
       title: '选择导出位置（会在里面新建一个文件夹放 GIF）',
       properties: ['openDirectory', 'createDirectory'],
-    });
+    }, getMakerWindow);
     if (r.canceled || !r.filePaths.length) return { ok: false, canceled: true };
     const outDir = path.join(r.filePaths[0], '桌宠GIF-' + new Date().toISOString().slice(0, 10));
     fs.mkdirSync(outDir, { recursive: true });

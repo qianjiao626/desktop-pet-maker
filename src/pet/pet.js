@@ -1766,6 +1766,14 @@ window.__forceWake = () => {
 };
 let cursorFrozen = false;   // 测试用：冻结光标，忽略主进程推送
 // 测试用：直接进入/退出拖拽态并注入拖拽速度（真实鼠标事件在自动化里难以稳定驱动）
+// 测试用：直接按"给定速度 + 时间"算挣扎姿态。
+// 为什么需要：e2e 里靠"采样若干帧取 max(rot)"反推幅度，在无头模式下
+// rAF 被 Chromium 节流 —— 采样点会密集落在同一相位附近（实测快甩与慢甩
+// 都采到 2.68，完全一样），那是采样运气问题、不是逻辑坏了。
+// 这里直接暴露纯函数的结果，断言就能测"速度越大幅度越大"这个**行为**。
+window.__struggleAt = (speed, tSec) => {
+  try { return strugglePose(Number(tSec) || 0, Number(speed) || 0); } catch { return null; }
+};
 window.__forceDragForTest = (speed = 0) => {
   try {
     S.dragging = true;

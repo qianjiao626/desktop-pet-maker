@@ -93,7 +93,27 @@ app.whenReady().then(async () => {
   }
   const fastMax = Math.max(...fastSamples);
   const slowMax = Math.max(...slowSamples.map(Math.abs));
-  check('甩得快时晃得更明显', fastMax > slowMax + 0.3, `fast=${fastMax.toFixed(2)} > slow=${slowMax.toFixed(2)}`);
+  log('（观察）采样 fast=' + fastMax.toFixed(2) + ' slow=' + slowMax.toFixed(2));
+
+  // ★ 真正的断言走**确定性钩子**，不靠采样。
+  //   原因：无头模式下 rAF 被 Chromium 节流，采样点会密集落在同一相位附近 ——
+  //   实测快甩与慢甩都采到 2.68（完全一样），那是采样运气、不是逻辑坏了。
+  //   这里直接扫一遍时间轴，比较"慢甩 vs 快甩"能到的最大幅度。
+  const ampAt = async (speed) => {
+    let m = 0;
+    for (let i = 0; i < 60; i++) {
+      const st = await pw.webContents.executeJavaScript(`window.__struggleAt(${speed}, ${(i / 60 * 1.7).toFixed(3)})`);
+      if (st && Number.isFinite(st.rot)) m = Math.max(m, Math.abs(st.rot));
+    }
+    return m;
+  };
+  const slowAmp = await ampAt(0);
+  const fastAmp = await ampAt(1600);
+  check('甩得快时晃得更明显（确定性：扫时间轴取最大幅度）',
+    fastAmp > slowAmp + 0.3, `fast=${fastAmp.toFixed(2)} > slow=${slowAmp.toFixed(2)}`);
+  // 采样那条仍然保留为"观察"，不作为判定依据（避免环境差异造成假失败）
+  check('甩得快时采样幅度不反而更小（方向性观察）', fastMax >= slowMax - 0.01,
+    `fast=${fastMax.toFixed(2)} slow=${slowMax.toFixed(2)}`);
 
   // ---------- 4) 幅度受控（不能甩到变形） ----------
   check('摆动幅度受控（不超 11°）', fastMax <= 11.5, 'max=' + fastMax.toFixed(2));
