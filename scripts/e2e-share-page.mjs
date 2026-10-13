@@ -56,12 +56,13 @@ app.whenReady().then(async () => {
   // 直接调主进程 IPC 生成分享页（避免依赖原生保存对话框）
   const htmlPath = path.join(userData, 'e2e-share-page.html');
   {
-    const { buildShareHtml, shareFileName } = await import('../src/shared/sharepack.js');
+    const { buildShareHtml } = await import('../src/shared/sharepack.js');
+  const { petPackFileName } = await import('../src/shared/safeid.js');
     const { zipCreate } = await import('../src/shared/zip.js');
     const { normalizePack } = await import('../src/shared/petpack.js');
     const p = normalizePack(pack);
     const petpackBuf = zipCreate([{ name: 'pet.json', data: JSON.stringify(p, null, 2) }, { name: 'pet.png', data: Buffer.from(png.split(',')[1], 'base64') }]);
-    const html = buildShareHtml(p, images, { petpackBase64: petpackBuf.toString('base64'), petpackName: shareFileName(p.name) });
+    const html = buildShareHtml(p, images, { petpackBase64: petpackBuf.toString('base64'), petpackName: petPackFileName(p.name) });
     fs.writeFileSync(htmlPath, html, 'utf8');
   }
   const html = fs.readFileSync(htmlPath, 'utf8');
@@ -81,6 +82,54 @@ app.whenReady().then(async () => {
     check('还原出作者', r.pack.author === 'e2e', r.pack.author);
   }
   check('非分享页的 HTML 会明确报错', (await js(`window.api.readShareHtml(${JSON.stringify(path.join(ROOT, 'package.json'))})`)).ok === false);
+
+  // ---------- 3b) ★ 接收方要能在**浏览器里直接把宠物拿走** ----------
+  // 分享页一直内嵌着 .petpack，但以前没有下载入口 —— 只能"把 HTML 拖进制作器"，
+  // 可对方不一定装了制作器、也不知道能这么拖。
+  //
+  // 验证方式说明（这里踩过坑）：
+  //   **不**去等真实的文件下载 —— 无头/离屏环境里 blob: 下载不触发 will-download
+  //   （实测一条事件都没有、文件始终不落地），拿它做断言只会得到"环境不可靠"的假失败。
+  //   改为在真实浏览器里验证**这条数据通路**：
+  //   把按钮内部那段还原逻辑跑一遍，再和页面里内嵌的那份逐字节比对。
+  {
+    const view = new BrowserWindow({ width: 900, height: 700, show: false,
+      webPreferences: { offscreen: true, contextIsolation: true, nodeIntegration: false } });
+    await view.loadFile(htmlPath);
+    await sleep(700);
+    const hasBtn = await view.webContents.executeJavaScript(
+      `(() => { const b = document.getElementById('savePack'); return !!b && !b.hidden; })()`);
+    check('浏览器里能看到「保存宠物包」按钮', hasBtn === true, String(hasBtn));
+
+    const dl = await view.webContents.executeJavaScript(`(() => {
+      try {
+        if (!window.__petShare || !window.__petShare.petpack) return { ok: false, why: 'no petpack' };
+        const bin = atob(window.__petShare.petpack);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const blob = new Blob([bytes], { type: 'application/zip' });
+        return {
+          ok: true,
+          name: window.__petShare.petpackName || '',
+          size: blob.size,
+          isZip: bytes[0] === 0x50 && bytes[1] === 0x4b,
+        };
+      } catch (err) { return { ok: false, why: String(err && err.message) }; }
+    })()`);
+    check('按钮背后的数据通路可用（能还原出字节）', !!(dl && dl.ok), JSON.stringify(dl));
+    check('还原出来的是合法 ZIP（PK 头）', !!(dl && dl.isZip), JSON.stringify(dl));
+    check('还原出来的不是空文件', !!(dl && dl.size > 100), JSON.stringify(dl));
+    check('文件名用了宠物名', !!(dl && /分享测试宠/.test(dl.name)), dl && dl.name);
+    // ★ 扩展名必须是 .petpack（不是 .html）——
+    //   否则用户拿到一个扩展名错误的文件、双击打不开（e2e 曾经自己传错参数，已修）
+    check('下载文件名是 .petpack（不是 .html）', !!(dl && /\.petpack$/i.test(dl.name)), dl && dl.name);
+    const htmlText = fs.readFileSync(htmlPath, 'utf8');
+    const m = /"petpack"\s*:\s*"([A-Za-z0-9+/=]+)"/.exec(htmlText);
+    const embeddedLen = m ? Buffer.from(m[1], 'base64').length : -1;
+    check('还原出的字节数 = 内嵌宠物包的字节数', !!(dl && dl.size === embeddedLen),
+      (dl && dl.size) + ' vs ' + embeddedLen);
+    try { view.destroy(); } catch {}
+  }
 
   // ---------- 4) 我的模板：存 -> 列表 -> 复用 -> 导出 -> 导入 ----------
   const saved = await js(`window.api.templatesSave(${JSON.stringify(pack)}, '分享测试模板', { walk: true, hop: false, look: true, bug: true })`);

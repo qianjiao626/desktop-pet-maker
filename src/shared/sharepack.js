@@ -131,6 +131,14 @@ export function buildShareHtml(pack, frames, opt = {}) {
   footer { font-size: 13px; color: #8b97ad; text-align: center; line-height: 1.7; }
   footer b { color: #cfd8e8; font-weight: 600; }
   .hint { font-size: 12px; color: #6b7689; }
+  .acts { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 2px; }
+  .btn {
+    border: 1px solid rgba(120, 170, 255, .38); background: rgba(76, 141, 255, .16);
+    color: #cfe0ff; border-radius: 999px; padding: 7px 16px; font-size: 13px;
+    cursor: pointer; font-family: inherit; transition: background .15s ease;
+  }
+  .btn:hover { background: rgba(76, 141, 255, .28); }
+  .btn[disabled] { opacity: .45; cursor: default; }
   @media (prefers-reduced-motion: reduce) { .bubble { transition: none; } }
 </style>
 </head>
@@ -141,6 +149,9 @@ export function buildShareHtml(pack, frames, opt = {}) {
   </div>
   <footer>
     <div><b id="petName"></b><span id="petAuthor"></span></div>
+    <div class="acts">
+      <button class="btn" id="savePack" hidden>⬇ 保存宠物包（装进桌宠制作器就能养）</button>
+    </div>
     <div class="hint">拖动我试试 · 点我一下 · 这个文件可以直接发给别人，双击用浏览器打开就能看</div>
   </footer>
 <script>
@@ -246,8 +257,36 @@ export function buildShareHtml(pack, frames, opt = {}) {
   });
   if (DATA.bubble && DATA.lines && DATA.lines.length) setTimeout(say, 900);
 
-  // ---- 兜底：把这个 HTML 拖进「桌宠制作器」，也能还原成完整宠物 ----
+  // ---- 兜底 1：把这个 HTML 拖进「桌宠制作器」，也能还原成完整宠物 ----
   window.__petShare = { name: DATA.name, petpack: DATA.petpack, petpackName: DATA.petpackName };
+
+  // ---- 兜底 2（更直接）：把内嵌的 .petpack 存成文件，装进制作器就能养 ----
+  // 以前只有"拖 HTML 进制作器"这一条路 —— 但接收方不一定装了制作器，
+  // 也不知道可以这么拖。给一个明确的下载按钮，才算真的"能拿走"。
+  (function () {
+    var btn = document.getElementById('savePack');
+    if (!btn) return;
+    if (!DATA.petpack) return;             // 没有内嵌包（老分享页）就不显示按钮
+    btn.hidden = false;
+    btn.addEventListener('click', function () {
+      try {
+        var bin = atob(DATA.petpack);
+        var bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        var blob = new Blob([bytes], { type: 'application/zip' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = DATA.petpackName || ((DATA.name || 'pet') + '.petpack');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+      } catch (err) {
+        btn.textContent = '保存失败，请把这个 HTML 拖进桌宠制作器';
+      }
+    });
+  })();
 })();
 </script>
 </body>

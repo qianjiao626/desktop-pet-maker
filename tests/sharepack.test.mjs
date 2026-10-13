@@ -97,3 +97,30 @@ ok('气泡关闭时不带台词行为标记', buildShareHtml({ name: 'x', bubble
   ok('唯一可用片段被保留', html.includes('"id":"d"'), 'kept-d');
   ok('负权重被修正为正数（否则选取会退化）', /"weight":1/.test(html) || /"weight":0\.01/.test(html), 'weight');
 }
+
+// ============ 分享页要能让人把宠物「拿走」（v0.9.52）============
+// 背景：分享页一直内嵌着 .petpack，但**接收方在浏览器里没有下载入口** ——
+// 只能"把 HTML 拖进桌宠制作器"，可对方不一定装了制作器、也不知道能这么拖。
+// 现在给一个明确的「保存宠物包」按钮，才算真的能拿走。
+{
+  const pack = { name: '拿得走的宠物', author: '小明', bubble: { enabled: false, lines: [] } };
+  const frames = [{ dataUrl: 'data:image/png;base64,AA', durationMs: 100 }];
+  const html = buildShareHtml(pack, frames, { petpackBase64: 'UEsDBAoAAAAAAA==', petpackName: '拿得走的宠物.petpack' });
+  ok('分享页有「保存宠物包」按钮', html.includes('id="savePack"'), 'button');
+  ok('按钮文案说明了用途', /保存宠物包/.test(html), 'copy');
+  ok('按钮默认隐藏（没有内嵌包时不该出现）', /id="savePack"[^>]*hidden/.test(html), 'hidden-default');
+  ok('有内嵌包时会把按钮显示出来', /if \(!DATA\.petpack\) return;/.test(html) && /btn\.hidden = false/.test(html), 'show');
+  ok('点击后把 base64 还原成文件下载', /atob\(DATA\.petpack\)/.test(html) && /a\.download =/.test(html), 'download');
+  ok('下载文件名用包名', /DATA\.petpackName \|\|/.test(html), 'filename');
+  ok('用完释放 blob URL（不泄漏内存）', /URL\.revokeObjectURL/.test(html), 'revoke');
+  ok('失败时给出可操作的提示（而不是静默）', /保存失败，请把这个 HTML 拖进桌宠制作器/.test(html), 'fallback');
+}
+
+// ---------- 老分享页（没有内嵌包）行为不变 ----------
+{
+  const pack = { name: 'x', bubble: { enabled: false, lines: [] } };
+  const frames = [{ dataUrl: 'data:image/png;base64,AA', durationMs: 100 }];
+  const html = buildShareHtml(pack, frames, {});
+  ok('没有内嵌包时按钮仍然隐藏（不会点了没反应）', /id="savePack"[^>]*hidden/.test(html), 'hidden');
+  ok('没有内嵌包时页面照常可用', html.includes('<!DOCTYPE html>'), 'ok');
+}
