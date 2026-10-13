@@ -47,6 +47,17 @@ export const MODELS = {
     size: 192,                 // 固定输入 192x192
     inputDtype: 'int32',       // 关键：是 int32 不是 float（实测，用错会直接报错）
     bytes: 9466715,
+    // ★ 主源用 cdn.jsdelivr.net，但实测**国内网络下它经常完全不可达**（HTTP 000），
+    //   所以必须带备用源（urls 优先于 url，逐个试）。
+    //   实测（2026-10-13，国内网络）：cdn 000 / raw.githubusercontent 000 /
+    //   fastly 200 但慢（40s 只下 1.4MB）/ gcore 200 且快（9.15s 下完 9.4MB）/
+    //   testingcf 200（27s）。所以按速度把 gcore 放最前。
+    urls: [
+      'https://gcore.jsdelivr.net/gh/Kazuhito00/MoveNet-Python-Example@main/onnx/movenet_singlepose_lightning_4.onnx',
+      'https://testingcf.jsdelivr.net/gh/Kazuhito00/MoveNet-Python-Example@main/onnx/movenet_singlepose_lightning_4.onnx',
+      'https://fastly.jsdelivr.net/gh/Kazuhito00/MoveNet-Python-Example@main/onnx/movenet_singlepose_lightning_4.onnx',
+      'https://cdn.jsdelivr.net/gh/Kazuhito00/MoveNet-Python-Example@main/onnx/movenet_singlepose_lightning_4.onnx',
+    ],
     url: 'https://cdn.jsdelivr.net/gh/Kazuhito00/MoveNet-Python-Example@main/onnx/movenet_singlepose_lightning_4.onnx',
     md5: '9423b6b1c38e2ffe3b5d830aa498d43e',
     source: 'tensorflow/tfjs-models (MoveNet SinglePose Lightning)',
@@ -195,12 +206,22 @@ export async function downloadModel(userDataDir, id, onProgress, signal) {
   if (isInstalled(userDataDir, id)) return { ok: true, path: dest, cached: true };
 
   const tmp = dest + '.part';
-  const MAX_ATTEMPTS = 4;
+  // 有多个候选源时，每个源都试一遍（取两者较大值）
+  const sourceCount = (Array.isArray(m.urls) && m.urls.length) ? m.urls.length : 1;
+  const MAX_ATTEMPTS = Math.max(4, sourceCount);
   let lastErr = null;
+  let lastUrl = null;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // 逐个尝试候选源：任一成功即止（用户实测国内网络下主源经常整站不可达）
+    const candidates = (Array.isArray(m.urls) && m.urls.length) ? m.urls : [m.url];
+    const url = candidates[Math.min(attempt - 1, candidates.length - 1)];
+    // 换源时丢掉上一个源的分片：不同源可能给出不同字节（或被 CDN 插入了错误页），
+    // 直接续传会把坏数据拼进来。同源重试才允许续传（那才是断点续传的收益）。
+    if (lastUrl !== null && url !== lastUrl) { try { fs.unlinkSync(tmp); } catch {} }
+    lastUrl = url;
     try {
-      await fetchToFile(m.url, tmp, onProgress, m.bytes, signal);
+      await fetchToFile(url, tmp, onProgress, m.bytes, signal);
       const size = fs.statSync(tmp).size;
 
       if (m.bytes && Math.abs(size - m.bytes) > 1024 * 256) {

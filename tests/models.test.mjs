@@ -50,3 +50,36 @@ ok('listModels 含 preprocess 配置', list.every((m) => m.preprocess !== undefi
   ok('姿态模型声明了 int32 输入（用 float 会直接报错）', M.poseMovenet.inputDtype === 'int32', String(M.poseMovenet.inputDtype));
   ok('姿态模型有字节数与 md5', M.poseMovenet.bytes > 1e6 && /^[0-9a-f]{32}$/.test(M.poseMovenet.md5));
 }
+// ---------- 模型下载源必须带备用镜像（国内网络可用性） ----------
+//
+// 背景（2026-10-13 实测，国内网络）：姿态模型的唯一源 cdn.jsdelivr.net
+// **整站不可达**（HTTP 000），导致「画个小人 → 识别身体」这条功能直接废掉
+// —— 而 README 却写着"上传即用"。这不是理论问题，是实测连不上。
+//
+// 实测各源（下载 9,466,715 字节的 MoveNet）：
+//   cdn.jsdelivr.net          -> 000（不可达）
+//   raw.githubusercontent.com -> 000（不可达）
+//   fastly.jsdelivr.net       -> 200，但极慢（40s 只下 1.4MB）
+//   gcore.jsdelivr.net        -> 200，9.15s 下完 ✅
+//   testingcf.jsdelivr.net    -> 200，27s 下完
+{
+  const pose = MODELS.poseMovenet;
+  ok('姿态模型带备用源列表', Array.isArray(pose.urls) && pose.urls.length >= 2,
+    JSON.stringify(pose.urls ? pose.urls.length : null));
+  if (Array.isArray(pose.urls)) {
+    ok('备用源都是 https', pose.urls.every((u) => typeof u === 'string' && u.startsWith('https://')));
+    ok('备用源不止一个 CDN 域名（同一个挂了一起挂）',
+      new Set(pose.urls.map((u) => new URL(u).host)).size >= 2,
+      [...new Set(pose.urls.map((u) => new URL(u).host))].join(','));
+    ok('cdn.jsdelivr.net 仍保留在列表里（其他地区可能更快）',
+      pose.urls.some((u) => u.includes('cdn.jsdelivr.net')));
+  }
+  ok('保留了 url 字段做向后兼容', typeof pose.url === 'string' && pose.url.startsWith('https://'));
+}
+
+// 每个模型都要有可用下载地址（url 或 urls 至少一个）
+for (const [id, m] of Object.entries(MODELS)) {
+  const hasUrl = (typeof m.url === 'string' && m.url.startsWith('https://'))
+    || (Array.isArray(m.urls) && m.urls.length > 0);
+  ok(`${id}: 至少有一个可用下载地址`, hasUrl);
+}
