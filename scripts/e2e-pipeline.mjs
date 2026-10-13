@@ -9,10 +9,15 @@ import { segmentImage } from '../src/main/segment.js';
 import { MODELS } from '../src/main/models.js';
 import { zipCreate, zipRead } from '../src/shared/zip.js';
 import { normalizePack } from '../src/shared/petpack.js';
+// EPIPE 兜底：调用方的管道提前关闭时（例如 `| Select-Object -Last 10`），
+// 直接写 stdout 会抛 broken pipe —— Electron 会弹原生错误框跳到用户桌面上。
+// 统一走 safeWrite，并把 EPIPE 静默掉。
+import { safeWrite, installEpipeGuard } from './lib-e2e-log.mjs';
+installEpipeGuard();
 
 const require = createRequire(import.meta.url);
 const { GifWriter } = require('omggif');
-const log = (m) => process.stdout.write(m + '\n');
+const log = (m) => safeWrite(m + '\n');
 
 // 造一个 4 帧的 320x320 GIF：橙色圆随时间上移
 function makeGif(nFrames, size) {

@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { encodePNG } from "../src/shared/png.js";
 import { zipCreate } from "../src/shared/zip.js";
 import { normalizePack } from "../src/shared/petpack.js";
+import { buildActionClips } from './lib-action-clips.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(__dirname, "..", "examples");
@@ -113,9 +114,13 @@ const CATS = [
 
 for (const spec of CATS) {
   const files = FRAMES.map((f, i) => ({ name: 'frame_' + String(i).padStart(3,'0') + '.png', data: toPNG(drawCat(spec, f.o)) }));
+  // ★ 多段动作：同一只宠物用不同动作参数再画一遍（发呆/摆手/蹦跳）。
+  //   尺寸必须与主帧一致 —— 否则运行时切片段会让宠物突然缩放。
+  const clipsBuilt = buildActionClips(null, (o) => drawCat(spec, o), toPNG, { size: SIZE, prefix: 'clip' });
   const pack = normalizePack({
     id: 'example-' + spec.name, name: spec.name, author: '桌宠制作器',
     frames: files.map((f, i) => ({ file: f.name, durationMs: FRAMES[i].dur })),
+  clips: clipsBuilt.clips,
     canvas: { width: SIZE, height: SIZE },
     render: { scale: 0.3 },
     animation: { idle: 'play', idleSpeed: 1, fps: 5, click: 'bounce', hover: 'grow' },
@@ -123,6 +128,6 @@ for (const spec of CATS) {
     bubble: { enabled: true, lines: spec.lines },
     behavior: { startCorner: 'bottom-right', keepAbove: true },
   });
-  fs.writeFileSync(path.join(OUT, spec.name + '.petpack'), zipCreate([{ name:'pet.json', data: JSON.stringify(pack,null,2) }, ...files]));
+  fs.writeFileSync(path.join(OUT, spec.name + '.petpack'), zipCreate([{ name:'pet.json', data: JSON.stringify(pack,null,2) }, ...files, ...clipsBuilt.files]));
   console.log('已重做: ' + spec.name);
 }

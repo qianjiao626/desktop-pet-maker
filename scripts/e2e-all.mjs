@@ -2,6 +2,11 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+// EPIPE 兜底：调用方的管道提前关闭时（例如 `| Select-Object -Last 10`），
+// 直接写 stdout 会抛 broken pipe —— Electron 会弹原生错误框跳到用户桌面上。
+// 统一走 safeWrite，并把 EPIPE 静默掉。
+import { safeWrite, installEpipeGuard } from './lib-e2e-log.mjs';
+installEpipeGuard();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');

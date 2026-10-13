@@ -11,11 +11,16 @@ import { segmentAuto, segmentImage } from '../src/main/segment.js';
 import { listModels } from '../src/main/models.js';
 import { encodePNG } from '../src/shared/png.js';
 import { nativeImage } from 'electron';
+// EPIPE 兜底：调用方的管道提前关闭时（例如 `| Select-Object -Last 10`），
+// 直接写 stdout 会抛 broken pipe —— Electron 会弹原生错误框跳到用户桌面上。
+// 统一走 safeWrite，并把 EPIPE 静默掉。
+import { safeWrite, installEpipeGuard } from './lib-e2e-log.mjs';
+installEpipeGuard();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 let pass = 0, fail = 0;
-const log = (m) => process.stdout.write(m + String.fromCharCode(10));
+const log = (m) => safeWrite(m + String.fromCharCode(10));
 const check = (n, c, e = '') => { if (c) { pass++; log('PASS  ' + n + (e ? '  (' + e + ')' : '')); } else { fail++; log('FAIL  ' + n + '  :: ' + e); } };
 
 /** 造一张「有明显前景/背景」的图：浅色底 + 深色圆（能区分模型质量） */

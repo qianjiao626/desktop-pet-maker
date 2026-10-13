@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { encodePNG } from "../src/shared/png.js";
 import { zipCreate } from "../src/shared/zip.js";
 import { normalizePack } from "../src/shared/petpack.js";
+import { buildActionClips } from "./lib-action-clips.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(__dirname, "..", "examples");
@@ -108,9 +109,13 @@ const PETS = [
 
 for (const spec of PETS) {
   const files = FRAMES.map((f,i)=>({ name:'frame_'+String(i).padStart(3,'0')+'.png', data:toPNG(drawPet(spec,f.o)) }));
+  // ★ 多段动作：同一只宠物用不同动作参数再画一遍，得到"发呆/摆手/蹦跳"三段。
+  //   尺寸必须与主帧一致（SIZE）—— 否则运行时切片段会让宠物突然缩放。
+  const clipsBuilt = buildActionClips(null, (o) => drawPet(spec, o), toPNG, { size: SIZE, prefix: 'clip' });
   const pack = normalizePack({
     id:'example-'+spec.name, name:spec.name, author:'桌宠制作器',
     frames: files.map((f,i)=>({ file:f.name, durationMs:FRAMES[i].dur })),
+    clips: clipsBuilt.clips,
     canvas:{ width:SIZE, height:SIZE },
     render:{ scale:0.3 },
     animation:{ idle:'play', idleSpeed:1, fps:5, click:'bounce', hover:'grow' },
@@ -118,6 +123,8 @@ for (const spec of PETS) {
     bubble:{ enabled:true, lines:spec.lines },
     behavior:{ startCorner:'bottom-right', keepAbove:true },
   });
-  fs.writeFileSync(path.join(OUT, spec.name+'.petpack'), zipCreate([{ name:'pet.json', data:JSON.stringify(pack,null,2) }, ...files]));
-  console.log('已重做: '+spec.name);
+  fs.writeFileSync(path.join(OUT, spec.name+'.petpack'), zipCreate([
+    { name:'pet.json', data:JSON.stringify(pack,null,2) }, ...files, ...clipsBuilt.files,
+  ]));
+  console.log('已重做: '+spec.name+'（含 '+clipsBuilt.clips.length+' 段动作）');
 }

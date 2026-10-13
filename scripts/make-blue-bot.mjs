@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { encodePNG } from "../src/shared/png.js";
 import { zipCreate } from "../src/shared/zip.js";
 import { normalizePack } from "../src/shared/petpack.js";
+import { buildActionClips } from "./lib-action-clips.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PREVIEW = path.resolve(__dirname, "_preview");
@@ -161,11 +162,30 @@ const files = FRAMES.map((f, i) => ({
   data: toPNG(drawBot(f.o)),
 }));
 
+// ★ 多段动作（机器人有自己的一套开关：glow 发光 / step 迈步）：
+//   发呆（轻微呼吸）、发光待命、迈步。尺寸与主帧一致。
+const BOT_ACTIONS = [
+  { id: 'idle', name: '待命', weight: 1, frames: [
+    { o: {}, dur: 200 }, { o: { squash: 1.03, bob: -3 }, dur: 200 },
+    { o: { squash: 1.05, bob: -5, glow: 0.6 }, dur: 200 }, { o: { squash: 1.02, bob: -2 }, dur: 240 },
+  ] },
+  { id: 'glow', name: '发光', weight: 1, frames: [
+    { o: { glow: 1, bob: -2 }, dur: 160 }, { o: { glow: 0.3, bob: -1 }, dur: 160 },
+    { o: { glow: 1, bob: -3, arm: 0.3 }, dur: 160 }, { o: { glow: 0.2, bob: -1 }, dur: 200 },
+  ] },
+  { id: 'step', name: '迈步', weight: 1, frames: [
+    { o: { step: 1, bob: -3, arm: 0.5 }, dur: 170 }, { o: { step: 0, bob: -1 }, dur: 170 },
+    { o: { step: -1, bob: -3, arm: -0.5 }, dur: 170 }, { o: { step: 0, bob: -1, blink: true }, dur: 220 },
+  ] },
+];
+const clipsBuilt = buildActionClips(BOT_ACTIONS, (o) => drawBot(o), toPNG, { size: SIZE, prefix: 'bot' });
+
 const pack = normalizePack({
   id: "example-小蓝机器人",
   name: "小蓝机器人",
   author: "桌宠制作器",
   frames: files.map((f, i) => ({ file: f.name, durationMs: FRAMES[i].dur })),
+  clips: clipsBuilt.clips,
   canvas: { width: SIZE, height: SIZE },
   render: { scale: 0.3 },
   animation: { idle: "play", idleSpeed: 1, fps: 6, click: "bounce", hover: "grow" },
@@ -181,6 +201,7 @@ const out = path.resolve(__dirname, "..", "examples", "小蓝机器人.petpack")
 fs.writeFileSync(out, zipCreate([
   { name: "pet.json", data: JSON.stringify(pack, null, 2) },
   ...files,
+  ...clipsBuilt.files,
 ]));
-console.log("已生成: " + out);
+console.log("已生成: " + out + "（含 " + clipsBuilt.clips.length + " 段动作）");
 

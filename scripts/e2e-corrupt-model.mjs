@@ -5,6 +5,11 @@ import path from "node:path";
 import fs from "node:fs";
 import { isInstalled, isCorrupt, listModels, MODELS } from "../src/main/models.js";
 import { getSession } from "../src/main/segment.js";
+// EPIPE 兜底：调用方的管道提前关闭时（例如 `| Select-Object -Last 10`），
+// 直接写 stdout 会抛 broken pipe —— Electron 会弹原生错误框跳到用户桌面上。
+// 统一走 safeWrite，并把 EPIPE 静默掉。
+import { safeWrite, installEpipeGuard } from './lib-e2e-log.mjs';
+installEpipeGuard();
 
 let pass = 0, fail = 0;
 const check = (n, c, e = "") => { if (c) { pass++; console.log("PASS  " + n + (e ? "  (" + e + ")" : "")); } else { fail++; console.log("FAIL  " + n + "  :: " + e); } };

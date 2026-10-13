@@ -65,6 +65,8 @@ await import('./unusedapi.test.mjs');
 await import('./deadcode.test.mjs');
 await import('./help.test.mjs');
 await import('./headless.test.mjs');
+await import('./e2e-epipe.test.mjs');
+await import('./builtin-clips.test.mjs');
 await import('./quietmode.test.mjs');
 await import('./schedule.test.mjs');
 await import('./bond.test.mjs');

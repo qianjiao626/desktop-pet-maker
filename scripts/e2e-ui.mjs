@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { registerIpc } from '../src/main/main.js';
 import { encodePNG } from '../src/shared/png.js';
+// EPIPE 兜底：调用方的管道提前关闭时（例如 `| Select-Object -Last 10`），
+// 直接写 stdout 会抛 broken pipe —— Electron 会弹原生错误框跳到用户桌面上。
+// 统一走 safeWrite，并把 EPIPE 静默掉。
+import { safeWrite, installEpipeGuard } from './lib-e2e-log.mjs';
+installEpipeGuard();
 
 const require = createRequire(import.meta.url);
 const { GifWriter } = require('omggif');
@@ -11,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
 let pass = 0, fail = 0;
-const log = (m) => process.stdout.write(m + '\n');
+const log = (m) => safeWrite(m + '\n');
 const check = (name, cond, extra = '') => {
   if (cond) { pass++; log('PASS  ' + name + (extra ? '  (' + extra + ')' : '')); }
   else { fail++; log('FAIL  ' + name + '  :: ' + extra); }
