@@ -70,6 +70,7 @@ await import('./crashguard.test.mjs');
 await import('./dialogguard.test.mjs');
 await import('./windowhealth.test.mjs');
 await import('./actionguard.test.mjs');
+await import('./busyguard.test.mjs');
 await import('./builtin-clips.test.mjs');
 await import('./quietmode.test.mjs');
 await import('./schedule.test.mjs');

@@ -581,7 +581,8 @@ import {
   ok('工坊有「一键存全部舞步」按钮', html.includes('id="btnStAllClips"'), 'html');
   ok('按钮文案说明了它省事', /一键存全部舞步/.test(html), 'copy');
 
-  const all = maker.match(/\$\('#btnStAllClips'\)\.onclick = \(\) => \{[\s\S]*?\n  \};/);
+  // 现在用 bindGuardedClick(元素, async () => {...}) 包起来（防重入）
+  const all = maker.match(/bindGuardedClick\(\$\('#btnStAllClips'\), async \(\) => \{[\s\S]*?\n  \}\);/);
   ok('找到「一键存全部」的处理块', !!all, 'missing');
   ok('它会遍历所有舞步', !!all && /DANCES\.map\(\(d\) => d\.id\)/.test(all[0]), 'iterate');
   ok('它跳过「不跳」（静止姿态不是动作，会稀释其它动作的频率）',

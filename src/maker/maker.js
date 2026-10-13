@@ -28,6 +28,7 @@ import { poseToCharacter, applyPoseToCharacter } from '../shared/posetochar.js';
 import { colorsFromImageData } from '../shared/colors.js';
 import { effectivePalette } from '../shared/charstudio.js';
 import { renderCharacter, renderCharacterFrames } from './charrender.js';
+import { bindGuardedClick, guardBusy } from './busyguard.js';
 
 const $ = (s) => document.querySelector(s);
 const statusEl = $('#status');
@@ -3482,7 +3483,9 @@ function stBind() {
 
   $('#btnStRandom').onclick = () => { stWriteCfg(randomCharacter()); setStatus('🎲 随机了一只，不喜欢就再点一次', 'ok'); };
 
-  $('#btnStAdd').onclick = () => {
+  // ★ 防重入：连点两次会**重复追加**（实测 8 帧变 16 帧）。
+  //   渲染 24 帧要花时间，用户看界面像没反应就会连点 —— 必须挡住。
+  bindGuardedClick($('#btnStAdd'), async () => {
     const cfg = stReadCfg();
     const n = parseInt($('#stFrames').value, 10) || 8;
     const wasEmpty = state.frames.length === 0;
@@ -3500,7 +3503,7 @@ function stBind() {
     // 生成的帧已经是抠好的（本身就是透明背景）-> 关掉抠图，别把它当照片抠
     if ($('#cutMode')) $('#cutMode').value = 'none';
     setStatus('✅ 已生成 ' + made.length + ' 帧「' + cfg.name + '」，点「启用桌宠」就能上桌', 'ok');
-  };
+  });
 
   // ★ 存为动作片段：主帧不动，只把这一段动作登记下来。
   //   多存几段（不同舞步/不同配色），桌宠上桌后会**随机切换**，不会永远重复一个动作。
@@ -3529,7 +3532,8 @@ function stBind() {
 
   // ★ 一键存全部舞步：8 个舞步手动点 8 次太烦，而且用户很容易只存一两个，
   //   结果桌宠还是"老重复一个动作"。这个按钮把「舞蹈」里的每个舞步都存一段。
-  if ($('#btnStAllClips')) $('#btnStAllClips').onclick = () => {
+  // ★ 防重入：一键存 8 段要渲染 32 帧，连点会重复存一遍。
+  if ($('#btnStAllClips')) bindGuardedClick($('#btnStAllClips'), async () => {
     const cfg = stReadCfg();
     const n = parseInt($('#stFrames').value, 10) || 8;
     // 跳过 "不跳"（那是静止姿态，不是动作）—— 存进去只会稀释其它动作的出现频率
@@ -3545,7 +3549,7 @@ function stBind() {
     recordUndoAfter();
     setStatus('✅ 已一次存下 ' + names.length + ' 段动作：' + names.join(' / ')
       + '。导出后桌宠会随机换着跳（每段旁的 −/＋ 可调出现频率）', 'ok');
-  };
+  });
 
   if ($('#btnStAddClip')) $('#btnStAddClip').onclick = () => {
     const cfg = stReadCfg();
