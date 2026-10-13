@@ -14,7 +14,7 @@ import { computeLayout } from '../shared/layout.js';
 import { emptyState, normalizeState, toggleFavorite, touchRecent, forgetPet, addGroup, removeGroup, renameGroup, addToGroup, removeFromGroup, pruneGroups } from '../shared/library.js';
 import { MODELS, listModels, downloadModel, deleteModel, isInstalled } from './models.js';
 import { segmentImage, segmentAuto } from './segment.js';
-import { setCurrentPack, getCurrentPack, setPetWindow, getPetWindow, setMakerWindow, getMakerWindow, isPetAlive, setCurrentScale, getCurrentScale, addPet, removePet, getPet, listPets, petCount, petByWindow, petByWebContentsId, setActivePet, getActivePetId } from './state.js';
+import { setCurrentPack, getCurrentPack, setPetWindow, getPetWindow, setMakerWindow, getMakerWindow, isPetAlive, setCurrentScale, getCurrentScale, addPet, removePet, getPet, listPets, petCount, petByWindow, petByPackId, petByWebContentsId, setActivePet, getActivePetId } from './state.js';
 import { buildTrayMenuTemplate, trayTooltip } from './tray.js';
 import { SHORTCUTS, validateShortcuts } from '../shared/shortcuts.js';
 import { startupSwitches, appMenuTemplate } from '../shared/platform.js';
@@ -1281,6 +1281,19 @@ ipcMain.handle('pet:installAndRun', (e, srcPath) => {
     fs.renameSync(tmp, dest);
 
     const id = path.basename(dest);
+
+    // ★ 幂等：同一只已经在跑就别再开一个窗口。
+    //   以前重复拖入同一个包会开出多个窗口（叠在一起，像"窗口一直弹"）。
+    const running = petByPackId(pack.id);
+    if (running && running.win && !(running.win.isDestroyed && running.win.isDestroyed())) {
+      try { running.win.webContents.send('quick:reload'); } catch {}
+      try { ensurePetWindowVisibility(); } catch {}
+      setActivePet(running.id);
+      refreshTray();
+      saveLibraryPrefs(touchRecent(loadLibraryPrefs(), id));
+      return { ok: true, id, name: pack.name || id, path: dest, replaced: existed, reused: true };
+    }
+
     const w = createPetWindow(pack);
     petWindow = w;
     setPetWindow(w);
@@ -1800,6 +1813,21 @@ ipcMain.handle('quick:enableMulti', async (e, payload) => {
       }
       // 兜底补 id：位置记忆等功能都以 pack.id 为键，缺了就不生效
       if (pack && !pack.id) pack.id = String(it.fileName || it.id || ('pet-' + (i + 1)));
+
+      // ★ 幂等：这一只**已经在跑**就别再开一个窗口。
+      //   以前完全没有这层判断 —— 同一只重复点「一起放出来」会开出多个窗口，
+      //   叠在屏幕上、看起来就是"窗口一直往外弹"（用户明确抱怨过）。
+      const running = petByPackId(pack.id);
+      if (running && running.win && !(running.win.isDestroyed && running.win.isDestroyed())) {
+        // 把新数据热更新给它（用户可能改了参数后再点一次），并把它带到前面
+        try { running.win.webContents.send('quick:reload'); } catch {}
+        try { ensurePetWindowVisibility(); } catch {}
+        setActivePet(running.id);
+        results.push({ ok: true, id: running.id, name: pack.name || '', reused: true });
+        sendLaunchProgress(e, { done: results.length, total: items.length, name: pack.name || '', ok: true });
+        continue;
+      }
+
       const id = addPet({ pack, frames });        // 先登记（会设为 active）
       let win = null;
       try {

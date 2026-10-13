@@ -1,7 +1,7 @@
 import { ok } from './_harness.mjs';
 import {
   __resetState, addPet, removePet, getPet, listPets, petCount, petByWindow,
-  setActivePet, getActivePetId, petByWebContentsId, setPetWindow, getPetWindow, isPetAlive,
+  setActivePet, getActivePetId, petByWebContentsId, petByPackId, setPetWindow, getPetWindow, isPetAlive,
   setCurrentPack, getCurrentPack, clearCurrentPack,
   setCurrentScale, getCurrentScale, setMakerWindow, getMakerWindow,
 } from '../src/main/state.js';
@@ -173,4 +173,64 @@ const win = (destroyed = false) => ({ isDestroyed: () => destroyed });
   __resetState();
   addPet({ id: 'noWc', win: { isDestroyed: () => false } });
   ok('窗口缺 webContents 时不炸', petByWebContentsId(1) === null, 'nowc');
+}
+
+// ---------- ★ petByPackId：同一只宠物不该被开成多个窗口 ----------
+// 背景（用户抱怨"窗口一直往外弹"）：quick:enableMulti 与 pet:installAndRun
+// 以前**完全不去重** —— 同一只重复点「一起放出来」/重复拖入同一个包，
+// 会开出多个窗口叠在屏幕上。单只路径查的是 getPetWindow()（单例），
+// 在多宠物模式下不适用，所以需要按 pack.id 反查。
+{
+  __resetState();
+  ok('空表时返回 null', petByPackId('cat-1') === null, 'empty');
+  ok('空 id 返回 null（不误配）', petByPackId('') === null && petByPackId(null) === null, 'blank');
+
+  const w1 = win();
+  const id1 = addPet({ pack: { id: 'cat-1', name: '喵喵' }, win: w1 });
+  const found = petByPackId('cat-1');
+  ok('能按 pack.id 找到在跑的实例', !!found && found.id === id1, JSON.stringify(found && found.id));
+  ok('找不到别的 id', petByPackId('cat-2') === null, 'other');
+
+  // 窗口已销毁 -> 不算"在跑"（否则会误判成"已复用"、宠物再也起不来）
+  const w2 = win(true);
+  addPet({ pack: { id: 'cat-2' }, win: w2 });
+  ok('窗口已销毁的不算在跑', petByPackId('cat-2') === null, 'destroyed');
+
+  // 没有窗口的登记项也不算在跑
+  addPet({ pack: { id: 'cat-3' } });
+  ok('没有窗口的不算在跑', petByPackId('cat-3') === null, 'no-win');
+
+  // 多只不同 id 各自能查到
+  const w4 = win();
+  addPet({ pack: { id: 'cat-4' }, win: w4 });
+  ok('多只时各自可查', petByPackId('cat-1') !== null && petByPackId('cat-4') !== null, 'multi');
+  ok('id 用字符串比较（数字/字符串都认）', (() => {
+    __resetState();
+    addPet({ pack: { id: 42 }, win: win() });
+    return petByPackId(42) !== null && petByPackId('42') !== null;
+  })(), 'coerce');
+  __resetState();
+}
+
+// ---------- 静态守护：两条"创建宠物窗口"的入口都必须去重 ----------
+{
+  const { readFileSync } = await import('node:fs');
+  const main = readFileSync('src/main/main.js', 'utf8');
+  ok('main.js 导入了 petByPackId', main.includes('petByPackId'), 'import');
+
+  // quick:enableMulti
+  const multi = main.match(/ipcMain\.handle\('quick:enableMulti'[\s\S]*?\n\}\);/);
+  ok('找到 quick:enableMulti', !!multi, 'missing');
+  ok('quick:enableMulti 会按 pack.id 去重（不再重复开窗）',
+    !!multi && /petByPackId\(pack\.id\)/.test(multi[0]), 'dedupe');
+  ok('重复启用时走"复用"分支（reused: true）',
+    !!multi && /reused: true/.test(multi[0]), 'reused');
+
+  // pet:installAndRun
+  const install = main.match(/ipcMain\.handle\('pet:installAndRun'[\s\S]*?\n\}\);/);
+  ok('找到 pet:installAndRun', !!install, 'missing');
+  ok('pet:installAndRun 也会按 pack.id 去重',
+    !!install && /petByPackId\(pack\.id\)/.test(install[0]), 'dedupe');
+  ok('重复拖入时走"复用"分支',
+    !!install && /reused: true/.test(install[0]), 'reused');
 }

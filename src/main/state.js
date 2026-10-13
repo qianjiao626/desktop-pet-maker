@@ -71,6 +71,28 @@ export function petCount() { return listPets().length; }
  * 这是多宠物场景的关键：渲染进程问 "我是谁" 时不能靠全局的"当前包"
  * （那样每只宠物都会拿到最后启用的那只的数据）。
  */
+/**
+ * 按「宠物包 id」反查一个**正在跑**的实例。
+ *
+ * 为什么需要：`quick:enableMulti` 以前**完全不去重** ——
+ * 同一只宠物重复点「一起放出来」会开出多个窗口（叠在屏幕上、看起来像"窗口一直弹"）。
+ * 单只路径（quick:enable）查的是 getPetWindow()，但那是**单例**，
+ * 在多宠物模式下不适用。
+ *
+ * @param packId 宠物包 id
+ * @returns 实例或 null（窗口已销毁的不算）
+ */
+export function petByPackId(packId) {
+  const want = String(packId == null ? '' : packId);
+  if (!want) return null;
+  for (const it of pets.values()) {
+    if (!it || !it.pack) continue;
+    if (String(it.pack.id || '') !== want) continue;
+    if (it.win && !(it.win.isDestroyed && it.win.isDestroyed())) return it;
+  }
+  return null;
+}
+
 export function petByWindow(win) {
   if (!win) return null;
   for (const it of pets.values()) if (it.win === win) return it;
