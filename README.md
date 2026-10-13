@@ -15,6 +15,17 @@
 
 ---
 
+## 🔗 仓库地址
+
+| 平台 | 地址 | 说明 |
+|---|---|---|
+| **Gitee（国内推荐）** | https://gitee.com/megajoule/dek-pet-maker | 国内访问快，适合分享给朋友 |
+| **GitHub** | https://github.com/qianjiao626/desktop-pet-maker | 主仓库，Release 附件在这里下载 |
+
+> Gitee 是国内镜像；**安装包附件发布在 GitHub Release**（Gitee 免费版单附件有大小限制）。
+
+---
+
 ## ⬇️ 直接下载（免安装）
 
 **[下载 Windows 免安装版 v0.9.62](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.62/desktop-pet-maker-win32-x64-v0.9.62.zip)**
