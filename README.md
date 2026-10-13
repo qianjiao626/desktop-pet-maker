@@ -4,16 +4,16 @@
 
 > 技术选型参考了这些开源项目：`B666T/DesktopPetGenerator`（上传图→抠图→动画→打包）、
 > `PC2005-cloud/dsh-pet`（宠物包 / 素材链思路）、`ln2146/ai-desktop-pet-generator`（抠图→精灵流水线）。
-> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 3644 项单测 + 44 套 e2e**。
+> 差异化：**跨平台 + 纯 Node 零编译 + 离线 AI 抠图（ONNX）+ 自研 GIF 拆帧 + 自研物理引擎 + **快速模式（上传即用）** + 3679 项单测 + 45 套 e2e**。
 
 ---
 
 ## ⬇️ 直接下载（免安装）
 
-**[下载 Windows 免安装版 v0.9.61](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.61/desktop-pet-maker-win32-x64-v0.9.61.zip)**
+**[下载 Windows 免安装版 v0.9.62](https://github.com/qianjiao626/desktop-pet-maker/releases/download/v0.9.62/desktop-pet-maker-win32-x64-v0.9.62.zip)**
 （解压后双击 `desktop-pet-maker.exe` 即可运行，无需安装）
 
-**Linux x64**（v0.9.61）：
+**Linux x64**（v0.9.62）：
 ```bash
 npm run package:linux     # 解压 dist/desktop-pet-maker-linux-x64.zip 后执行 ./desktop-pet-maker
 ```
@@ -175,7 +175,7 @@ npm start
 **宠物库**
 - 已安装宠物一览（缩略图 / 帧数 / 体积）、一键启动 / 删除
 - 安装 `.petpack` 到用户目录，随时调用
-- **内置 22 只原创萌系宠物，首次启动自动装进库，开箱即用**
+- **内置 32 只萌系宠物（22 只程序化原创 + 10 只 AI 立绘），首次启动自动装进库，开箱即用**
   - **风格统一**：全部为圆润萌系（大头 + 大眼双高光 + 腮红 + 呼吸/眨眼/摆手动画），
     比例参考 Codex 桌面小助手的审美，但**造型完全原创**，不复制任何第三方 IP
   - 1 只**小蓝机器人**（12 帧动画）：深蓝圆身 + 深色面罩 + 青色 `>_` 符号，逐帧呼吸/摆手/眨眼
@@ -186,6 +186,17 @@ npm start
   - 5 只**形状小朋友**：小圆橙 / 小方绿 / 小菱红 / 小方正 / 小圆紫（6 帧动画，带头顶小揪揪）
   - 生成脚本在 `scripts/make-*.mjs`，全部程序化绘制、不依赖外部素材，可随时重跑
   - 原创形象不复制任何第三方 IP 的具体造型；历史 CC0 素材来源与许可见 `THIRD-PARTY.md`
+  - **10 只 AI 立绘角色**（女孩 / 男孩 / 猫 / 狗 / 兔 / 恐龙 / 熊猫 / 狐狸 / 企鹅 / 青蛙）：
+    写实赛璐璐风格、四肢张开的正面立绘，带呼吸 / 摇摆 / 蹦跳三段动作。
+    由 `scripts/make-pets-from-assets.mjs` 从 AI 生成的立绘批量加工而成
+    （自动挑抠图容差 → 抠背景 → 背景色去污染 → 裁边 → 生成动作 → 打包）
+- **AI 立绘素材工作流**：`素材/工单_豆包生成素材.md` 是一份可直接交给 AI 绘画工具的
+  **一次性出图工单**（含完整提示词、标准姿势、验收标准）；
+  出图放进 `素材/原始素材/` 后：
+  - `npm run check:assets` —— 跑身体识别，逐张报告 17 个关键点识别情况与修改建议
+  - `npm run make:pets` —— 批量做成 `.petpack`
+  - `npm run make:pets:install` —— 顺便装进宠物库，立刻能上桌
+  - `npm run check:pets` —— 校验产物结构（帧齐全 / 尺寸一致 / 主体非空）
 - **宠物库支持搜索与排序**：按名字过滤、按名字/体积/帧数排序、显示"n / N 只"计数
 - **导出命名模板**：批量导出时可选命名规则（`{name}` `{n:03}` `{date}` `{time}` `{author}` `{ext}`），
   导出前会**用真实宠物名预览**一个文件名；写错占位符会提示；同名自动去重

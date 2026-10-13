@@ -1,6 +1,7 @@
 // 桌宠制作器 - 渲染进程
 import {
   floodCut, colorKeyCut, keepLargestComponent, trimBounds, cropData, flipHorizontal, alignFrames,
+  pickCutTolerance,
   looksLikeFlatBackground, assessCut, cutAdvice,
 } from '../shared/imageops.js';
 import { decodeGif, parseGifHeader } from '../shared/gif.js';
@@ -296,9 +297,12 @@ function autoCutIfNeeded(frame, name) {
     const look = looksLikeFlatBackground(data, width, height);
     if (!look.ok) return frame;
 
-    // 执行边缘漫水抠图（容差偏保守，只删与边界连通的同色区域）
-    // 容差 38（与面板默认一致）：只删与边界连通的同色背景，不误伤主体内部同色区域。
-    const out = floodCut(data, width, height, { tol: 38, feather: 14 });
+    // 执行边缘漫水抠图。
+    // ★ 容差不再写死 38：AI 立绘的浅灰背景和角色白毛颜色极近（实测最大通道差只有 26），
+    //   写死 38 会把白毛顺着漫水一起吃掉（金毛犬实测主体存活率 99.4% → 65.6%）。
+    //   pickCutTolerance 会逐个候选容差试跑，取"背景能去干净、主体又几乎不损失"的最大值。
+    const picked = pickCutTolerance(data, width, height);
+    const out = floodCut(data, width, height, { tol: picked.tol, feather: 14 });
 
     // 兜底：若几乎没扣掉任何东西，说明本来就不像"带背景的照片"（比如主体占满整幅），
     // 保持原图，避免用户看到一个"什么都没变的抠图结果"而困惑。
@@ -307,7 +311,12 @@ function autoCutIfNeeded(frame, name) {
     const ratio = transparent / (out.width * out.height);
     if (ratio < 0.05) return frame;
 
-    return { current: { width: out.width, height: out.height, data: out.data }, __autoCut: true };
+    // ★ 必须返回**真正的 ImageData**，不能是 {width,height,data} 普通对象。
+    //   下游 unifyToCanvas / imageDataToDataURL 会直接把它交给 putImageData，
+    //   普通对象会抛 "parameter 1 is not of type 'ImageData'"（实测：
+    //   单帧替换整条链路静默失败，状态栏只显示一句笼统的失败原因）。
+    //   这个类型 bug 潜伏已久，只是以前自动抠图很少真的触发，所以没被发现。
+    return { current: toImageData(out), __autoCut: true };
   } catch (err) {
     console.warn('[autoCut] 跳过：' + (err && err.message ? err.message : err));
     return frame;
@@ -2519,7 +2528,7 @@ if ($('#chkPowerSave')) {
 }
 
 // 空状态里的另外两条出路：让第一次打开的人知道"没素材也能做"。
-// 以前空状态只提"拖图片/选图片"，而 22 只内置宠物和刚做好的角色工坊都没被提及 ——
+// 以前空状态只提"拖图片/选图片"，而 32 只内置宠物和刚做好的角色工坊都没被提及 ——
 // 有能力但用户不知道，等于没有。
 if ($('#btnEmptyStudio')) $('#btnEmptyStudio').onclick = () => {
   const tab = document.querySelector('.tab[data-tab="studio"]');

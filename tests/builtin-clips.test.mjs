@@ -5,13 +5,13 @@ import { normalizePack } from '../src/shared/petpack.js';
 
 // ★ 守护：内置宠物必须**每只都带多段动作**。
 //
-// 背景（用户报的真实问题）：内置 22 只宠物此前**每只只有一段循环** ——
+// 背景（用户报的真实问题）：内置宠物此前**每只只有一段循环** ——
 // 用户第一次打开看到的是"永远重复同一个动作"。而我们早就做了
 // "多段动作随机切换"的能力，却没让自家宠物用上（开箱体验的缺口）。
 {
   const dir = 'examples';
   const files = readdirSync(dir).filter((f) => /\.petpack$/i.test(f));
-  ok('内置宠物数量 >= 20', files.length >= 20, String(files.length));
+  ok('内置宠物数量 >= 30', files.length >= 30, String(files.length));
 
   const noClips = [];
   const brokenRefs = [];

@@ -412,7 +412,7 @@ app.whenReady().then(async () => {
 
   log('');
   // ---- 空状态的「三条出路」----
-  // 以前空状态只提"拖图片/选图片"，22 只内置宠物和角色工坊都没被提及 ——
+  // 以前空状态只提"拖图片/选图片"，32 只内置宠物和角色工坊都没被提及 ——
   // 有能力但用户不知道，等于没有（见 HANDOFF 第 134 条）。
   {
     const hasStudio = await js("!!document.querySelector('#btnEmptyStudio')");

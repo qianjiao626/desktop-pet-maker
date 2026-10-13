@@ -1,6 +1,6 @@
 {
   "name": "desktop-pet-maker",
-  "version": "0.9.61",
+  "version": "0.9.62",
   "description": "桌宠制作器 - 图片/GIF/多帧 + 离线AI抠图，一键生成跨平台桌面宠物",
   "type": "module",
   "main": "src/main/main.js",
@@ -27,7 +27,11 @@
     "test:e2e:pet-multi": "electron scripts/e2e-pet-multi.mjs",
     "test:e2e:pet-budget": "electron scripts/e2e-pet-budget.mjs",
     "test:e2e:quick": "electron scripts/e2e-quick.mjs",
-    "check:assets": "electron scripts/check-assets.mjs"
+    "check:assets": "electron scripts/check-assets.mjs",
+    "check:pets": "electron scripts/check-pets.mjs",
+    "make:pets": "electron scripts/make-pets-from-assets.mjs",
+    "make:pets:install": "electron scripts/make-pets-from-assets.mjs --install",
+    "test:e2e:asset-pets": "electron scripts/e2e-asset-pets.mjs"
   },
   "keywords": [
     "desktop-pet",

@@ -56,6 +56,7 @@ const suites = [
   ['e2e-pipeline.mjs', []],
   ['e2e-download.mjs', []],
   ['e2e-download-robust.mjs', []],
+  ['e2e-asset-pets.mjs', []],
   ['e2e-package.mjs', []],
 ];
 

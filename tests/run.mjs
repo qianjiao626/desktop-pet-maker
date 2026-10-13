@@ -10,6 +10,8 @@ await import('./effects.test.mjs');
 await import('./speech.test.mjs');
 await import('./cutassess.test.mjs');
 await import('./flatbg.test.mjs');
+await import('./decontaminate.test.mjs');
+await import('./framedata-contract.test.mjs');
 await import('./struggle.test.mjs');
 await import('./sleep-look.test.mjs');
 await import('./hop.test.mjs');

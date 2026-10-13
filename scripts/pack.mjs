@@ -66,7 +66,10 @@ const opts = {
   asar: { unpack: '**/node_modules/onnxruntime-node/bin/**' },
   // 注意：examples/ 必须随包分发——内置宠物（.petpack）就放在那里；
   // 早期版本误把 examples 整个排除，导致打包后宠物库是空的（已修）。
-  ignore: [/^\/(dist|models|tests|scripts|\.git|\.electron-cache)($|\/)/],
+  // ★ 素材/ 也要排除：那是用户侧目录（原始立绘 / 自检结果 / 做好的宠物），
+    //   不属于分发内容。曾经漏排除导致同样的 10 个 .petpack 既在 examples/
+    //   又在 素材/做好的宠物/ 各存一份、重复打进包（asar 内 42 个而非 32 个）。
+    ignore: [/^\/(dist|models|tests|scripts|素材|\.git|\.electron-cache)($|\/)/],
 };
 if (cached) {
   const stage = path.join(ROOT, '.electron-cache');
