@@ -372,18 +372,34 @@ function initialPetBounds(pack) {
 const QUIT_PET_ACCELERATOR = 'Control+Alt+Q';
 let petHidden = false;    // 由 Ctrl+Alt+P 切换
 
+// ★ 防重入：托盘「退出桌宠」连点两次不该做两遍副作用。
+//
+// 注意语义：不是"同一时刻只跑一个"，而是"**当前没有宠物在跑时就什么都不做**"。
+// 为什么必须这样：quitPetNow 是**同步**的 —— 第一次调用结束时已经清干净了，
+// 连点第二次时"忙碌标记"早已清掉，于是又会跑一遍
+// stopCursorFeed / setCurrentScale（重复副作用）。
+// 用"当前状态"判断天然幂等，也不怕异常。
 function quitPetNow() {
   const w = getPetWindow();
+  // 没有在跑的宠物 -> 已经退过了，直接返回（连点第二次走到这里）
+  if (!w || w.isDestroyed()) {
+    // 仍要保证状态干净（可能上一次退到一半被打断）
+    if (petWindow === null && !petHidden) return false;
+  }
   if (w && !w.isDestroyed()) w.close();
   setPetWindow(null);
   petWindow = null;
   stopCursorFeed();
   setCurrentScale(null);   // 退出后回到默认大小，避免下次启用继承上次的小尺寸
   petHidden = false;
+  return true;
 }
 
 /** 显示 / 隐藏桌宠（不退出，保留状态） */
 /** 只关掉指定的那一只（多宠物同屏时用） */
+// ★ 防重入：逐只退出连点两次会 removePet 两遍、托盘反复重建。
+//   用"这只还在不在"判断即可天然幂等（连点第二次时 getPet 已经查不到）。
+//   不需要按 id 分开的守卫 —— 退出 A 本来就该能同时退出 B。
 function quitPetById(id) {
   const rec = getPet(id);
   if (!rec || !rec.win || rec.win.isDestroyed()) return false;
