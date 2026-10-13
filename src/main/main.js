@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { zipCreate, zipRead, zipWriteToFile } from '../shared/zip.js';
 import { installCrashGuard, defaultCrashLogPath } from './crashguard.js';
 import { showDialog } from './dialogguard.js';
+import { attachWindowHealth } from './windowhealth.js';
 import { encodeGif } from '../shared/gifencode.js';
 import { normalizePack, validatePack } from '../shared/petpack.js';
 import { petPackFileName, safeFileName } from '../shared/safeid.js';
@@ -345,6 +346,12 @@ function createMakerWindow() {
   win.on('closed', () => { setMakerWindow(null); refreshTray(); });
   setMakerWindow(win);
   attachDebug(win, 'maker');
+  // ★ 始终生效（不只 DEBUG）：渲染进程崩了/加载失败时**别把空白残骸留在桌面上**。
+  attachWindowHealth(win, {
+    tag: 'maker',
+    log: (m) => { try { console.warn(m); } catch {} },
+    onGone: () => { try { setMakerWindow(null); refreshTray(); } catch {} },
+  });
   win.loadFile(path.join(ROOT, 'src', 'maker', 'index.html'));
   return win;
 }
@@ -617,6 +624,22 @@ function createPetWindow(pack, opt) {
   if (HEADLESS) { try { win.webContents.setBackgroundThrottling(false); } catch (err) { /* 忽略 */ } }
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   attachDebug(win, 'pet');
+  // ★ 始终生效：宠物渲染进程崩了就把窗口清掉，
+  //   否则桌面上会留下一只"坏掉的宠物"（空白/卡死、点它没反应）。
+  attachWindowHealth(win, {
+    tag: 'pet',
+    log: (m) => { try { console.warn(m); } catch {} },
+    onGone: () => {
+      try {
+        // 把这只从"在跑的宠物"里摘掉，托盘计数才会对。
+        // 注意：没有 win.__petId 这种东西 —— 用 state 里的反查函数。
+        const entry = petByWindow(win);
+        if (entry && entry.id) removePet(entry.id);
+        else if (getPetWindow() === win) setPetWindow(null);
+        refreshTray();
+      } catch {}
+    },
+  });
   win.loadFile(path.join(ROOT, 'src', 'pet', 'index.html'));
   if (process.env.SIZEDBG === '1') console.log('[SIZEDBG] created  = ' + JSON.stringify(win.getBounds()));
   // 注意：这里以前是无条件 win.show()，跑 e2e 时宠物会真的弹到用户桌面上。
