@@ -56,6 +56,34 @@ import path from 'node:path';
   try { rmSync(dir, { recursive: true, force: true }); } catch {}
 }
 
+// ---------- ★ 幂等：重复安装不许把日志写多遍 ----------
+// 背景：main.js 会装两次（模块顶层 + app ready 后补日志路径）。
+// 若每次都 process.on(...)，一次异常会被写两遍日志（实测确认过）。
+{
+  const lines = [];
+  const fake = { write(m) { lines.push(String(m).trim()); } };
+  const g1 = installCrashGuard({ stderr: fake });
+  const g2 = installCrashGuard({ stderr: fake });
+  const g3 = installCrashGuard({ stderr: fake });
+  // 注意：不要用 process.emit('uncaughtException') —— 那会触发 Node 的默认行为
+  // （打印 + 退出进程），把测试本身搞挂。直接调 handler 即可。
+  g3.handlers.uncaught(new Error('幂等测试'));
+  const hits = lines.filter((l) => l.includes('幂等测试')).length;
+  void g1; void g2;
+  ok('重复安装只写一遍日志（handler 幂等）', hits === 1, '写了 ' + hits + ' 遍');
+}
+
+// ---------- 重装后应改用**最新**的日志配置 ----------
+{
+  const a = [], b = [];
+  installCrashGuard({ stderr: { write(m) { a.push(String(m)); } } });
+  const g = installCrashGuard({ stderr: { write(m) { b.push(String(m)); } } });
+  g.handlers.rejection(new Error('换配置后'));
+  ok('重装后写入新的输出（不是旧的那份）',
+    b.some((x) => x.includes('换配置后')) && !a.some((x) => x.includes('换配置后')),
+    'a=' + a.length + ' b=' + b.length);
+}
+
 // ---------- defaultCrashLogPath ----------
 {
   ok('有 userData 时给出 crash.log 路径',

@@ -23,15 +23,23 @@ export function formatCrash(tag, err, now = new Date()) {
   return '[' + t + '] ' + String(tag || 'ERROR') + ' ' + body;
 }
 
+// ★ 幂等：只注册一次 handler，之后调用只是**更新配置**。
+//   为什么必须这样：main.js 会装两次 ——
+//   ① 模块顶层（那时 userData 还没就绪，只能写 stderr）
+//   ② app ready 之后（补上 crash.log 路径）
+//   若每次都 process.on(...)，一次异常会被写两遍日志（实测确认）。
+let registered = null;      // { uncaught, rejection }
+let latest = { logLine: () => '' };   // 当前生效的输出配置（幂等重装时更新）
+
 /**
- * 装兜底。
+ * 装兜底（可重复调用，幂等）。
  * @param opt { logPath, stderr, onError }
  *   logPath: 日志文件路径（null = 只写 stderr）
  *   stderr:  写入的流（默认 process.stderr）
  *   onError: 额外回调（便于测试观察）
  * @returns { installed, handlers: { uncaught, rejection }, logLine }
  */
-export function installCrashGuard(opt = {}) {
+export function installCrashGuard(opt = { }) {
   const logPath = opt.logPath === undefined ? null : opt.logPath;
   const out = opt.stderr || process.stderr;
   const onError = typeof opt.onError === 'function' ? opt.onError : null;
@@ -45,13 +53,19 @@ export function installCrashGuard(opt = {}) {
     return line;
   }
 
-  const uncaught = (err) => { logLine('UNCAUGHT', err); };
-  const rejection = (reason) => { logLine('UNHANDLED_REJECTION', reason); };
+  // handler 内部通过 latest.logLine 取"当前配置"的输出函数 ——
+  // 这样第二次 installCrashGuard 换了 logPath，旧 handler 也会写到新文件。
+  const uncaught = (err) => { latest.logLine('UNCAUGHT', err); };
+  const rejection = (reason) => { latest.logLine('UNHANDLED_REJECTION', reason); };
 
-  process.on('uncaughtException', uncaught);
-  process.on('unhandledRejection', rejection);
+  latest = { logLine };
+  if (!registered) {
+    process.on('uncaughtException', uncaught);
+    process.on('unhandledRejection', rejection);
+    registered = { uncaught, rejection };
+  }
 
-  return { installed: true, handlers: { uncaught, rejection }, logLine };
+  return { installed: true, handlers: registered, logLine };
 }
 
 /** 给 Electron 用的默认日志路径（userData/crash.log）；拿不到就返回 null */
