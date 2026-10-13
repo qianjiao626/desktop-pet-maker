@@ -25,6 +25,7 @@ import { progressText, summaryText, progressPct } from '../shared/launchprogress
 import { helpText } from '../shared/help.js';
 import { normalizeCharacter, randomCharacter, PALETTES, paletteOf, DEFAULT_CHARACTER, characterFrames, DANCES } from '../shared/charstudio.js';
 import { poseToCharacter, applyPoseToCharacter } from '../shared/posetochar.js';
+import { promptOf, PROMPT_CHECKLIST } from '../shared/aiprompt.js';
 import { colorsFromImageData } from '../shared/colors.js';
 import { effectivePalette } from '../shared/charstudio.js';
 import { renderCharacter, renderCharacterFrames } from './charrender.js';
@@ -1549,6 +1550,46 @@ async function refreshPoseInfo() {
     dl.textContent = '下载识别模型（约 ' + Math.round(((info.model && info.model.bytes) || 9466715) / 1048576) + 'MB）';
   }
   poseUpdateButtons();
+}
+
+// AI 素材提示词：一键复制（素材识别失败时最实用的一条指引）
+function bindAiPrompt() {
+  const box = $('#promptBox');
+  if (!box) return;
+  const show = (which) => {
+    const t = promptOf(which);
+    const label = which === 'neg' ? '反向提示词（有 Negative prompt 栏就填）'
+      : which === 'zh' ? '中文提示词' : '英文提示词';
+    box.textContent = label + String.fromCharCode(10) + String.fromCharCode(10) + t
+      + (which !== 'neg' ? String.fromCharCode(10) + String.fromCharCode(10)
+        + '生成后自查：' + String.fromCharCode(10) + PROMPT_CHECKLIST.map((x) => '· ' + x).join(String.fromCharCode(10)) : '');
+  };
+  show('en');   // 默认展示英文（多数模型对英文更敏感）
+  const bind = (id, which) => {
+    const el = $(id);
+    if (!el) return;
+    el.onclick = async () => {
+      const t = promptOf(which);
+      show(which);
+      try {
+        await navigator.clipboard.writeText(t);
+        setStatus('✅ 提示词已复制，粘贴到 AI 绘图工具里就能用', 'ok');
+      } catch (err) {
+        // 剪贴板可能被系统策略拦住 —— 退化成"选中文本，让用户自己 Ctrl+C"
+        try {
+          const r = document.createRange();
+          r.selectNodeContents(box);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(r);
+        } catch { /* 忽略 */ }
+        setStatus('已选中提示词，按 Ctrl+C 复制', 'ok');
+      }
+    };
+  };
+  bind('#btnCopyPromptEn', 'en');
+  bind('#btnCopyPromptZh', 'zh');
+  bind('#btnCopyPromptNeg', 'neg');
 }
 
 function poseUpdateButtons() {
@@ -3599,6 +3640,7 @@ function stBind() {
 
 // ================= 初始化 =================
 bindQuick();
+bindAiPrompt();
 stBind();
 syncLabels();
 updateButtons();

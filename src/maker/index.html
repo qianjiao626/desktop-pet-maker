@@ -316,6 +316,20 @@
     <div class="tabpane" data-pane="body">
       <div class="ai-head"><span class="ai-title">🧍 身体识别</span><span class="ai-tag" id="poseTag">检测中…</span></div>
       <p class="note">上传一张<b>正面站好、手脚张开</b>的人物图，自动识别头 / 肩 / 肘 / 腕 / 髋 / 膝 / 踝。</p>
+      <details class="ai-prompt">
+        <summary>💡 没有素材？复制提示词去 AI 生成（实测可用）</summary>
+        <p class="note" style="margin:6px 0 4px">
+          身体识别用的是 <b>MoveNet</b>（在真人照片上训练）。我们实测过：
+          <b>写实比例 + 四肢张开</b>能识别到 <b>16/17</b> 个点；
+          而大头 Q 版只有 9/17、四肢并拢只有 8/17 —— 这两种会被直接拒绝。
+        </p>
+        <div class="ai-prompt-actions">
+          <button id="btnCopyPromptEn" class="ghost">复制英文提示词</button>
+          <button id="btnCopyPromptZh" class="ghost">复制中文提示词</button>
+          <button id="btnCopyPromptNeg" class="ghost">复制反向提示词</button>
+        </div>
+        <pre class="ai-prompt-box" id="promptBox"></pre>
+      </details>
       <div class="pose-guide" id="poseGuide"></div>
       <div class="pose-progress" id="poseProgress" hidden><div class="ai-bar" id="poseBar"></div><span id="posePct">0%</span></div>
       <button id="btnPoseDownload" class="ghost block">下载识别模型（约 9MB）</button>

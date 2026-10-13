@@ -412,3 +412,21 @@ button.block{width:100%}
   background:rgba(12,15,22,.72);color:#cfd8e8;font-size:12px;cursor:pointer;line-height:1;
 }
 .lib-infobtn:hover{background:rgba(76,125,255,.85);color:#fff}
+
+/* AI 素材提示词：折叠块 + 一键复制（素材不够好时最实用的一条指引） */
+.ai-prompt { margin: 6px 0; }
+.ai-prompt > summary {
+  cursor: pointer; font-size: 12px; color: #a9c8ff;
+  padding: 6px 8px; border-radius: 8px;
+  background: rgba(76, 141, 255, 0.10);
+  border: 1px solid rgba(76, 141, 255, 0.24);
+}
+.ai-prompt > summary:hover { background: rgba(76, 141, 255, 0.18); }
+.ai-prompt-actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0; }
+.ai-prompt-actions button { font-size: 12px; padding: 4px 10px; }
+.ai-prompt-box {
+  margin: 4px 0 0; padding: 8px 10px; border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28); border: 1px solid rgba(255, 255, 255, 0.10);
+  color: #cfd8e8; font-size: 11.5px; line-height: 1.55;
+  white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto;
+}
