@@ -26,7 +26,8 @@
     "test:e2e:pet-anim": "electron scripts/e2e-pet-anim.mjs",
     "test:e2e:pet-multi": "electron scripts/e2e-pet-multi.mjs",
     "test:e2e:pet-budget": "electron scripts/e2e-pet-budget.mjs",
-    "test:e2e:quick": "electron scripts/e2e-quick.mjs"
+    "test:e2e:quick": "electron scripts/e2e-quick.mjs",
+    "check:assets": "electron scripts/check-assets.mjs"
   },
   "keywords": [
     "desktop-pet",

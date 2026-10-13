@@ -10,3 +10,9 @@ Thumbs.db
 # 调试/测试产物（不属于源码）
 shots/
 examples/e2e-pipeline.petpack
+
+# 用户素材（AI 生成 / 自己找的图）：不进仓库，避免污染代码库与体积膨胀
+素材/原始素材/*
+素材/已通过自检/*
+!素材/原始素材/.gitkeep
+!素材/已通过自检/.gitkeep
